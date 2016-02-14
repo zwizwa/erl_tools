@@ -1,3 +1,4 @@
+%% Collection of generic tools for Erlang.
 
 %% To the extent possible under law, Tom Schouten has waived all
 %% copyright and related or neighboring rights to tools.hrl
@@ -18,6 +19,7 @@ hex(L) -> lists:flatten(hex_list(L)).
 
 hex16(Val) -> [_|Hex] = integer_to_list(16#10000 + (Val band 16#FFFF),16), Hex.
 hex8(Val)  -> [_|Hex] = integer_to_list(16#100   + (Val band 16#FF),  16), Hex.
+hex4(Val)  -> [_|Hex] = integer_to_list(16#10    + (Val band 16#F),   16), Hex.
 
 
 hex_u32(Value) ->
@@ -35,6 +37,10 @@ float(Bytes) ->
 
 hex_data(HexBytes) ->
     tools:unhex(binary_to_list(HexBytes)).
+
+strunk([])    -> [];
+strunk([0|_]) -> [];
+strunk([H|T]) -> [H|strunk(T)].
 
 
 % Chunking.
@@ -57,6 +63,7 @@ nchunks(Offset, Endx, Max) ->
     end.
 
 % Character reader.
+% FIXME: turn this into a de-chunker
 cr_loop(Sock, []) ->
     case gen_tcp:recv(Sock, 0) of
         {error, Error} -> exit(Error);
@@ -199,6 +206,7 @@ as_binaries(Lst) -> lists:map(fun as_binary/1, Lst).
     
   
 as_list(X) when is_list(X) -> X;
+as_list(X) when is_integer(X) -> integer_to_list(X); 
 as_list(X) when is_binary(X) -> binary_to_list(X);
 as_list(X) when is_atom(X) -> atom_to_list(X).
      
@@ -308,8 +316,77 @@ tagged_index(TagIndex, Foldl) ->
           {{index, 0}, #{}}),
     Update(Last, {index, -1}, Map).
     
-                      
-
 
 map_to_list(M) ->
     [{K,maps:get(K,M)} || K <- lists:sort(maps:keys(M))].
+
+
+
+%% Line splitter body.  Send {Key, Binary} and it will call Sink({Key,
+%% IO_List}) for each line, keeping a map of partial lines, one for
+%% each key.
+%% P=spawn(fun() -> tools:line_splitter(fun(K,L) -> tools:info("~p: ~s~n", [K,L]) end) end).
+
+%% Define server behavior elsewhere.
+%line_splitter(Sink) ->
+%    line_splitter(Sink, #{}).
+%line_splitter(Sink, Partials) ->
+%    receive 
+%        {Tag, Bin} -> 
+%            line_splitter(Sink, line_splitter_update(Sink, Partials, Tag, Bin))
+%    end.
+
+line_splitter_update(Sink, Partials, Key, Bin) ->
+    Partial = maps:get(Key, Partials, <<"">>),
+    [First | Rest] = binary:split(Bin, <<"\n">>, [global]),
+    {Lines, NextPartial} = pop_tail([[Partial, First] | Rest]),
+    lists:foreach(fun(Line) -> Sink(Key, Line) end, Lines),
+    maps:put(Key, NextPartial, Partials).
+
+
+pop_tail(List) ->
+    {First, [Last]} = lists:split(length(List)-1, List),
+    {First, Last}.
+
+
+read_eval_print(Str, Bindings) ->
+    V = try erl_eval:exprs(string_to_exprs(Str), Bindings) of
+        {value, Value, _Bindings} -> Value
+    catch
+        error:Error -> Error;
+        Throw -> Throw
+    end,
+    tools:format("~p~n", [V]).
+                                         
+string_to_exprs(Str) ->
+    {ok, Tokens, _Endloc} = erl_scan:string(Str),
+    {ok, Exprs}           = erl_parse:parse_exprs(Tokens),
+    Exprs.
+
+
+%% Transform keys of a nested map structure.b
+maps_map_keys(Fun, Map) ->
+    maps:from_list(
+      maps:fold(
+        fun(Key, Val, List) ->
+                [{Fun(Key),
+                  if
+                      is_map(Val) -> maps_map_keys(Fun, Val);
+                      true -> Val
+                  end}
+                 | List]
+        end,
+        [], Map)).
+      
+              
+                       
+    
+script_line(Cmd) ->
+    Port = open_port({spawn, Cmd},
+                     [{line, 1024}, use_stdio, exit_status]),
+    receive
+        {Port, {data, {eol, Elf}}} -> Elf
+    end.
+    
+
+
