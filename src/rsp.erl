@@ -6,7 +6,8 @@
          hex_csv/3,
          assemble/1,
          recv/1,
-         watch/2
+         watch/2,
+         update/2
         ]).
 
 -import(tools,[info/1, info/2, unhex/1, hex/1]).
@@ -14,7 +15,7 @@
 %% GDB RSP protocol tools
 
 %% To the extent possible under law, Tom Schouten has waived all
-%% copyright and related or neighboring rights to serv_tcp.erl
+%% copyright and related or neighboring rights to rsp.erl
 %% Code:    http://zwizwa.be/git/erl_tools
 %% License: http://creativecommons.org/publicdomain/zero/1.0
 
@@ -102,6 +103,13 @@ rsp_assembler(I, O) ->
     rsp_assembler(I, O, "").
 
 
+%% Run this in a linked process.  It blocks in read, to also trap
+%% connection close and terminating the device process tree.
+watch(Dev, Sock) ->
+    Reply = rsp:recv(Sock),
+    Dev ! {rsp_recv, Reply},
+    watch(Dev, Sock).
+
 %% Process body for separate assembler task.
 assemble(Receiver) ->
     rsp_assembler(
@@ -133,12 +141,17 @@ send(Sock, Request) ->
     end.
 
 
+%% Write in terms of state update.
+update(Data, Accu) ->
+    NextAccu = Accu++tools:as_list(Data),
+    case delim(NextAccu) of
+        true ->
+            {{ok, NextAccu}, ""};
+        _ ->
+            {error, NextAccu}
+    end.
+    
+    
 
-%% Run this in a linked process.  It blocks in read, to also trap
-%% connection close and terminating the device process tree.
-watch(Dev, Sock) ->
-    Reply = rsp:recv(Sock),
-    Dev ! {rsp_recv, Reply},
-    watch(Dev, Sock).
 
 

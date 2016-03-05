@@ -1,5 +1,5 @@
 -module(gdbstub).
--export([start/1]).
+-export([start/1,handle/2]).
 
 %% GDB RSP Interface (gdbstub)
 %%
@@ -20,8 +20,8 @@ start(Port) ->
                  [Port],
                  %% Connect init + handler
                  {handler,
-                  fun(Sock,_) -> #{sock => Sock} end,
-                  fun handle/2},
+                  fun(_,_) -> "" end,
+                  fun gdbstub:handle/2},
                  %% Registry message handler & state.
                  fun(Msg,State) -> 
                          tools:info("gdbstub reg: ~p~n", [Msg]),
@@ -31,8 +31,25 @@ start(Port) ->
                  [binary, {active, true}, {reuseaddr, true}])
        end,
        fun serv_tcp:handle/2}).
+
+handle({tcp,_Sock,Data},State) ->
+    handle_(Data,State).
+
+handle_(<<$+,Data/binary>>, State) ->
+    %% Ignore acks
+    handle_(Data, State);
                         
-handle(Msg,State) ->
-    tools:info("gdbstub: ~p~n", [Msg]),
-    State.
+handle_(Data, State) ->
+    %% See notes in rsp.erl - this is a hack.
+    tools:info("gdbstub: ~p~n", [Data]),
+    {Rv, NextState} = rsp:update(Data, State),
+    case Rv of
+        {ok, Msg} ->
+            tools:info("rsp: ~p~n", [rsp:unwrap(Msg)]);
+        _ ->
+            ignore
+    end,
+    NextState.
+
+    
     
