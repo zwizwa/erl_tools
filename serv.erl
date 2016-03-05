@@ -19,7 +19,7 @@
          periodic_loop/3
 
         ]).
--define(DEBUG_TIMEOUT,1000).
+-define(RELOAD_TIMEOUT,1000).
 
 %% Simple server tools - avoiding OTP boilerplate.
 
