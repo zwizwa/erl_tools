@@ -1,3 +1,42 @@
+-module(tools).
+-export([info/1, info/2, info/3,
+         unhex/1, hex/1, hex_list/1, hex4/1, hex8/1, hex16/1, hex_u32/1,
+         strunk/1, getter/1, 
+         format/2, creader/1, int/1, float/1, hex_data/1, enumerate/1, chunks/2, nchunks/3,
+         unpack/2, unpack_s32/1, unpack_u16/1, unpack_s16/1,
+         mod/2,
+         mid/2, mid/3,
+         csv_read/1,
+         padded_at/2, padded_range/3,
+         enumerate/2,
+         list_at/2,
+         tuple_to_list/1, as_binary/1, as_binaries/1, as_list/1, as_atom/1,
+         pmap/2,
+         foldn/3,
+         binary_fold/3, binary_sum/1, binary_join/2,
+         mask_bits/1,
+         run_script/2,
+         maps_apply/4, maps_append/3, maps_count/2,
+         tagged_index/2,
+         map_to_list/1,
+         line_splitter_update/4,
+         read_eval_print/2,
+         annotate_pid/1,
+         maps_map_keys/2,
+         script_line/1,
+         s2u_16/1,
+         random_uniform_list/2,
+         random_binary/1,
+         timestamp/0,
+         timestamp_us/0,
+         filter_tag/2, filter_tags/2,
+         register/2
+        ]).
+
+%% Ad-hoc tools collection.
+
+
+      
 %% Collection of generic tools for Erlang.
 
 %% To the extent possible under law, Tom Schouten has waived all
@@ -142,27 +181,6 @@ mid(A,B) -> (A + B) div 2.
 %% Same with limited resolution.
 mid(A,B,Res) -> Res * mid(A div Res, B div Res).
 
-%% Binary search
-bisect_pick(Pick,A,B) ->
-    %%info("bisect(~p,~p)~n",[A,B]),
-    M = mid(A,B),
-    case M of
-        A -> {A,B};
-        B -> {A,B};
-        _ ->
-            {A_,B_} = Pick(A,M,B),
-            bisect_pick(Pick,A_,B_)
-    end.
-%% Bisect by picking left interval if predicate applied to left
-%% interval is true.
-bisect_left(Pred, A, B) ->             
-    bisect_pick(
-      fun(L, M, R) ->
-              case Pred(L, M) of
-                  true  -> {L, M}; 
-                  false -> {M, R}
-              end
-      end, A, B).
 
              
 %% FIXME: quick&dirty.
@@ -198,17 +216,18 @@ tuple_to_list(Tuple) ->
     [element(I,Tuple) || I <- lists:seq(1,tuple_size(Tuple))].
 
 %% Project onto binary representation.
-as_binary(X) when is_binary(X) -> X;
-as_binary(X) when is_list(X) -> list_to_binary(X);
-as_binary(X) when is_atom(X) -> atom_to_binary(X, utf8).
+as_binary(X) when is_binary(X)  -> X;
+as_binary(X) when is_list(X)    -> list_to_binary(X);
+as_binary(X) when is_atom(X)    -> atom_to_binary(X, utf8);
+as_binary(X) when is_integer(X) -> as_binary(integer_to_list(X)).
     
 as_binaries(Lst) -> lists:map(fun as_binary/1, Lst).
     
   
-as_list(X) when is_list(X) -> X;
+as_list(X) when is_list(X)    -> X;
 as_list(X) when is_integer(X) -> integer_to_list(X); 
-as_list(X) when is_binary(X) -> binary_to_list(X);
-as_list(X) when is_atom(X) -> atom_to_list(X).
+as_list(X) when is_binary(X)  -> binary_to_list(X);
+as_list(X) when is_atom(X)    -> atom_to_list(X).
      
 as_atom(X) when is_atom(X) -> X;
 as_atom(X) when is_binary(X) -> binary_to_atom(X,utf8);
@@ -216,22 +235,44 @@ as_atom(X) when is_list(X) -> list_to_atom(X).
      
      
 %% Parallel map
-%% Return list is unsorted.
-pmapu(Fun, Keys) ->
+
+%% Run operation in parallel on elements of map.
+pmap(Fun, Input) when is_map(Input) ->
     Pid = self(),
-    lists:foreach(fun(Key) -> Pid ! {pmapu_result, Key, Fun(Key)} end, Keys),
-    pmapu_gather(#{}, length(Keys)).
-pmapu_gather(Results, 0) ->
-    Results;
-pmapu_gather(Results, Left) ->
-    receive
-        {pmapu_result, Key, Val} ->
-            pmapu_gather(maps:put(Key, Val, Results), Left-1)
+    maps:fold(
+      fun(Key, Value, _) ->
+              spawn_link(
+                fun() ->
+                        Pid ! {pmap_result, Key, Fun(Value)}
+                end)
+      end,
+      nostate,
+      Input),
+    tools:foldn(
+      fun(_, Accu) ->
+              receive
+                  {pmap_result, Key, Val} ->
+                      maps:put(Key, Val, Accu)
+              end
+      end,
+      #{},
+      maps:size(Input));
+
+%% Same, but keys are treated as inputs.
+pmap(Fun, Keys) ->
+    pmap(Fun, maps:from_list([{K,K} || K <- Keys])).
+
+
+
+
+foldn(Fun,Init,Nb) ->
+    foldn(Fun,Init,Nb,0).
+foldn(Fun,State,Nb,Count) ->
+    case Count of
+        Nb -> State;
+        _  -> foldn(Fun, Fun(Count, State), Nb, Count+1)
     end.
 
-pmap(Fun, Keys) ->
-    M = pmapu(Fun, Keys),
-    [maps:get(Key, M) || Key <- Keys].
 
 
 binary_fold(Fun, State, Bin, I) ->     
@@ -245,14 +286,6 @@ binary_sum(Bin) ->
     binary_fold(fun(A,B)->A+B end, 0, Bin).
 
 
-%% Data sinks.
-sink_gen_tcp(Sock) ->
-    fun(Msg) -> 
-            case Msg of
-                {data, Data} -> gen_tcp:send(Sock, Data);
-                _ -> ok
-            end
-    end.
 
 mask_bits(0) -> 0;
 mask_bits(Mask) when Mask < 0 -> exit(mask_bits_negative);
@@ -387,6 +420,87 @@ script_line(Cmd) ->
     receive
         {Port, {data, {eol, Elf}}} -> Elf
     end.
+
+pair({H,T})   -> [H|T];
+pair([_|_]=P) -> P.
+
     
+filter_tag(Tag,List) ->
+    [tl(pair(El)) || El <- lists:filter(fun(El) -> hd(pair(El)) == Tag end, List)].
+
+filter_tags([],List) -> List;
+filter_tags([T|TS],List) ->
+    filter_tags(TS,filter_tag(T,List)).
+
+
+
+timestamp() ->
+    {Mega, Secs, _} = erlang:timestamp(),
+    Mega * 1000000 + Secs.
+
+timestamp_us() ->
+    {Mega, Secs, USecs} = erlang:timestamp(),
+    (Mega * 1000000 + Secs) * 1000000 + USecs.
+    
+    
+format(Msg, Args) ->
+    lists:flatten(io_lib:format(Msg, Args)).
+
+
+annotate_pid(Pid) ->
+    case process_info(Pid, registered_name) of
+        {registered_name, Name} -> Name;
+        _ -> Pid
+    end.
+
+info(Msg) -> info(Msg,[]).
+info(Msg, Args) -> info(annotate_pid(self()), Msg, Args).
+info(Tag, Msg, Args) ->
+    Str = format("~p: " ++ Msg, [Tag|Args]),
+    io:format("~s",[Str]).
+
+
+%% Bytes with default.
+padded_at({Pad,Bytes},Index) ->
+    case (Index >= 0) and (Index < byte_size(Bytes)) of
+        true  -> binary:at(Bytes, Index);
+        false -> Pad
+    end.
+padded_range(Mem, Begin, Nb) ->
+    [padded_at(Mem,I) || I <- lists:seq(Begin,Begin+Nb-1)].
+
+
+
+    
+
+%% Signed to Unsigned, 16-bit
+s2u_16(S) ->
+    case (S < 0) of
+        true  -> S + 16#10000;
+        false -> S
+    end.
+
+
+
+register(Name, Pid) ->
+    case whereis(Name) of
+        Pid ->
+            ignore_already_registered;
+        undefined ->
+            erlang:register(Name, Pid);
+        Other ->
+            info("register: ~p,~p taken ~p~n",
+                 [Name, Pid, Other])
+    end.
+
+
+random_uniform_list(Max,N) ->
+    [random:uniform(Max) || _ <- lists:seq(1,N)].
+random_binary(N) ->
+    list_to_binary(random_uniform_list(255,N)).
+
+
+
+
 
 

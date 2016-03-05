@@ -1,12 +1,11 @@
-%% LICENCE: This code (sf.erl) is placed in the public domain by its
-%% author, Tom Schouten.  The code is based on existing computer
-%% science literature and original research in embedded software
-%% patterns in C and other languages, performed throughout the period
-%% 2002-2016.
+%% Sequences represented as tail recursive left folds.
+%% I.e. event processing state machine loops.
 
+%% To the extent possible under law, Tom Schouten has waived all
+%% copyright and related or neighboring rights to fold.hrl
+%% Code:    http://zwizwa.be/git/erl_tools
+%% License: http://creativecommons.org/publicdomain/zero/1.0
 
-%% SF: sequences represented as folds (tail recursive left folds,
-%% i.e. event processing state machine loops).
 
 %% This approach to abstracting sequences in a strict language allows
 %% chaining of stream processors without building intermediate data
@@ -16,19 +15,24 @@
 %% they can be extended with processes and messages passing, treating
 %% the fold function as a process' main loop.
 
--module(sf).
+%% This can be thought of as complimentary to sink.erl The combination
+%% of both, and processes, yields input/output behavior.
+
+
+-module(fold).
 -export([fold_range/3,
          range/1,
          map/2,
          fold/3,
          empty/0,
          append/1, append/2,
-         to_list/1,
-         to_rlist/1,
+         from_list/1, to_list/1, to_rlist/1,
          for/2,
          histogram/1,
          split_at/3, split_at/2,
-         drop/2
+         drop/2,
+         gen/1,
+         chunks/2
         ]).
          
 
@@ -81,6 +85,10 @@ append([S1|Ss]) -> append(S1, append(Ss)).
 to_rlist(SF) -> SF(fun(E,S)->[E|S] end, []).
 to_list(SF) -> lists:reverse(to_rlist(SF)).
 
+%% And the other way around.
+from_list(List) ->                         
+    fun(F,I) -> lists:foldl(F,I,List) end.
+
 
 %% Some folds.
 histogram(Fold) ->
@@ -101,7 +109,7 @@ histogram(Fold) ->
 %% To represent the inner lists as a fold, we need access to a
 %% sequence of initial states. The plumbing here becomes a little
 %% obscure, so let's keep the inner representation at stacks (which
-%% can be reversed using a sf:map).  It is reasonable to assume that
+%% can be reversed using a fold:map).  It is reasonable to assume that
 %% the stacks are not large compared to the total length of the
 %% initial stream.
 
@@ -161,9 +169,63 @@ drop(N, Fold, UFun, UState0) ->
              {0, UState0}),
     S.
 
+%% Convert a Sink-parameterized generator to a Fold.  In general,
+%% prefer Folds, but in some cases it is easier to implement
+%% interation in terms of side-effecting sinks.  Note that some flow
+%% control is necessary.  Otherwise generator process will just fill
+%% up the message buffer.
+gen(Gen) ->
+    Pid = self(),
+    Sink = fun(Msg) ->
+                   Pid ! {self(), Msg},
+                   receive {Pid, cont} -> ok end
+           end,
+    GenPid = spawn_link(fun() -> Gen(Sink) end),
+    fun(F, I) -> gen_fold(F,I,GenPid) end.
+
+%% FIXME: can there be leaks when there are errors in current thread
+
+%% Note: the above doesn't work if the generator makes calls to a port
+%% process, as that can only be done in-proces and we call the
+%% generator in a new process.  See tools:gen_to_list/1
 
 
+gen_fold(Fun, Accu, GenPid) ->
+    receive
+        {GenPid, eof} -> Accu;
+        {GenPid, {data, El}} ->
+            NextAccu = Fun(El, Accu),
+            GenPid ! {self(), cont},
+            gen_fold(Fun, NextAccu, GenPid)
+    end.
+
+%% FIXME: evaluating a generator fold twice will hang.  Annoying, but
+%% in general, folds are instances i.e. single use iterators.
+                    
+
+
+
+%% Similar in idea to iolists, it is often the case in low level data
+%% processing that streams are 2-level: streams of chunks (packets).
+%% Assuming there are no boundary violations (i.e. split elements),
+%% this can be solved easily in a generic way, combining:
+%% - a fold over the chunks
+%% - a fold generator (mapping chunk to fold over elements)
+%% to yield a fold over elements.
+
+
+chunks(Chunks, Chunk2Elements) ->
+    %% Chunks and Elements are folds.
+    fun(Fun, Init) ->
+            Chunks(
+              fun(Chunk, Accu) ->
+                      Elements = Chunk2Elements(Chunk),
+                      Elements(Fun, Accu)
+              end,
+              Init)
+    end.
     
+
                          
-                         
+
                          
