@@ -30,7 +30,11 @@
          timestamp/0,
          timestamp_us/0,
          filter_tag/2, filter_tags/2,
-         register/2
+         register/2,
+         port_print/2, port_cons/2, fold_port/4, fold_script/5, script_lines/2, script_output/2,
+         script_xml/2, xmlElement_attributes/1, xmlAttribute_pair/1, xmlElement_attributes_proplist/1,
+         proxy/1
+         
         ]).
 
 %% Ad-hoc tools collection.
@@ -502,5 +506,73 @@ random_binary(N) ->
 
 
 
+
+
+
+
+%% For fold_script
+port_print({data, {eol, Data}},_) -> io:format("~s~n", [Data]), {cont, none};
+port_print({exit_status, Stat},_) -> io:format("exit ~p~n",[Stat]), {done, Stat}.
+
+port_cons({data, {eol, Data}}, L) -> {cont, [Data|L]}; %% line mode, e.g. opts=(#(line 1024))
+port_cons({data, Data},        L) -> {cont, [Data|L]}; %% chunk/packet mode, e.g. opts=()
+port_cons({exit_status, 0},    L) -> {done ,L};
+port_cons({exit_status, _}=E,  _) -> {error ,E}.
+
+fold_port(Port, Fun, State, Timeout) ->
+    receive
+        {Port, Data} ->
+            {Cmd, Arg} = Fun(Data, State),
+            case Cmd of
+                cont -> fold_port(Port, Fun, Arg, Timeout);
+                done -> {ok, Arg};
+                error -> {error, Arg}
+            end
+    after 
+        Timeout -> {error, timeout}
+    end.
+
+fold_script(Cmd, Fun, State, Timeout, Opts) ->
+    DefaultOpts = [exit_status, use_stdio],
+    Port = open_port({spawn, Cmd}, DefaultOpts ++ Opts),
+    link(Port),
+    fold_port(Port, Fun, State, Timeout).
+
+%% List of lines
+script_lines(Cmd, Timeout) ->
+    case fold_script(Cmd, fun port_cons/2, [], Timeout, [{line, 1024}]) of
+        {ok, List} -> {ok, lists:reverse(List)};
+        E -> E
+    end.
+%% Full output string, flattened.
+script_output(Cmd, Timeout) ->
+    case fold_script(Cmd, fun port_cons/2, [], Timeout, []) of
+        {ok, List} -> {ok, lists:flatten(lists:reverse(List))};
+        E -> E
+    end.
+
+%% Full output as parsed xml
+script_xml(Cmd, Timeout) ->
+    case script_output(Cmd,Timeout) of
+        {ok, String} -> {ok, xmerl_scan:string(String)};
+        E -> E
+    end.
+
+%% FIXME: this hangs: (include-lib "xmerl/include/xmerl.hrl"), so
+%% define accessors based on actual tuple structure instead.
+xmlElement_attributes({xmlElement,_,_,_,_,_,_,As,_,_,_,_}) -> As.
+xmlAttribute_pair({xmlAttribute,Tag,_,_,_,_,_,_,Val,_}) -> {Tag, Val}.
+xmlElement_attributes_proplist(El) -> %% Convert element's attributes to proplist
+    lists:map(fun xmlAttribute_pair/1, xmlElement_attributes(El)).
+
+
+
+
+
+
+proxy(Pid) ->
+    receive Msg -> Pid ! Msg end,
+    proxy(Pid).
+             
 
 
