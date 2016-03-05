@@ -1,14 +1,13 @@
 -module(gdb).
 -export([open/5         %% Start GDB through TCP GDB RSP, providing a Port handler
         ,open_os_pid/4  %% Start GDB attaching to host Pid
-        ,upload/4       %% Start GDB, upload file, exit
+        ,upload/5       %% Start GDB, upload file, exit
         ,cmd_sink/3     %% Send command, forwared responses to sink. 
         ,cmd/3          %% Send command, return formatted response. 
         ,set/4          %% Set a variable or struct member
         ,send/2, sync/2 %% For blocking interaction
         ]).
 
--include("debug.hrl").
          
 %% GDB Machine Interface (MI).
 %%
@@ -37,13 +36,13 @@ open(GdbMi, TargetHost, TargetPort, Elf, Sink) ->
 %% Ask connected dev node to push image here.
 %% Assumes host name is set up correctly so dev node can find us, as
 %% GDB uses plain TCP to connect.
-upload({pull, DevNode}, TargetPort, Elf, Sink) ->
+upload({pull, DevNode}, Gdb, TargetPort, Elf, Sink) ->
     {ok, TargetHost} = inet:gethostname(),
-    rpc:call(DevNode, gdb, upload, [TargetHost, TargetPort, Elf, Sink]);
+    rpc:call(DevNode, gdb, upload, [TargetHost, Gdb, TargetPort, Elf, Sink]);
 
 %% Upload ELF through gdb -i=mi
-upload(TargetHost, TargetPort, Elf, Sink) ->
-    P = open(?GDB_ARM, TargetHost, TargetPort, Elf, Sink),
+upload(TargetHost, Gdb, TargetPort, Elf, Sink) ->
+    P = open(Gdb, TargetHost, TargetPort, Elf, Sink),
     Rv = cmd_sink(P, "load", Sink),
     send(P, "quit"),
     Rv.
