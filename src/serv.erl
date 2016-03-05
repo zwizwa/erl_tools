@@ -95,7 +95,9 @@ spawn_handler(Init, Handle) ->
 
 serv_reg(Pid) ->
     case whereis(serv_reg) of
-        undefined -> tools:info("no registry~n");
+        undefined -> 
+            %%tools:info("no registry~n"),
+            ok;
         Registry -> Registry ! {subscribe, Pid}
     end.
 

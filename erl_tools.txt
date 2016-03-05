@@ -1,0 +1,10 @@
+erl_tools
+
+Entry: but in accept
+Date: Sat Mar  5 15:38:02 EST 2016
+
+For active sockets, messages are sent to the process that execute the
+accept call.
+
+
+
