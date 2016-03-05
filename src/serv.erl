@@ -24,7 +24,7 @@
 %% Simple server tools - avoiding OTP boilerplate.
 
 %% To the extent possible under law, Tom Schouten has waived all
-%% copyright and related or neighboring rights to serv.hrl
+%% copyright and related or neighboring rights to serv.erl
 %% Code:    http://zwizwa.be/git/erl_tools
 %% License: http://creativecommons.org/publicdomain/zero/1.0
 
