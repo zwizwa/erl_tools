@@ -40,7 +40,7 @@
 %% Collection of generic tools for Erlang.
 
 %% To the extent possible under law, Tom Schouten has waived all
-%% copyright and related or neighboring rights to tools.hrl
+%% copyright and related or neighboring rights to tools.erl
 %% Code:    http://zwizwa.be/git/erl_tools
 %% License: http://creativecommons.org/publicdomain/zero/1.0
 
