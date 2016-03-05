@@ -8,6 +8,7 @@
          up/2, down/1, daemon/3,
          %% Several spawning methods
          start/1,
+         enter/1,
 
          %% Process registry to keep track of all serv-started processes.
          reg_start/0,
@@ -86,18 +87,11 @@ reg_handle(Msg, Pids) ->
         end,
     NewPids.
 
-%% Spawn a linked, serv_reg-registered process.
-spawn_handler(Init, Handle) ->
-    %%tools:info("start ~p ~p~n:",[Init,Handle]),
-    Pid = spawn_link(fun() -> receive_loop(Init(), Handle) end),
-    serv_reg(Pid),
-    Pid.
+
 
 serv_reg(Pid) ->
     case whereis(serv_reg) of
-        undefined -> 
-            %%tools:info("no registry~n"),
-            ok;
+        undefined -> tools:info("no registry~n");
         Registry -> Registry ! {subscribe, Pid}
     end.
 
@@ -143,8 +137,20 @@ start({spawner, Spawn}) ->
     Spawn().
 
 
+%% Take over current process.
+enter({handler, Init, Handle}) ->
+    enter_handler(Init(), Handle);
+enter({body, Body}) ->
+    Body().
 
 
+%% Spawn a linked, serv_reg-registered process.
+spawn_handler(Init, Handle) ->
+    spawn_link(fun() -> enter_handler(Init(), Handle) end).
+%% Enter its main loop.
+enter_handler(State, Handle) ->
+    serv_reg(self()),
+    receive_loop(State,Handle).
 
 
 

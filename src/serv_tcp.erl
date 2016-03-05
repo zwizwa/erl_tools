@@ -21,20 +21,19 @@ init(Ports, Connect, Handle, State, Opts) ->
     process_flag(trap_exit, true),
     Registry = self(),  
     %% Create listening sockets and acceptors.
-    LSocks = [case gen_tcp:listen(Port, Opts) of
-                  {error, Reason} ->
-                      tools:info("listen error: port ~p: ~p~n", [Port,Reason]),
-                      exit(Reason);
-                  {ok, LSock} ->
-                      spawn_link(fun() -> accept_loop(LSock, Port, Registry) end),
-                      LSock
-              end || Port <- Ports],
-    {fun(Key) ->
-             maps:get(Key,
-                      #{connect => Connect,
-                        handle  => Handle,
-                        lsocks  => LSocks})
-     end,
+    LSocks =
+        [case gen_tcp:listen(Port, Opts) of
+             {error, Reason} ->
+                 tools:info("listen error: port ~p: ~p~n", [Port,Reason]),
+                 exit(Reason);
+             {ok, LSock} ->
+                 self() ! {spawn_acceptor, LSock, Port},
+                 LSock
+         end || Port <- Ports],
+    {#{registry => Registry,
+       connect  => Connect,
+       handle   => Handle,
+       lsocks   => LSocks},
      [], %% Connection Pids
      State}.
 init(P,C,D,S) ->
@@ -46,16 +45,23 @@ init(P,C) ->
     
 
 %% FIXME: make accept loop reloadable as well.
-accept_loop(LSock, Port, Registry) ->
+accept_loop(LSock, Port,
+            #{connect  := Connect,
+              registry := Registry
+             }=Env) ->
     case gen_tcp:accept(LSock, ?RELOAD_TIMEOUT) of
-        {error, timeout} ->
-            serv_tcp:accept_loop(LSock, Port, Registry);
-        {error, Reason} ->
-            exit(Reason);
-        {ok, Sock} -> 
-            unlink(Sock),
-            Registry ! {connect, Sock, Port},
-            serv_tcp:accept_loop(LSock, Port, Registry)
+        {error, timeout} -> serv_tcp:accept_loop(LSock, Port, Env);
+        {error, Reason}  -> exit(Reason);
+        {ok, Sock} ->
+            %% Notify registry, then enter server loop.
+            Registry ! {register_connect, self()},
+            Registry ! {spawn_acceptor, LSock, Port},
+            case Connect of
+                {handler, Init, Handle} ->
+                    serv:enter({handler, fun() -> Init(Sock, Port) end, Handle});
+                {body, Body} ->
+                    serv:enter({body, fun() -> Body(Sock, Port) end})
+            end
     end.
 
 
@@ -63,29 +69,18 @@ handle(Msg, {Env,_,_}=S) ->
     {Pids, State} = handle_(Msg, S),
     {Env, Pids, State}.
 
-handle_({connect, Sock, Port}, {Env, Pids, State}) ->
-    Pid =
-        case Env(connect) of
-            %% Support handlers, which can be reloaded without
-            %% breaking the connection (FIXME: once switched to
-            %% passive sockets).
-            {handler, Init, Handle} ->
-                serv:start({handler,
-                            fun() -> link(Sock), Init(Sock, Port) end,
-                            Handle});
-            %% Generic.  Will be killed on double reload.
-            {body, Body} ->
-                serv:start({body,
-                            fun() -> link(Sock), Body(Sock, Port) end})
-        end,
-    {[Pid | Pids], State};
-            
+handle_({spawn_acceptor, LSock, Port}, {Env, Pids, State}) ->
+    serv:start({body, fun() -> accept_loop(LSock, Port, Env) end}),
+    {Pids, State};
 
-handle_({'EXIT', FromPid, Reason}, {Env, Pids, State}) ->
+handle_({register_connect, Pid}, {_Env, Pids, State}) ->
+    {[Pid | Pids], State};
+
+handle_({'EXIT', FromPid, Reason}, {#{handle := Handle}=_Env, Pids, State}) ->
     case lists:member(FromPid, Pids) of
         true -> 
             tools:info("child exit(~p,~p)~n", [FromPid, Reason]),
-            NextState = (Env(handle))({'EXIT', FromPid, Reason}, State),
+            NextState = Handle({'EXIT', FromPid, Reason}, State),
             {Pids -- [FromPid], NextState};
         false -> 
             case Reason of
@@ -103,11 +98,11 @@ handle_({apply, Fun}, {_Env, Pids, State}) ->
     Fun(Pids),
     {Pids, State};
 
-handle_(shutdown, {Env, _Pids, _State}) ->
-    [ gen_tcp:close(LSock) || LSock <- Env(lsocks) ],
+handle_(shutdown, {#{lsocks := LSocks}=_Env, _Pids, _State}) ->
+    [ gen_tcp:close(LSock) || LSock <- LSocks ],
     process_flag(trap_exit, false),
     exit(shutdown);
 
-handle_(Msg, {Env, Pids, State}) ->
-    {Pids, (Env(handle))(Msg, State)}.
+handle_(Msg, {#{handle := Handle}=_Env, Pids, State}) ->
+    {Pids, Handle(Msg, State)}.
 
