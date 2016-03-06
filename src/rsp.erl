@@ -7,7 +7,7 @@
          assemble/1,
          recv/1,
          watch/2,
-         update/2
+         gather/2
         ]).
 
 -import(tools,[info/1, info/2, unhex/1, hex/1]).
@@ -81,27 +81,65 @@ hex_csv(Code, Args, Payload) ->
     HexArgs = [integer_to_list(A,16) || A <- Args],
     rsp:wrap(Code ++ comma(HexArgs) ++ Payload).
 
-            
+
+
+
+
+
+
+%% The code below is a little convoluted, using several interfaces to
+%% do essentially the same thing: assemble RSP packets and send them
+%% on.
 
 %% Concatenate chunks until a full packet is received.
 %% Core for assemble/1, and recv/1
 
-%% FIXME: This is a hack, relies on correct packet borders which works
-%% in practice but is bad style.
-
-rsp_assembler(In, Out, Accu) ->
-    Data = In(),
-    %% info("assemble: ~p~n", [Data]),
-    NextAccu = Accu ++ Data,
+%% This is a hack, relies on correct TCP packet borders which seems to
+%% works in practice but will break if borders are not respected.
+gather(Data, Accu) ->
+    NextAccu = Accu++tools:as_list(Data),
     case delim(NextAccu) of
-        true ->
-            Out(NextAccu);
-        _ ->
-            rsp_assembler(In, Out, NextAccu)
+        true -> {{ok, NextAccu}, ""};
+        _ -> {busy, NextAccu}
     end.
-rsp_assembler(I, O) ->
-    rsp_assembler(I, O, "").
+    
+singleshot({In, Out}=Env, Accu) ->
+    Data = In(),
+    {Result,NextAccu} = gather(Data, Accu),
+    case Result of
+        {ok, Msg} -> Out(Msg);
+        _ -> singleshot(Env, NextAccu)
+    end.
 
+singleshot(Env) ->
+    singleshot(Env, "").
+
+loop({In,Out}=Env) ->
+    singleshot({In,fun(Msg) -> Out(Msg), loop(Env) end}).
+
+
+%% Process body for separate assembler task.
+assemble(Receiver) ->
+    loop({fun() -> receive {rsp_chunk, Data} -> Data end end,
+          fun(Data) -> Receiver ! {rsp_recv, Data} end}).
+
+
+
+
+%% Synchronous send/receive.
+send(Sock, Request) ->
+    case gen_tcp:send(Sock, Request) of
+        ok -> ok;
+        {error, Reason} -> exit(Reason)
+    end.
+recv(Sock) ->
+    singleshot(
+      {fun() -> case gen_tcp:recv(Sock, 0) of
+                    {ok, Data} -> binary_to_list(Data);
+                    {error, Error} -> exit(Error)
+                end
+       end,
+       fun(Data) -> Data end}).
 
 %% Run this in a linked process.  It blocks in read, to also trap
 %% connection close and terminating the device process tree.
@@ -110,47 +148,9 @@ watch(Dev, Sock) ->
     Dev ! {rsp_recv, Reply},
     watch(Dev, Sock).
 
-%% Process body for separate assembler task.
-assemble(Receiver) ->
-    rsp_assembler(
-      fun() ->
-              receive
-                  {rsp_chunk, Data} -> Data
-              end
-      end,
-      fun(Data) ->
-              Receiver ! {rsp_recv, Data},
-              assemble(Receiver)
-      end).
-
-%% Synchronous receive
-recv(Sock) ->
-    rsp_assembler(
-      fun() -> case gen_tcp:recv(Sock, 0) of
-                   {ok, Data} -> binary_to_list(Data);
-                   {error, Error} -> exit(Error)
-               end
-      end,
-      fun(Data) -> Data end).
 
 
-send(Sock, Request) ->
-    case gen_tcp:send(Sock, Request) of
-        ok -> ok;
-        {error, Reason} -> exit(Reason)
-    end.
 
-
-%% Write in terms of state update.
-update(Data, Accu) ->
-    NextAccu = Accu++tools:as_list(Data),
-    case delim(NextAccu) of
-        true ->
-            {{ok, NextAccu}, ""};
-        _ ->
-            {error, NextAccu}
-    end.
-    
     
 
 

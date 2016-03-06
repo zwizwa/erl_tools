@@ -19,7 +19,7 @@
          maps_apply/4, maps_append/3, maps_count/2,
          tagged_index/2,
          map_to_list/1,
-         line_splitter_update/4,
+         pop_tail/1,
          read_eval_print/2,
          annotate_pid/1,
          maps_map_keys/2,
@@ -359,26 +359,8 @@ map_to_list(M) ->
 
 
 
-%% Line splitter body.  Send {Key, Binary} and it will call Sink({Key,
-%% IO_List}) for each line, keeping a map of partial lines, one for
-%% each key.
-%% P=spawn(fun() -> tools:line_splitter(fun(K,L) -> tools:info("~p: ~s~n", [K,L]) end) end).
 
-%% Define server behavior elsewhere.
-%line_splitter(Sink) ->
-%    line_splitter(Sink, #{}).
-%line_splitter(Sink, Partials) ->
-%    receive 
-%        {Tag, Bin} -> 
-%            line_splitter(Sink, line_splitter_update(Sink, Partials, Tag, Bin))
-%    end.
 
-line_splitter_update(Sink, Partials, Key, Bin) ->
-    Partial = maps:get(Key, Partials, <<"">>),
-    [First | Rest] = binary:split(Bin, <<"\n">>, [global]),
-    {Lines, NextPartial} = pop_tail([[Partial, First] | Rest]),
-    lists:foreach(fun(Line) -> Sink(Key, Line) end, Lines),
-    maps:put(Key, NextPartial, Partials).
 
 
 pop_tail(List) ->

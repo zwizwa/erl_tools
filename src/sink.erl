@@ -8,7 +8,11 @@
 
 -module(sink).
 -export([gen_to_list/1,gen_tcp/1,print/1,map/2,
-         buffer/0, buffer/2]).
+         buffer/0, buffer/2,
+
+         %% Misc processors
+         line_assembler/3
+        ]).
 
 
 %% Sinks are callbacks that do not return any value.
@@ -86,3 +90,19 @@ gen_tcp(Sock) ->
 
 print(eof) -> ok;
 print({data,Data}) -> tools:info("~p~n",[Data]).
+
+
+%% Sink-aparameterized processors are functions oparating on (Input,
+%% State), and passing data to Sink.
+
+%% This abstraction is useful when input and output "clocks" are not
+%% the same: 0 or 1 inputs may yield 0 or more output events.
+
+
+%% Feed it binary chunks.  Complete lines are passed to Sink.
+line_assembler(BinInput, Last, Sink) ->
+    [First | Rest] = binary:split(BinInput, <<"\n">>, [global]),
+    {Lines, Next} = tools:pop_tail([[Last, First] | Rest]),
+    lists:foreach(fun(Line) -> Sink(Line) end, Lines),
+    Next.
+    
