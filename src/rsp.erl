@@ -53,6 +53,18 @@ unwrap(L) ->
     unesc(chop(L)).
 
 
+
+
+% Return true if packet ends in delimiter.
+%% delim(Bin) when is_binary(Bin) ->
+%%     N = size(Bin),
+%%     if
+%%         binary_at(Bin, N-3) == $# -> true;  %% "*#??"
+%%         binary_at(Bin, N-1) == $+ -> true;  %% "*+"
+%%         true -> false
+%%     end.
+
+
 % Return true if packet ends in delimiter.
 delim ("+") -> true;
 %%delim ("-") -> true;  %% ???
