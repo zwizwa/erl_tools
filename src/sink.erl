@@ -8,7 +8,7 @@
 
 -module(sink).
 -export([gen_to_list/1,gen_tcp/1,print/1,map/2,
-         buffer/0, buffer/2,
+         buffer/0, buffer/2, no_eof/1,
 
          %% Misc processors
          line_assembler/3
@@ -106,3 +106,12 @@ line_assembler(BinInput, Last, Sink) ->
     lists:foreach(fun(Line) -> Sink(Line) end, Lines),
     Next.
     
+
+
+%% When stitching together sink-parameterized generators, make sure to
+%% strip the eof messages.  The convention is that a single generator
+%% will produce a single eof at the end.
+no_eof(_, eof) -> ignore;
+no_eof(S, M) -> S(M).
+no_eof(S) -> fun(M) -> no_eof(S, M) end.
+

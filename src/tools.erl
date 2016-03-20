@@ -33,7 +33,8 @@
          register/2,
          port_print/2, port_cons/2, fold_port/4, fold_script/5, script_lines/2, script_output/2,
          script_xml/2, xmlElement_attributes/1, xmlAttribute_pair/1, xmlElement_attributes_proplist/1,
-         proxy/1
+         proxy/1,
+         max_gt/2, max_i/2, min_i/2
          
         ]).
 
@@ -486,6 +487,15 @@ random_binary(N) ->
     list_to_binary(random_uniform_list(255,N)).
 
 
+max_gt(Gt, [H|T]) ->
+    lists:foldl(
+      fun(El,Max) -> case Gt(El,Max) of true -> El; false -> Max end end,
+      H,T).
+max_i(I, List) ->
+    max_gt(fun(A,B) -> I(A) > I(B) end, List).
+min_i(I, List) ->
+    max_gt(fun(A,B) -> I(A) < I(B) end, List).
+              
 
 
 
