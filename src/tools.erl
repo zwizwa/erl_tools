@@ -182,7 +182,7 @@ mod(0,_) -> 0.
 
 %% Round up to next multiple
 round_up(El,Chunk) ->
-    ((El-1) div Chunk) + Chunk.
+    (((El-1) div Chunk)+1) * Chunk.
 
 %% Midpoint, picking smallest if neighbours.
 mid(A,B) -> (A + B) div 2.
