@@ -4,7 +4,7 @@
          strunk/1, getter/1, 
          format/2, creader/1, int/1, float/1, hex_data/1, enumerate/1, chunks/2, nchunks/3,
          unpack/2, unpack_s32/1, unpack_u16/1, unpack_s16/1,
-         mod/2,
+         mod/2, round_up/2,
          mid/2, mid/3,
          csv_read/1,
          padded_at/2, padded_range/3,
@@ -179,6 +179,10 @@ unpack_s16(L) ->
 mod(X,Y) when X > 0 -> X rem Y;
 mod(X,Y) when X < 0 -> Y + X rem Y;
 mod(0,_) -> 0.
+
+%% Round up to next multiple
+round_up(El,Chunk) ->
+    ((El-1) div Chunk) + Chunk.
 
 %% Midpoint, picking smallest if neighbours.
 mid(A,B) -> (A + B) div 2.
