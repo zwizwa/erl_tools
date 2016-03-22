@@ -24,6 +24,7 @@
          range/1,
          map/2,
          fold/3,
+         filter/2,
          empty/0,
          append/1, append/2,
          from_list/1, to_list/1, to_rlist/1,
@@ -225,7 +226,20 @@ chunks(Chunks, Chunk2Elements) ->
               Init)
     end.
     
+    
 
+%% Filter elements
+filter(Pred, Fold) ->
+    fun(Fun, Init) ->
+            Fold(
+              fun(El, Accu) ->
+                      case Pred(El) of
+                          true -> Fun(El, Accu);
+                          false -> Accu
+                      end
+              end, Init)
+    end.
+            
                          
 
                          
