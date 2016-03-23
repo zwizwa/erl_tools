@@ -34,7 +34,8 @@
          port_print/2, port_cons/2, fold_port/4, fold_script/5, script_lines/2, script_output/2,
          script_xml/2, xmlElement_attributes/1, xmlAttribute_pair/1, xmlElement_attributes_proplist/1,
          proxy/1,
-         max_gt/2, max_i/2, min_i/2
+         max_gt/2, max_i/2, min_i/2,
+         map_inverse/1
          
         ]).
 
@@ -576,4 +577,6 @@ proxy(Pid) ->
     proxy(Pid).
              
 
-
+map_inverse(Map) ->
+    maps:fold(
+      fun(K,V,M) -> maps:put(V,K,M) end, #{}, Map).
