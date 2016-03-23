@@ -1,5 +1,5 @@
 -module(obj).
--export([init/0, handle/2, call/2,
+-export([init/0, handle/2, call/2, call/3,
          get/2, get/3, set/3, gets/2,
          update/3, find/2, dump/1, replace/2]).
 
@@ -34,15 +34,17 @@ handle(Bad, _) ->
     tools:info("handle: bad request ~p~n",[Bad]),
     exit({handle_bad,Bad}).
 
-call(Pid, Req) when is_pid(Pid) ->
+call(Pid, Req, Timeout) when is_pid(Pid) ->
     Pid ! {self(), Req},
     receive 
         {Pid, obj_reply, Val} -> Val
-    after 
-        1000 -> exit(timeout)
+    after
+        Timeout -> exit({timeout,Timeout,Req})
     end;
-call(Name, Req) ->
-    call(whereis(Name), Req).
+call(Name, Req, Timeout) ->
+    call(whereis(Name), Req, Timeout).
+call(Obj, Req) ->
+    call(Obj, Req, 3000).
 
 dump   (Pid)           -> call(Pid, dump).
 get    (Pid, Key)      -> {ok, Val} = find(Pid, Key), Val.
