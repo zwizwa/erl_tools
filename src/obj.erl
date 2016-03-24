@@ -31,7 +31,7 @@ handle({Pid, {update, K, F}}, Map) -> Pid ! {self(), obj_reply, ok}, maps:put(K,
 handle(shutdown, _)                -> exit(shutdown);
 
 handle(Bad, _) ->
-    tools:info("handle: bad request ~p~n",[Bad]),
+    tools:info("obj:handle: bad request ~p~n",[Bad]),
     exit({handle_bad,Bad}).
 
 call(Pid, Req, Timeout) when is_pid(Pid) ->
