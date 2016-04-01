@@ -7,7 +7,7 @@
          p_rem/2, p_div/2, round_up/2,
          mid/2, mid/3,
          csv_read/1,
-         padded_at/2, padded_range/3,
+         padded_at/2, padded_range/3, padded_insert/4,
          enumerate/2,
          list_at/2,
          tuple_to_list/1, as_binary/1, as_binaries/1, as_list/1, as_atom/1,
@@ -465,6 +465,21 @@ padded_at({Pad,Bytes},Index) ->
     end.
 padded_range(Mem, Begin, Nb) ->
     [padded_at(Mem,I) || I <- lists:seq(Begin,Begin+Nb-1)].
+
+padded_insert(Original, Pad, Offset, Replacement) ->
+    OriginalEnd = size(Original),
+    ReplacementEnd = Offset + size(Replacement),
+    End = max(OriginalEnd, ReplacementEnd),
+    list_to_binary(
+      [if
+           %% Mutation+padding as combiation of 3 index functions.
+           ((N >= Offset) and (N < ReplacementEnd)) ->
+               binary:at(Replacement, N-Offset);
+           N < OriginalEnd ->
+               binary:at(Original, N);
+           true ->
+               Pad
+       end || N <- lists:seq(0, End-1)]).
 
 
 
