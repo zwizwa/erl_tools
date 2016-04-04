@@ -46,7 +46,7 @@ gather(Pid, Stack) ->
     receive
         eof          -> Pid ! {self(), lists:reverse(Stack)};
         {data, Data} -> gather(Pid, [Data|Stack]);
-        Msg          -> exit({unknown,Msg})
+        Msg          -> exit({sink_gather,Msg})
     end.
 gen_to_list(Gen) ->
     Self = self(),
