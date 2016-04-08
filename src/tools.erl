@@ -1,5 +1,5 @@
 -module(tools).
--export([info/0, info/1, info/2, info/3,
+-export([info_p/1, info/1, info/2, info/3,
          unhex/1, hex/1, hex_list/1, hex4/1, hex8/1, hex16/1, hex_u32/1,
          strunk/1, getter/1, 
          format/2, creader/1, int/1, float/1, hex_data/1, enumerate/1, chunks/2, nchunks/3,
@@ -455,8 +455,8 @@ info(Msg, Args) -> info(annotate_pid(self()), Msg, Args).
 info(Tag, Msg, Args) ->
     Str = format("~p: " ++ Msg, [Tag|Args]),
     io:format("~s",[Str]).
-info() ->
-    fun(Msg) -> tools:info("~p~n",[Msg]) end.
+info_p(Msg) ->
+    tools:info("~p~n",[Msg]).
 
 
 %% Bytes with default.
