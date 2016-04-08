@@ -2,6 +2,10 @@
 -export([
          %% Broadcaster
          bc_start/0, 
+         %% Hub with predicates
+         hub_start/0, hub_handle/2, hub_add/3, hub_add/2, hub_send/2,
+         %% Printer process
+         info_start/0,
          %% Pid registry with GC
          pids_new/0, pids_add/2, pids_del/2, pids_foreach/2, pids_send/2,
          %% Simple server control
@@ -21,6 +25,8 @@
 
         ]).
 -define(RELOAD_TIMEOUT,1000).
+-define(IF(C,A,B), (case (C) of true -> (A); false -> (B) end)).
+
 
 %% Simple server tools - avoiding OTP boilerplate.
 
@@ -63,6 +69,43 @@ bc_start() -> spawn_handler(fun pids_new/0, fun serv:bc_handle/2).
 bc_handle({subscribe,   Pid}, Pids) -> pids_add(Pid,Pids);
 bc_handle({unsubscribe, Pid}, Pids) -> pids_del(Pid,Pids);
 bc_handle({broadcast,   Msg}, Pids) -> pids_send(Msg,Pids).
+
+
+
+%% Hub with predicates.
+hub_init() ->
+    [].
+hub_cleanup(Hub) ->
+    lists:filter(
+      fun({_,Pid}) -> is_process_alive(Pid) end, Hub).
+hub_handle({add, Pred, Pid}, Hub) ->
+    [{Pred, Pid} | Hub];
+hub_handle({send, Msg}, Hub) ->
+    ?IF(lists:foldl(
+          fun({Pred, Pid}, Alive) ->
+                  ?IF(Pred(Msg), Pid ! Msg, ignore),
+                  is_process_alive(Pid) and Alive
+          end, true, Hub),
+        Hub,
+        %% Process doesn't allocate in happy path.  Update structure
+        %% only when one or more processes have died.
+        hub_cleanup(Hub)).
+hub_start() ->
+    start({handler, fun hub_init/0, fun serv:hub_handle/2}).
+hub_add(HubPid, Pred, Pid) ->
+    HubPid ! {add, Pred, Pid}.
+hub_add(HubPid, Pid) ->
+    HubPid ! {add, fun(_)->true end, Pid}.
+hub_send(HubPid, Msg) ->
+    HubPid ! {send, Msg}.
+
+
+%% Print everything
+info_start() ->
+    start({handler,
+           fun() -> [] end,
+           fun(Msg,_) -> tools:info("~p~n", [Msg]), [] end}).
+
 
 %% Process registry for all serv.erl started tasks. This is different
 %% from a monitor as it doesn't own processes.  Monitor will start
