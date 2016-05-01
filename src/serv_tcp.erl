@@ -1,6 +1,6 @@
 -module(serv_tcp).
 -export([init/2, init/4, init/5, handle/2, accept_loop/3]).
--include("debug.hrl").
+
 %% TCP server with client registry.
 
 %% To the extent possible under law, Tom Schouten has waived all
@@ -49,7 +49,7 @@ accept_loop(LSock, Port,
             #{connect  := Connect,
               registry := Registry
              }=Env) ->
-    case gen_tcp:accept(LSock, ?RELOAD_TIMEOUT) of
+    case gen_tcp:accept(LSock) of
         {error, timeout} -> serv_tcp:accept_loop(LSock, Port, Env);
         {error, Reason}  -> exit(Reason);
         {ok, Sock} ->

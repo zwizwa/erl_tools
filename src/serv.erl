@@ -24,7 +24,6 @@
          periodic_loop/3
 
         ]).
--define(RELOAD_TIMEOUT,1000).
 -define(IF(C,A,B), (case (C) of true -> (A); false -> (B) end)).
 
 
@@ -142,8 +141,6 @@ receive_loop(State, Handle) ->
     receive 
         reload  -> serv:receive_loop(State, Handle);
         Message -> serv:receive_loop(Handle(Message, State), Handle)
-    after 
-        ?RELOAD_TIMEOUT -> serv:receive_loop(State, Handle)
     end.
 
 
