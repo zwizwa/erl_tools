@@ -32,7 +32,7 @@
          histogram/1,
          split_at/3, split_at/2,
          drop/2,
-         gen/1,
+         gen/1, gen/2,
          chunks/2
         ]).
          
@@ -204,6 +204,9 @@ gen_fold(Fun, Accu, GenPid) ->
 %% in general, folds are instances i.e. single use iterators.
                     
 
+%% gen/2 assumes the generator argument is passed last.
+gen(Fun, Args) ->
+    gen(fun(Sink) -> apply(Fun, Args ++ [Sink]) end).
 
 
 %% Similar in idea to iolists, it is often the case in low level data
