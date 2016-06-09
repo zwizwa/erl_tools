@@ -454,6 +454,10 @@ info(Msg) -> info(Msg,[]).
 info(Msg, Args) -> info(annotate_pid(self()), Msg, Args).
 info(Tag, Msg, Args) ->
     Str = format("~p: " ++ Msg, [Tag|Args]),
+    case whereis(info_bc) of
+        undefined -> ignore;
+        Pid -> Pid ! {broadcast, Str}
+    end,
     io:format("~s",[Str]).
 info_p(Msg) ->
     tools:info("~p~n",[Msg]).
