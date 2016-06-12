@@ -35,7 +35,8 @@
          script_xml/2, xmlElement_attributes/1, xmlAttribute_pair/1, xmlElement_attributes_proplist/1,
          proxy/1,
          max_gt/2, max_i/2, min_i/2,
-         map_inverse/1
+         map_inverse/1,
+         first_ok/1
          
         ]).
 
@@ -600,3 +601,9 @@ proxy(Pid) ->
 map_inverse(Map) ->
     maps:fold(
       fun(K,V,M) -> maps:put(V,K,M) end, #{}, Map).
+
+
+
+first_ok([{ok,_}=V,_]) -> V;
+first_ok([_|L])        -> first_ok(L); 
+first_ok([])           -> error.
