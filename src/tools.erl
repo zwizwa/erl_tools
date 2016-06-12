@@ -604,6 +604,6 @@ map_inverse(Map) ->
 
 
 
-first_ok([{ok,_}=V,_]) -> V;
+first_ok([{ok,_}=V|_]) -> V;
 first_ok([_|L])        -> first_ok(L); 
 first_ok([])           -> error.
