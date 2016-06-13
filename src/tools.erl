@@ -36,7 +36,8 @@
          proxy/1,
          max_gt/2, max_i/2, min_i/2,
          map_inverse/1,
-         first_ok/1
+         first_ok/1,
+         re_dispatch/2
          
         ]).
 
@@ -607,3 +608,15 @@ map_inverse(Map) ->
 first_ok([{ok,_}=V|_]) -> V;
 first_ok([_|L])        -> first_ok(L); 
 first_ok([])           -> error.
+
+%% Generic regexp router.
+re_dispatch(_, []) -> false;
+re_dispatch(Data, [{Regex,Fun}|Rest]) ->
+    case re:run(Data,Regex,[{capture,all,list}]) of
+        {match,[_|Args]} ->
+            Fun(Args);
+        _Err ->
+            %%tools:info("~p~n",[_Err]),
+            re_dispatch(Data, Rest)
+    end.
+
