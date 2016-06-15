@@ -63,7 +63,12 @@ buffer() ->
     {Pid, fun(Msg) -> Pid ! Msg end}.
 buffer(Pid,list) ->
     lists:reverse(buffer(Pid,stack));
-buffer(Pid,Cmd) ->
+buffer(Name,Cmd) when is_atom(Name) ->
+    case whereis(Name) of
+        undefined -> exit({undefined,Name});
+        Pid -> buffer(Pid,Cmd)
+    end;
+buffer(Pid,Cmd) when is_pid(Pid) ->
     Self = self(),
     Pid ! {Self, Cmd},
     receive {Pid, List} -> List
