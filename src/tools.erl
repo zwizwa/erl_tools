@@ -37,7 +37,8 @@
          max_gt/2, max_i/2, min_i/2,
          map_inverse/1,
          first_ok/1,
-         re_dispatch/2
+         re_dispatch/2,
+         become/1
          
         ]).
 
@@ -620,3 +621,13 @@ re_dispatch(Data, [{Regex,Fun}|Rest]) ->
             re_dispatch(Data, Rest)
     end.
 
+become(Name) ->
+    case whereis(Name) of
+        undefined ->
+            erlang:register(Name, self());
+        Pid ->
+            tools:info("stopping ~s~n", [Name]),
+            Pid ! stop,
+            timer:sleep(1000),
+            become(Name)
+    end.
