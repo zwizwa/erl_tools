@@ -27,7 +27,7 @@ handle({Pid, dump}, Map)           -> Pid ! {self(), obj_reply, Map}, Map;
 handle({Pid, {replace, M}}, _)     -> Pid ! {self(), obj_reply, ok}, M;
 handle({Pid, {find, K}}, Map)      -> Pid ! {self(), obj_reply, maps:find(K, Map)}, Map;
 handle({Pid, {set, K, V}}, Map)    -> Pid ! {self(), obj_reply, ok}, maps:put(K, V, Map);
-handle({Pid, {update, K, F}}, Map) -> Pid ! {self(), obj_reply, ok}, maps:put(K, F(maps:get(K, Map)), Map);
+handle({Pid, {update, K, F}}, Map) -> V = F(maps:get(K, Map)), Pid ! {self(), obj_reply, V}, maps:put(K, V, Map);
 handle(shutdown, _)                -> exit(shutdown);
 
 handle(Bad, _) ->
