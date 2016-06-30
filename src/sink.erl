@@ -8,7 +8,7 @@
 
 -module(sink).
 -export([gen_to_list/1,gen_tcp/1,print/1,map/2,
-         buffer/0, buffer/2, no_eof/1,
+         buffer/0, buffer/2, no_eof/1, file/1,
 
          %% Misc processors
          line_assembler/3
@@ -95,6 +95,15 @@ gen_tcp(Sock) ->
 
 print(eof) -> ok;
 print({data,Data}) -> tools:info("~p~n",[Data]).
+
+
+file(Filename) ->
+    fun(Msg) ->
+            case Msg of
+                {data, Data} -> file:write_file(Filename, Data, [append]);
+                _ -> ok
+            end
+    end.
 
 
 %% Sink-aparameterized processors are functions oparating on (Input,
