@@ -1,5 +1,5 @@
 -module(tools).
--export([info_p/1, info/1, info/2, info/3,
+-export([info_p/1, info/1, info/2, info/3, info_subscribe/1,
          unhex/1, hex/1, hex_list/1, hex4/1, hex8/1, hex16/1, hex_u32/1,
          strunk/1, getter/1, 
          format/2, creader/1, int/1, float/1, hex_data/1, enumerate/1, chunks/2, nchunks/3,
@@ -454,18 +454,25 @@ annotate_pid(Pid) ->
         _ -> Pid
     end.
 
+%% Use serv:bc to forward to multiple clients.
+%% FIXME: use gen_event
 info(Msg) -> info(Msg,[]).
 info(Msg, Args) -> info(annotate_pid(self()), Msg, Args).
 info(Tag, Msg, Args) ->
     Str = format("~p: " ++ Msg, [Tag|Args]),
     case whereis(info_bc) of
-        undefined -> ignore;
-        Pid -> Pid ! {broadcast, Str}
-    end,
-    io:format("~s",[Str]).
+        undefined -> io:format("~s",[Str]);
+        BC -> BC ! {foreach, fun(Pid) -> io:format(Pid,"~s",[Str]) end}, ok
+    end.
+    
 info_p(Msg) ->
     tools:info("~p~n",[Msg]).
 
+info_subscribe(Pid) ->
+    BC = serv:up(info_bc, {spawner, fun serv:bc_start/0}),
+    info_bc ! {subscribe, Pid},
+    {ok, BC}.
+    
 
 %% Bytes with default.
 padded_at({Pad,Bytes},Index) ->

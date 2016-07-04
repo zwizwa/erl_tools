@@ -63,10 +63,11 @@ pids_foreach(Fun, Pids) ->
 pids_send(Msg, Pids) ->
     pids_foreach(fun(Pid) -> Pid ! Msg end, Pids).
 
-%% Broadcaster
+%% Broadcaster. FIXME: use gen_event
 bc_start() -> spawn_handler(fun pids_new/0, fun serv:bc_handle/2).
 bc_handle({subscribe,   Pid}, Pids) -> pids_add(Pid,Pids);
 bc_handle({unsubscribe, Pid}, Pids) -> pids_del(Pid,Pids);
+bc_handle({foreach,     Msg}, Pids) -> pids_foreach(Msg,Pids);
 bc_handle({broadcast,   Msg}, Pids) -> pids_send(Msg,Pids).
 
 
