@@ -462,7 +462,7 @@ info(Tag, Msg, Args) ->
     Str = format("~p: " ++ Msg, [Tag|Args]),
     case whereis(info_bc) of
         undefined -> io:format("~s",[Str]);
-        BC -> BC ! {foreach, fun(Pid) -> io:format(Pid,"~s",[Str]) end}, ok
+        BC -> BC ! {foreach, fun(Pid) -> catch io:format(Pid,"~s",[Str]) end}, ok
     end.
     
 info_p(Msg) ->
