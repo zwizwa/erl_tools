@@ -32,6 +32,7 @@
          filter_tag/2, filter_tags/2,
          register/2,
          port_print/2, port_cons/2, fold_port/4, fold_script/5, script_lines/2, script_output/2,
+         port_pid/1, port_kill/2,
          script_xml/2, xmlElement_attributes/1, xmlAttribute_pair/1, xmlElement_attributes_proplist/1,
          proxy/1,
          max_gt/2, max_i/2, min_i/2,
@@ -532,7 +533,12 @@ min_i(I, List) ->
 
 
 
+port_pid(Port) ->
+    {_, OsPid} = proplists:lookup(os_pid, erlang:port_info(Port)),
+    OsPid.
 
+port_kill(Port,Signal) ->
+    os:cmd(io_lib:format("kill -~s ~p", [Signal, port_pid(Port)])).
 
 
 %% For fold_script
