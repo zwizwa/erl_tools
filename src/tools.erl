@@ -473,7 +473,7 @@ info_subscribe(Pid) ->
     info_bc ! {subscribe, Pid},
     {ok, BC}.
 info_subscribe() ->
-    info_subscribe(erlang:group_leadeR()).
+    info_subscribe(erlang:group_leader()).
     
 
 %% Bytes with default.
