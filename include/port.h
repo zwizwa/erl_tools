@@ -69,11 +69,11 @@ static inline uint32_t assert_read_u32(int fd) {
     return be[0] << 24 | be[1] << 16 | be[2] << 8 | be[3];
 }
 static inline void *assert_read_packet4(int fd) {
-    uint32_t buf_len = assert_read_u32(0);
+    uint32_t buf_len = assert_read_u32(fd);
     if (!buf_len) return NULL;
     uint8_t *buf;
     ASSERT(buf = malloc(buf_len+1));
-    assert_read(0, buf, buf_len);
+    assert_read(fd, buf, buf_len);
     buf[buf_len] = 0; // hack for LOG("%s").
     return buf;
 }
