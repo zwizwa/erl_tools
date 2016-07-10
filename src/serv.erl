@@ -47,9 +47,9 @@
 %% Set of Pids, with garbage collection on message send.
 pids_new() ->
     sets:new().
-pids_add(Pid, Pids) ->
+pids_add(Pid, Pids) when is_pid(Pid) ->
     sets:add_element(Pid, Pids).
-pids_del(Pid, Pids) ->
+pids_del(Pid, Pids) when is_pid(Pid) ->
     sets:del_element(Pid, Pids).
 pids_foreach(Fun, Pids) ->
     sets:fold(
