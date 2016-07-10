@@ -135,7 +135,7 @@ reg_handle(Msg, Pids) ->
 serv_reg(Pid) ->
     case whereis(serv_reg) of
         undefined -> 
-            tools:info("no registry~n"),
+            %% tools:info("no registry~n"),
             undefined;
         Registry -> 
             Registry ! {subscribe, Pid}
