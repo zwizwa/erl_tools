@@ -131,11 +131,14 @@ reg_handle(Msg, Pids) ->
     NewPids.
 
 
-
+%% FIXME: this isn't used for anything.  Remove.
 serv_reg(Pid) ->
     case whereis(serv_reg) of
-        undefined -> tools:info("no registry~n");
-        Registry -> Registry ! {subscribe, Pid}
+        undefined -> 
+            tools:info("no registry~n"),
+            undefined;
+        Registry -> 
+            Registry ! {subscribe, Pid}
     end.
 
 receive_loop(State, Handle) ->
