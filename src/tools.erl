@@ -20,7 +20,7 @@
          tagged_index/2,
          map_to_list/1,
          pop_tail/1,
-         read_eval_print/2,
+         read_eval_print/2, string_to_exprs/1,
          annotate_pid/1,
          maps_map_keys/2,
          script_line/1,
@@ -459,10 +459,11 @@ annotate_pid(Pid) ->
 info(Msg) -> info(Msg,[]).
 info(Msg, Args) -> info(annotate_pid(self()), Msg, Args).
 info(Tag, Msg, Args) ->
-    Str = format("~p: " ++ Msg, [Tag|Args]),
+    TagMsg = "~p: " ++ Msg,
+    TagArgs = [Tag|Args],
     case whereis(info_bc) of
-        undefined -> io:format("~s",[Str]);
-        BC -> BC ! {foreach, fun(Pid) -> catch io:format(Pid,"~s",[Str]) end}, ok
+        undefined -> io:format(TagMsg,TagArgs);
+        BC -> BC ! {foreach, fun(Pid) -> catch io:format(Pid,TagMsg,TagArgs) end}, ok
     end.
     
 info_p(Msg) ->
