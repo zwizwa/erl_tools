@@ -14,34 +14,26 @@
          start/1,
          enter/1,
 
-         %% Process registry to keep track of all serv-started processes.
-         reg_start/0,
-
          %% Private, needed for reloading.
          bc_handle/2,
-         reg_handle/2,
          receive_loop/2,
          periodic_loop/3
 
         ]).
 -define(IF(C,A,B), (case (C) of true -> (A); false -> (B) end)).
 
-
-%% Simple server tools - avoiding OTP boilerplate.
-
 %% To the extent possible under law, Tom Schouten has waived all
 %% copyright and related or neighboring rights to serv.erl
 %% Code:    http://zwizwa.be/git/erl_tools
 %% License: http://creativecommons.org/publicdomain/zero/1.0
 
-%% Main problem faced when creating small servers:
-%% - Cost of writing in OTP style outweigh the benefits
-%% - Do need reliable code reload during development + simple restart on crash.
 
-%% To handle code reload:
-%% - Add an explicit reload message to each server loop
-%% - Register each server process to a central monitor
-%% - Allow reloading of the monitor
+
+%% Simple server tools - avoid OTP boilerplate.
+
+%% To persist processes across reload, either:
+%% - do not reload serv (more than once): processes are blocked in receive_loop/2
+%% - send a reload message to serv processes after reloading serv
 
 
 %% Set of Pids, with garbage collection on message send.
@@ -107,40 +99,8 @@ info_start() ->
            fun(Msg,_) -> tools:info("~p~n", [Msg]), [] end}).
 
 
-%% Process registry for all serv.erl started tasks. This is different
-%% from a monitor as it doesn't own processes.  Monitor will start
-%% this and register it as registry.
 
-%% FIXME: untill all loops are broken (which requires switching to
-%% active sockets), the reload functionality isn't fully functional.
-%% Currently all servers use the debug timeout to cause reloads.
-reg_start() ->
-    spawn_link(fun() -> receive_loop(pids_new(), fun serv:reg_handle/2)end).
-reg_handle(Msg, Pids) ->
-    NewPids =
-        case Msg of
-            {apply, Sink} ->
-                Sink(sets:to_list(Pids)), Pids;
-            {subscribe, Pid} ->
-                pids_add(Pid, Pids);
-            reload ->
-                pids_send(reload, Pids), Pids;
-            Unknown ->
-                exit(reg_unknown_message,Unknown)
-        end,
-    NewPids.
-
-
-%% FIXME: this isn't used for anything.  Remove.
-serv_reg(Pid) ->
-    case whereis(serv_reg) of
-        undefined -> 
-            %% tools:info("no registry~n"),
-            undefined;
-        Registry -> 
-            Registry ! {subscribe, Pid}
-    end.
-
+%% Main loop shared by all processes.
 receive_loop(State, Handle) ->
     receive 
         reload  -> serv:receive_loop(State, Handle);
@@ -193,7 +153,6 @@ spawn_handler(Init, Handle) ->
     spawn_link(fun() -> enter_handler(Init(), Handle) end).
 %% Enter its main loop.
 enter_handler(State, Handle) ->
-    serv_reg(self()),
     receive_loop(State,Handle).
 
 
@@ -203,9 +162,7 @@ spawn_periodic(Ms, Thunk) ->
                    fun() -> [] end,
                    fun(_) -> Thunk(), [] end).
 spawn_periodic(Ms, Init, Body) ->
-    Pid = spawn_link(fun() -> periodic_loop(Ms, Body, Init()) end),
-    serv_reg(Pid),
-    Pid.
+    spawn_link(fun() -> periodic_loop(Ms, Body, Init()) end).
 periodic_loop(Ms, Body, State) ->
     NextState = Body(State),
     timer:sleep(Ms),
