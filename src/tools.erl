@@ -471,6 +471,7 @@ info_p(Msg) ->
 
 info_subscribe(Pid) ->
     BC = serv:up(info_bc, {spawner, fun serv:bc_start/0}),
+    unlink(BC),
     info_bc ! {subscribe, Pid},
     {ok, BC}.
 info_subscribe() ->
