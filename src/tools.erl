@@ -15,7 +15,7 @@
          foldn/3,
          binary_fold/3, binary_sum/1, binary_join/2,
          mask_bits/1,
-         run_script/2,
+         run_session/2, run_script/2,
          maps_apply/4, maps_append/3, maps_count/2,
          tagged_index/2,
          map_to_list/1,
@@ -311,23 +311,36 @@ mask_bits(Mask) when Mask < 0 -> exit(mask_bits_negative);
 mask_bits(Mask) -> (Mask band 1) + mask_bits(Mask bsr 1).
 
 
-run_sync(Port, OK) ->
+%% Running external (interactive) command line tools using a CPS
+%% interface.  Waits for prompt.
+run_session(Cmd,Prompt) ->
+    Port = open_port({spawn, Cmd}, [{line, 1024}, use_stdio]),
+    Env = #{ port => Port,
+             tag  => Cmd,
+             prompt => Prompt },
+    fun(Data) ->
+            port_command(Port, Data),
+            run_receive(Env, [])
+    end.
+
+run_receive(Env=#{port := Port, prompt := Prompt, tag := Tag}, Stack) ->
     receive
-        {Port, {data, {eol, OK}}} ->
-            ok;
+        {Port, {data, {eol, Prompt}}} ->
+            %% Return iolist of response and a continuation.
+            {ok, lists:reverse(Stack)};
         {Port, {data, {eol, Data}}} ->
-            info("script: ~p~n", [Data]),
-            run_sync(Port, OK);
+            info("~s: ~p~n", [Tag, Data]),
+            run_receive(Env, [Data|Stack]);
         {Port, Anything} ->
             {error, Anything}
     after
         2000 -> {error, timeout}
     end.
 
-run_script(Cmd,OK) ->
-    Port = open_port({spawn, Cmd}, [{line, 1024}, use_stdio]),
-    run_sync(Port, OK).
-
+%% Use run_session interface to do one-shot.
+run_script(Cmd,Prompt) ->
+    Continue = run_session(Cmd, Prompt),
+    Continue([]).
 
 
 %% Append value to a list tagged in a map.
