@@ -36,7 +36,8 @@
          chunks/2,
          iterate/2,
          split_sub/1,
-         split_size/1
+         split_size/1,
+         enumerate/1
         ]).
          
 
@@ -159,6 +160,8 @@ split_at(HeaderP, Fold) ->
 %% For now, only drop is necessary, which doesn't have this problem as
 %% it can be represented by a state extension without violating the
 %% fold interface.
+
+%% FIXME: implement in terms of enumerate?
 
 drop(N, Fold) ->
     fun(F, I) -> drop(N, Fold, F, I) end.
@@ -292,3 +295,12 @@ iterate({FoldLeft, FoldRight}, IterSpec) ->
 
 
                          
+enumerate(Fold) ->
+    fun(Fun,Init) ->
+            {_,State} =
+                Fold(fun(Value,{N, State}) ->
+                             {N+1, Fun({N, Value}, State)}
+                     end,
+                     {0, Init}),
+            State
+    end.
