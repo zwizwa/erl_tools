@@ -245,9 +245,7 @@ filter(Pred, Fold) ->
     end.
             
                          
-%% Implement a couple of iteration patterns from left and right fold
-%% implementations.
-
+%% Based on left and right fold, implement sink and list patterns.
 iterate({FoldLeft, FoldRight}, IterSpec) ->
     case IterSpec of
         {foldl, F, S} -> FoldLeft(F, S);

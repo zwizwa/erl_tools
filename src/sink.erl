@@ -26,14 +26,16 @@
 %% This can be thought of as complimentary to fold.erl 
 %% The combination of both, and processes, yields input/output behavior.
 
-%% note that sink-parameterized generators and folds are equivalent in
+%% Note that sink-parameterized generators and folds are equivalent in
 %% that they can be converted automatically from one into the other.
 %% The decision to use either is purely one of arbitrary convenience
 %% in representing the sequence at
 %%
 %% - the sending end:   the sink is abstracts "!"
 %% - the receiving end: the fold abstracts a loop over "receive"
-
+%%
+%% When in doubt, implement a loop as a left and right fold, and use
+%% fold:iterate to abstract a number of iteration patterns.
 
 map(Fun, Sink) -> fun(Msg) -> Sink(map_msg(Msg, Fun)) end.
 map_msg({data, Data}, Fun) -> {data, Fun(Data)};
