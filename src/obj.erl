@@ -42,7 +42,10 @@ call(Pid, Req, Timeout) when is_pid(Pid) ->
         Timeout -> exit({timeout,Timeout,Req})
     end;
 call(Name, Req, Timeout) ->
-    call(whereis(Name), Req, Timeout).
+    case whereis(Name) of
+        undefined -> exit({obj_call_undefined, Name});
+        Pid -> call(Pid, Req, Timeout)
+    end.
 call(Obj, Req) ->
     call(Obj, Req, 3000).
 

@@ -33,7 +33,8 @@
          split_at/3, split_at/2,
          drop/2,
          gen/1, gen/2,
-         chunks/2
+         chunks/2,
+         iterate/2
         ]).
          
 
@@ -244,5 +245,21 @@ filter(Pred, Fold) ->
     end.
             
                          
+%% Implement a couple of iteration patterns from left and right fold
+%% implementations.
+
+iterate({FoldLeft, FoldRight}, IterSpec) ->
+    case IterSpec of
+        {foldl, F, S} -> FoldLeft(F, S);
+        {foldr, F, S} -> FoldRight(F, S);
+        {sink, Sink}  ->
+            FoldLeft(fun(Data,_) -> Sink({data,Data}) end,
+                     none),
+            Sink(eof);
+        list ->
+            FoldRight(fun(H,T) -> [H|T] end,
+                      [])
+    end.
+
 
                          

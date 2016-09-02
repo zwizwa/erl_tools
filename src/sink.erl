@@ -23,12 +23,16 @@
 %% - Sink({data,Data}) for each element of the stream
 %% - Sink(eof)         at the end of the stream
 
-%% This can be thought of as complimentary to fold.erl The combination
-%% of both, and processes, yields input/output behavior.
+%% This can be thought of as complimentary to fold.erl 
+%% The combination of both, and processes, yields input/output behavior.
 
-%% Use sink.erl when more control is needed over the time at which an
-%% action is taken.  Use folds when the idea is to construct sequences
-%% and later evaluate them.
+%% note that sink-parameterized generators and folds are equivalent in
+%% that they can be converted automatically from one into the other.
+%% The decision to use either is purely one of arbitrary convenience
+%% in representing the sequence at
+%%
+%% - the sending end:   the sink is abstracts "!"
+%% - the receiving end: the fold abstracts a loop over "receive"
 
 
 map(Fun, Sink) -> fun(Msg) -> Sink(map_msg(Msg, Fun)) end.
