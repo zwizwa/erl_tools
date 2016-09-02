@@ -34,7 +34,9 @@
          drop/2,
          gen/1, gen/2,
          chunks/2,
-         iterate/2
+         iterate/2,
+         split_sub/1,
+         split_size/1
         ]).
          
 
@@ -212,24 +214,53 @@ gen(Fun, Args) ->
 
 %% Similar in idea to iolists, it is often the case in low level data
 %% processing that streams are 2-level: streams of chunks (packets).
-%% Assuming there are no boundary violations (i.e. split elements),
-%% this can be solved easily in a generic way, combining:
-%% - a fold over the chunks
-%% - a fold generator (mapping chunk to fold over elements)
-%% to yield a fold over elements.
 
-
-chunks(Chunks, Chunk2Elements) ->
-    %% Chunks and Elements are folds.
-    fun(Fun, Init) ->
-            Chunks(
-              fun(Chunk, Accu) ->
-                      Elements = Chunk2Elements(Chunk),
-                      Elements(Fun, Accu)
-              end,
-              Init)
+%% This function converts a fold over arbitrary chunks to a fold over
+%% re-packaged based on a Splitter machine.  The splitter machine
+%% performs the fold over the elements, threading along its splitter
+%% state.
+chunks(Fold, {foldl, Split, SplitInit}=_Splitter) ->
+    fun(Fun, FunInit) ->
+            {FunResult, _} =
+                Fold(
+                  fun(Chunk, {FunState, SplitState}) ->
+                          SplitFold = Split(Chunk, SplitState),
+                          SplitFold(Fun, FunState)
+                  end,
+                  {FunInit, SplitInit}),
+            FunResult
     end.
+
+%% Convert a stateless splitter (only that only subdivides partent
+%% chunks and doesn't merge them) into a stateful splitter with dummy
+%% state.
+split_sub(Splitter) ->
+    fun(Chunk, _) -> {Splitter(Chunk), nostate} end.
     
+
+%% Convert sequence of iolist into sequence of fixed-size binary.
+%% Ignore leftovers.
+split_size(Size) ->       
+    {foldl,
+     fun(Chunk, ChunkState) ->
+             fun(Fun, State) ->
+                     split_size(
+                       Size, iolist_to_binary([ChunkState, Chunk]),
+                       Fun, State)
+             end
+     end,
+     <<>>}.
+split_size(Size, ChunkState, Fun, State) ->
+    case ChunkState of
+        <<Element:Size/binary, Rest/binary>> ->
+            split_size(Size, Rest, Fun, Fun(Element, State));
+        _ ->
+            {State, ChunkState}
+    end.
+     
+
+%% fold:to_list(fold:chunks(fold:from_list([1,2,3,4,5,6]), fold:split_size(2))).
+
     
 
 %% Filter elements
