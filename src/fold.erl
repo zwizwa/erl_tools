@@ -291,6 +291,16 @@ iterate({FoldLeft, FoldRight}, IterSpec) ->
         list ->
             FoldRight(fun(H,T) -> [H|T] end,
                       [])
+    end;
+
+%% Based on only left fold.
+iterate(FoldLeft, IterSpec) ->
+    case IterSpec of
+        list ->
+            lists:reverse(
+              FoldLeft(fun(H,T) -> [H|T] end, []));
+        _ ->
+            iterate({FoldLeft,no_foldr}, IterSpec)
     end.
 
 

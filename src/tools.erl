@@ -24,6 +24,7 @@
          annotate_pid/1,
          maps_map_keys/2,
          script_line/1,
+         script_print/2,
          s2u_16/1,
          random_uniform_list/2,
          random_binary/1,
@@ -612,6 +613,10 @@ script_xml(Cmd, Timeout) ->
         {ok, String} -> {ok, xmerl_scan:string(String)};
         E -> E
     end.
+
+%% Print output
+script_print(Cmd, Timeout) ->
+    fold_script(Cmd, fun port_print/2, none, Timeout, [{line, 1024}]).
 
 %% FIXME: this hangs: (include-lib "xmerl/include/xmerl.hrl"), so
 %% define accessors based on actual tuple structure instead.
