@@ -28,6 +28,7 @@
          empty/0,
          append/1, append/2,
          from_list/1, to_list/1, to_rlist/1,
+         dump/1,
          for/2,
          histogram/1,
          split_at/3, split_at/2,
@@ -89,6 +90,12 @@ append([S1|Ss]) -> append(S1, append(Ss)).
 %% cons will yield a reversed list.
 to_rlist(SF) -> SF(fun(E,S)->[E|S] end, []).
 to_list(SF) -> lists:reverse(to_rlist(SF)).
+
+%% Print elements.
+dump(SF) -> SF(fun(E,_) -> io:format("~p~n",[E]), ok end, none).
+                       
+    
+
 
 %% And the other way around.
 from_list(List) ->                         
