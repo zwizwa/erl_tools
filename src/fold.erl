@@ -28,7 +28,7 @@
          empty/0,
          append/1, append/2,
          from_list/1, to_list/1, to_rlist/1,
-         dump/1,
+         dump/1, print/1,
          for/2,
          histogram/1,
          split_at/3, split_at/2,
@@ -92,7 +92,8 @@ to_rlist(SF) -> SF(fun(E,S)->[E|S] end, []).
 to_list(SF) -> lists:reverse(to_rlist(SF)).
 
 %% Print elements.
-dump(SF) -> SF(fun(E,_) -> io:format("~p~n",[E]), ok end, none).
+dump(SF)  -> SF(fun(E,S) -> io:format("~p~n",[E]), S end, ok).
+print(SF) -> SF(fun(E,S) -> io:format("~s~n",[E]), S end, ok).
                        
     
 
