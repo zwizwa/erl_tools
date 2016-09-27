@@ -93,7 +93,7 @@ to_list(SF) -> lists:reverse(to_rlist(SF)).
 
 %% Print elements.
 dump(SF)  -> SF(fun(E,S) -> io:format("~p~n",[E]), S end, ok).
-print(SF) -> SF(fun(E,S) -> io:format("~s~n",[E]), S end, ok).
+print(SF) -> SF(fun(E,S) -> io:format("~s",[E]), S end, ok).
                        
     
 
