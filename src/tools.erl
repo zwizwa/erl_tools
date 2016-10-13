@@ -1,5 +1,5 @@
 -module(tools).
--export([info_p/1, info/1, info/2, info/3, info_subscribe/1, info_subscribe/0,
+-export([info_p/1, info/1, info/2, info/3, info_subscribe/1, info_unsubscribe/1,
          unhex/1, hex/1, hex_list/1, hex4/1, hex8/1, hex16/1, hex_u32/1,
          strunk/1, getter/1, 
          format/2, creader/1, int/1, float/1, hex_data/1, enumerate/1, chunks/2, nchunks/3,
@@ -483,13 +483,23 @@ info(Tag, Msg, Args) ->
 info_p(Msg) ->
     tools:info("~p~n",[Msg]).
 
-info_subscribe(Pid) ->
+info_bc() -> 
+    %% Start if not started, but make sure it is not linked.
     BC = serv:up(info_bc, {spawner, fun serv:bc_start/0}),
     unlink(BC),
+    BC.
+    
+
+%% E.g. Pid == erlang:group_leader()
+info_subscribe(Pid) ->
+    BC = info_bc(),
     info_bc ! {subscribe, Pid},
     {ok, BC}.
-info_subscribe() ->
-    info_subscribe(erlang:group_leader()).
+
+info_unsubscribe(Pid) ->
+    BC = info_bc(),
+    info_bc ! {unsubscribe, Pid},
+    {ok, BC}.
     
 
 %% Bytes with default.
