@@ -38,8 +38,7 @@
          iterate/2,
          split_sub/1,
          split_size/1,
-         enumerate/1,
-         continue/1
+         enumerate/1
         ]).
          
 
@@ -324,13 +323,4 @@ enumerate(Fold) ->
             State
     end.
 
-
-%% The early abort protocol expects these return values from the foldee:
-%%   {continue, State}   Proceed normally
-%%   {abort, FinalState} Abort iteration, return value
-
-%% Wrap an ordinary foldee so it can be used with a folder that
-%% expects the early abort protocol, by not aborting.
-continue(F) -> fun(E,S) -> {continue, F(E,S)} end.
-    
 
