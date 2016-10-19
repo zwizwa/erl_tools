@@ -30,7 +30,7 @@ range(F,State,N,I) ->
         true ->
             case F(I,State) of
                 {next, NextState} -> range(F,NextState,N,I+1);
-                {stop,    FinalState} -> FinalState
+                {stop, FinalState} -> FinalState
             end;
         false ->
             State
@@ -45,7 +45,7 @@ tag_stop(S,F,I) ->
     S(fun(El, {Tag, State}) ->
               case F(El, State) of
                   {stop, FinalState} -> {stop, {stopped, FinalState}};
-                  {next, NextState}   -> {next, {Tag, NextState}}
+                  {next, NextState}  -> {next, {Tag, NextState}}
               end
       end, {finished, I}).
 
