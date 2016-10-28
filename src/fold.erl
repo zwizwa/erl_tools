@@ -41,7 +41,19 @@
          enumerate/1
         ]).
          
+-export_type([iterspec/0, update/1, chunk/0, sink/0]).
+-type update(State) :: fun((any(), State) -> State).
+-type chunk() :: {data, any()} | eof.
+-type sink() :: fun((chunk()) -> any()).
+-type iterspec() :: {foldl, update(State), State} 
+                  | {foldr, update(State), State}
+                  | {sink, sink()}
+                  | list.
 
+
+
+
+%% -type foldee(E,S) :: fun((E :: any(), S :: State) -> State).
 
 %% Tools
 fold_range(F,S,N,I) ->

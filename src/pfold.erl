@@ -1,6 +1,7 @@
 %% Sequences as Partial Folds
 %% --------------------------
 
+%% http://okmij.org/ftp/papers/LL3-collections-enumerators.txt
 %% Extension to fold.erl
 
 %% The early stop protocol expects these return values from the foldee:

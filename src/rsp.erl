@@ -7,7 +7,8 @@
          assemble/1,
          recv/1,
          watch/2,
-         gather/2
+         gather/2,
+         update/2
         ]).
 
 -import(tools,[info/1, info/2, unhex/1, hex/1]).
@@ -163,6 +164,7 @@ watch(Dev, Sock) ->
 
 
 
+update(_,_) -> exit(rsp_update_stub).
     
 
 

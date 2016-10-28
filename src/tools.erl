@@ -32,6 +32,7 @@
          timestamp_us/0,
          filter_tag/2, filter_tags/2,
          register/2,
+         register_suffix/2,
          port_print/2, port_cons/2, fold_port/4, fold_script/5, script_lines/2, script_output/2,
          port_pid/1, port_kill/2,
          script_xml/2, xmlElement_attributes/1, xmlAttribute_pair/1, xmlElement_attributes_proplist/1,
@@ -40,8 +41,8 @@
          map_inverse/1,
          first_ok/1,
          re_dispatch/2,
-         become/1
-         
+         become/1,
+         process_dictionary_get_value/2
         ]).
 
 %% Ad-hoc tools collection.
@@ -462,10 +463,22 @@ format(Msg, Args) ->
     lists:flatten(io_lib:format(Msg, Args)).
 
 
+process_dictionary_get_value(Pid, Key) ->
+    [{dictionary, PropList}] = erlang:process_info(Pid, [dictionary]),
+    proplists:get_value(Key, PropList).
+        
+
+%% If process is registered then return that name.  Otherwise, return
+%% the Atom associated to the name key in the process dictionary, or
+%% the Pid if that was not defined.
 annotate_pid(Pid) ->
     case process_info(Pid, registered_name) of
         {registered_name, Name} -> Name;
-        _ -> Pid
+        _ ->
+            case process_dictionary_get_value(Pid, info_name) of
+                undefined -> Pid;
+                Name -> Name
+            end
     end.
 
 %% Use serv:bc to forward to multiple clients.
@@ -549,6 +562,15 @@ register(Name, Pid) ->
                  [Name, Pid, Other])
     end.
 
+register_suffix(Name, Pid) ->
+    register_suffix(Name, Pid, 0).
+register_suffix(Name, Pid, N) ->
+    NewName = list_to_atom(format("~s~p",[Name,N])),
+    case (catch erlang:register(NewName, Pid)) of
+        true -> true;
+        _ -> register_suffix(Name, Pid, N+1)
+    end.
+    
 
 random_uniform_list(Max,N) ->
     [random:uniform(Max) || _ <- lists:seq(1,N)].

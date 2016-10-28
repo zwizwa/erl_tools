@@ -40,16 +40,16 @@ handle_(<<$+,Data/binary>>, State) ->
     handle_(Data, State);
                         
 handle_(Data, State) ->
-    %% See notes in rsp.erl - this is a hack.
-    tools:info("gdbstub: ~p~n", [Data]),
-    {Rv, NextState} = rsp:update(Data, State),
-    case Rv of
-        {ok, Msg} ->
-            tools:info("rsp: ~p~n", [rsp:unwrap(Msg)]);
-        _ ->
-            ignore
-    end,
-    NextState.
+   %% See notes in rsp.erl - this is a hack.
+   tools:info("gdbstub: ~p~n", [Data]),
+   {Rv, NextState} = rsp:update(Data, State),
+   case Rv of
+       {ok, Msg} ->
+           tools:info("rsp: ~p~n", [rsp:unwrap(Msg)]);
+       _ ->
+           ignore
+   end,
+   NextState.
 
     
     
