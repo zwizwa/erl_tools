@@ -20,6 +20,12 @@
          take/2,
          next/1]).
          
+-export_type([update/1, chunk/0, sink/0, control/1, seq/0]).
+-type control(State) :: {next, State} | {stop, State}.
+-type update(State) :: fun((any(), State) -> control(State)).
+-type chunk() :: {data, any()} | eof.
+-type sink() :: fun((chunk()) -> any()).
+-type seq() :: fun((update(State), State) -> State).
 
 %% Wrap an ordinary foldee so it can be used with a folder that
 %% expects the early stop protocol, by not stoping.
