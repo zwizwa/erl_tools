@@ -8,7 +8,8 @@
          recv/1,
          watch/2,
          gather/2,
-         update/2
+         update/2,
+         esc/1, unesc/1
         ]).
 
 -import(tools,[info/1, info/2, unhex/1, hex/1]).
@@ -27,12 +28,13 @@ unesc([])          -> [];
 unesc([$}|[H| T]]) -> [H|unesc(T)];
 unesc([H|T])       -> [H|unesc(T)].
 
-esc([])       -> [];
-esc([$# | T]) -> "}#" ++ esc(T);
-esc([$$ | T]) -> "}$" ++ esc(T);
-esc([$} | T]) -> "}}" ++ esc(T);
-esc([$* | T]) -> "}*" ++ esc(T);
-esc([H  | T]) -> [ H | esc(T) ].
+
+esc([H|T]) ->
+    case lists:member(H,"#}$*") of
+        true -> [$}, 16#20 bxor H | esc(T)];
+        false -> [H | esc(T)]
+    end;
+esc([]) -> [].
 
 chk(L) -> chk(L,0) band 255.
 chk([],A)    -> A;

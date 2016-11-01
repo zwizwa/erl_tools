@@ -464,8 +464,10 @@ format(Msg, Args) ->
 
 
 process_dictionary_get_value(Pid, Key) ->
-    [{dictionary, PropList}] = erlang:process_info(Pid, [dictionary]),
-    proplists:get_value(Key, PropList).
+    case erlang:process_info(Pid, [dictionary]) of
+        [{dictionary, PropList}] -> proplists:get_value(Key, PropList);
+        _ -> undefined
+    end.
         
 
 %% If process is registered then return that name.  Otherwise, return
