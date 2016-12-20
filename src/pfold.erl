@@ -18,7 +18,9 @@
          append/2, append/1,
          to_list/1, to_rlist/1,
          take/2,
-         next/1]).
+         next/1,
+         with_stop_exit/1
+        ]).
          
 -export_type([update/1, chunk/0, sink/0, control/1, seq/0]).
 -type control(State) :: {next, State} | {stop, State}.
@@ -93,3 +95,16 @@ take(SF, MaxNb) ->
     
 %% pfold:to_list(pfold:take(pfold:append(pfold:range(10), pfold:range(10)), 4)).
 
+%% Take a fold.erl fold, and wrap it as a pfold.erl fold which raises
+%% an error on exit.
+with_stop_exit(Fold) ->
+    fun(F,I) ->
+            Fold(
+              fun(E,S) ->
+                      case F(E,S) of
+                          {next, S} -> S;
+                          {stop, S} -> exit({stop, S})
+                      end
+              end,
+              I)
+    end.

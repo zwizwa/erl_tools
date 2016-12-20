@@ -4,7 +4,7 @@
          strunk/1, getter/1, 
          format/2, creader/1, int/1, float/1, hex_data/1, enumerate/1, chunks/2, nchunks/3,
          unpack/2, unpack_s32/1, unpack_u16/1, unpack_s16/1,
-         p_rem/2, p_div/2, round_up/2,
+         p_rem/2, p_div_rem/2, p_div/2, round_up/2,
          mid/2, mid/3,
          csv_read/1,
          padded_at/2, padded_range/3, padded_insert/4,
@@ -183,13 +183,20 @@ unpack_s16(L) ->
 
 
 %% Modulo with positive remainder.
+-spec p_rem(integer(), pos_integer()) -> pos_integer().
 p_rem(X,Y) when X > 0 -> X rem Y;
 p_rem(X,Y) when X < 0 -> Y + X rem Y;
 p_rem(0,_) -> 0.
 
 %% Divide with positive remainder.
-p_div(X,Y) -> (X - p_rem(X,Y)) div Y.
+-spec p_div(integer(), pos_integer()) -> integer().
+p_div(X,Y) -> {Q,_} = p_div_rem(X,Y), Q.
 
+-spec p_div_rem(integer(), pos_integer()) -> {integer(), pos_integer()}.
+p_div_rem(X,Y) ->
+    R = p_rem(X,Y),
+    Q = (X - R) div Y,
+    {Q,R}.
     
 
 %% Round up to next multiple
@@ -574,8 +581,9 @@ register_suffix(Name, Pid, N) ->
     end.
     
 
+%% FIXME: note that this is 1-Max, not 0-Max-1
 random_uniform_list(Max,N) ->
-    [random:uniform(Max) || _ <- lists:seq(1,N)].
+    [rand:uniform(Max) || _ <- lists:seq(1,N)].
 random_binary(N) ->
     list_to_binary(random_uniform_list(255,N)).
 
