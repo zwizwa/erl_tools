@@ -23,11 +23,16 @@
 
 init() -> #{}.
 
-handle({Pid, dump}, Map)           -> Pid ! {self(), obj_reply, Map}, Map;
-handle({Pid, {replace, M}}, _)     -> Pid ! {self(), obj_reply, ok}, M;
-handle({Pid, {find, K}}, Map)      -> Pid ! {self(), obj_reply, maps:find(K, Map)}, Map;
-handle({Pid, {set, K, V}}, Map)    -> Pid ! {self(), obj_reply, ok}, maps:put(K, V, Map);
-handle({Pid, {update, K, F}}, Map) -> V = F(maps:get(K, Map)), Pid ! {self(), obj_reply, V}, maps:put(K, V, Map);
+%% Allow replies to be disabled to implement casts. for set, replace, update.
+reply(no_reply, _) -> ok;
+reply(Pid, Val) -> Pid ! {self(), obj_reply, Val}.
+    
+
+handle({Pid, dump}, Map)           -> reply(Pid, Map), Map;
+handle({Pid, {replace, M}}, _)     -> reply(Pid, ok), M;
+handle({Pid, {find, K}}, Map)      -> reply(Pid, maps:find(K, Map)), Map;
+handle({Pid, {set, K, V}}, Map)    -> reply(Pid, ok), maps:put(K, V, Map);
+handle({Pid, {update, K, F}}, Map) -> V = F(maps:get(K, Map)), reply(Pid, V), maps:put(K, V, Map);
 handle(shutdown, _)                -> exit(shutdown);
 
 handle(Bad, _) ->

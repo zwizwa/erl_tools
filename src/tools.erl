@@ -9,7 +9,7 @@
          csv_read/1,
          padded_at/2, padded_range/3, padded_insert/4,
          enumerate/2,
-         list_at/2,
+         list_at/2, list_update_with/3,
          tuple_to_list/1, as_binary/1, as_binaries/1, as_list/1, as_atom/1,
          pmap/2,
          foldn/3,
@@ -183,7 +183,7 @@ unpack_s16(L) ->
 
 
 %% Modulo with positive remainder.
--spec p_rem(integer(), pos_integer()) -> pos_integer().
+-spec p_rem(integer(), pos_integer()) -> non_neg_integer().
 p_rem(X,Y) when X > 0 -> X rem Y;
 p_rem(X,Y) when X < 0 -> Y + X rem Y;
 p_rem(0,_) -> 0.
@@ -202,6 +202,7 @@ p_div_rem(X,Y) ->
 %% Round up to next multiple
 round_up(El,Chunk) ->
     (p_div(El-1,Chunk)+1)*Chunk.
+
 
 %% Midpoint, picking smallest if neighbours.
 mid(A,B) -> (A + B) div 2.
@@ -236,8 +237,11 @@ enumerate([H|T],N) -> [{N,H}|enumerate(T,N+1)].
 %% sense to use 0-base for lists as well.
 list_at(List, Index) ->
     lists:nth(Index + 1, List).
-    
 
+%% Also 0-base index    
+list_update_with(Index, Fun, List) ->
+    [case N of Index -> Fun(E); _ -> E end
+     || {N,E} <- enumerate(List)].
              
 %% Record to Maps translation
 tuple_to_list(Tuple) ->
