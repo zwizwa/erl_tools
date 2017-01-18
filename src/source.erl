@@ -1,8 +1,8 @@
 -module(source).
--export([range/2,range/1,to_list/1,to_fold/1,map/2]).
+-export([range/2,range/1,to_list/1,to_fold/1,map/2
+         ,wind/2, wind_unpack/2]).
 
-%% Internal iterators -- dual of sink, represented as pairs with
-%% delayed tails.
+%% External iterators, represented as eof or pair wrapped in thunk.
 
 range(N) -> range(0,N).
 range(E,N) when E < N -> fun() -> {E, range(E+1,N)} end;
@@ -30,5 +30,22 @@ map(F,Src) ->
                 eof -> eof
             end
     end.
+
+%% Wind until predicate is true or eof.
+wind_unpack(Pred, Src) ->            
+    case Src() of
+        {El, NextSrc}=Unpacked ->
+            case Pred(El) of
+                true -> Unpacked;
+                false -> wind_unpack(Pred, NextSrc)
+            end;
+        eof -> eof
+    end.
             
+%% Packed version for completeness, though unpacked version is likely
+%% more useful.
+wind(Pred, Src) ->
+    fun() -> wind_unpack(Pred, Src) end.
             
+                            
+
