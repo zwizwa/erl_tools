@@ -5,6 +5,7 @@
          format/2, creader/1, int/1, float/1, hex_data/1, enumerate/1, chunks/2, nchunks/3,
          unpack/2, unpack_s32/1, unpack_u16/1, unpack_s16/1,
          p_rem/2, p_div_rem/2, p_div/2, round_up/2,
+         not_false/1,
          mid/2, mid/3,
          csv_read/1,
          padded_at/2, padded_range/3, padded_insert/4,
@@ -602,6 +603,8 @@ min_i(I, List) ->
     max_gt(fun(A,B) -> I(A) < I(B) end, List).
               
 
+not_false(false) -> false;
+not_false(_) -> true.
 
 
 port_pid(Port) ->

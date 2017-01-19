@@ -4,6 +4,8 @@
 %% iseq : infinite sequences represent as thunks
 %% Evaluating the thunk produces an {element, iseq} pair.
 
+%% FIXME: this is almost a special case of source.erl
+
 cycle(List, []) ->
     cycle(List, List);
 cycle(Spec, [Head|Tail]) ->
