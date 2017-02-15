@@ -2,7 +2,8 @@
 -export([info_p/1, info/1, info/2, info/3, info_subscribe/1, info_unsubscribe/1,
          unhex/1, hex/1, hex_list/1, hex4/1, hex8/1, hex16/1, hex_u32/1,
          strunk/1, getter/1, 
-         format/2, creader/1, int/1, float/1, hex_data/1, enumerate/1, chunks/2, nchunks/3,
+         format/2, format_binary/2,
+         creader/1, int/1, float/1, hex_data/1, enumerate/1, chunks/2, nchunks/3,
          unpack/2, unpack_s32/1, unpack_u16/1, unpack_s16/1,
          p_rem/2, p_div_rem/2, p_div/2, round_up/2,
          not_false/1,
@@ -474,6 +475,8 @@ timestamp_us() ->
 format(Msg, Args) ->
     lists:flatten(io_lib:format(Msg, Args)).
 
+format_binary(Msg, Args) ->
+    iolist_to_binary(io_lib:format(Msg, Args)).
 
 process_dictionary_get_value(Pid, Key) ->
     case erlang:process_info(Pid, [dictionary]) of
