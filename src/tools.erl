@@ -186,9 +186,12 @@ unpack_s16(L) ->
 
 %% Modulo with positive remainder.
 -spec p_rem(integer(), pos_integer()) -> non_neg_integer().
-p_rem(X,Y) when X > 0 -> X rem Y;
-p_rem(X,Y) when X < 0 -> Y + X rem Y;
-p_rem(0,_) -> 0.
+p_rem(X,Y) ->
+    R = X rem Y,
+    case R >= 0 of
+        true -> R;
+        false -> R + Y
+    end.
 
 %% Divide with positive remainder.
 -spec p_div(integer(), pos_integer()) -> integer().
