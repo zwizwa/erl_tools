@@ -37,7 +37,8 @@
          iterate/2,
          split_sub/1,
          split_size/1,
-         enumerate/1
+         enumerate/1,
+         flatten/1
         ]).
          
 -export_type([iterspec/0, update/1, chunk/0, sink/0]).
@@ -244,7 +245,7 @@ chunks(Fold, {foldl, Split, SplitInit}=_Splitter) ->
             FunResult
     end.
 
-%% Convert a stateless splitter (only that only subdivides partent
+%% Convert a stateless splitter (only that only subdivides parent
 %% chunks and doesn't merge them) into a stateful splitter with dummy
 %% state.
 split_sub(Splitter) ->
@@ -257,20 +258,32 @@ split_size(Size) ->
     {foldl,
      fun(Chunk, ChunkState) ->
              fun(Fun, State) ->
-                     split_size(
+                     split_size_inner(
                        Size, iolist_to_binary([ChunkState, Chunk]),
                        Fun, State)
              end
      end,
      <<>>}.
-split_size(Size, ChunkState, Fun, State) ->
+split_size_inner(Size, ChunkState, Fun, State) ->
     case ChunkState of
         <<Element:Size/binary, Rest/binary>> ->
-            split_size(Size, Rest, Fun, Fun(Element, State));
+            split_size_inner(Size, Rest, Fun, Fun(Element, State));
         _ ->
             {State, ChunkState}
     end.
      
+
+%% FIXME: Abstract this pattern further.
+flatten(Fold) ->
+    fun(F,I) ->
+            Fold(
+              fun(E,S) ->
+                      L =  lists:flatten(E),
+                      lists:foldl(F,S,L)
+              end, I)
+    end.
+            
+    
 
 %% fold:to_list(fold:chunks(fold:from_list([1,2,3,4,5,6]), fold:split_size(2))).
 
