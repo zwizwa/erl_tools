@@ -5,7 +5,9 @@
          format/2, format_binary/2,
          creader/1, int/1, float/1, hex_data/1, enumerate/1, chunks/2, nchunks/3,
          unpack/2, unpack_s32/1, unpack_u16/1, unpack_s16/1,
-         p_rem/2, p_div_rem/2, p_div/2, round_up/2,
+         p_rem/2, p_div_rem/2, p_div/2,
+         n_rem/2, n_div_rem/2, n_div/2,
+         round_up/2, round_down/2,
          not_false/1,
          mid/2, mid/3,
          csv_read/1,
@@ -185,6 +187,8 @@ unpack_s16(L) ->
 
 
 %% Modulo with positive remainder.
+
+%% Divide and modulo with remainder >= 0
 -spec p_rem(integer(), pos_integer()) -> non_neg_integer().
 p_rem(X,Y) ->
     R = X rem Y,
@@ -192,21 +196,37 @@ p_rem(X,Y) ->
         true -> R;
         false -> R + Y
     end.
-
-%% Divide with positive remainder.
--spec p_div(integer(), pos_integer()) -> integer().
-p_div(X,Y) -> {Q,_} = p_div_rem(X,Y), Q.
-
--spec p_div_rem(integer(), pos_integer()) -> {integer(), pos_integer()}.
+-spec p_div_rem(integer(), pos_integer()) -> {integer(), non_neg_integer()}.
 p_div_rem(X,Y) ->
     R = p_rem(X,Y),
     Q = (X - R) div Y,
     {Q,R}.
+-spec p_div(integer(), pos_integer()) -> integer().
+p_div(X,Y) -> {Q,_} = p_div_rem(X,Y), Q.
+
+
+%% Divide and modulo with remainder =< 0
+-type non_pos_integer() :: integer().  %% FIXME: how to express this?
+-spec n_rem(integer(), pos_integer()) -> non_pos_integer().
+n_rem(X,Y) ->
+    R = X rem Y,
+    case R =< 0 of
+        true -> R;
+        false -> R - Y
+    end.
+-spec n_div_rem(integer(), pos_integer()) -> {integer(), non_pos_integer()}.
+n_div_rem(X,Y) ->
+    R = n_rem(X,Y),
+    Q = (X - R) div Y,
+    {Q,R}.
+-spec n_div(integer(), pos_integer()) -> integer().
+n_div(X,Y) -> {Q,_} = n_div_rem(X,Y), Q.
+
     
 
-%% Round up to next multiple
-round_up(El,Chunk) ->
-    (p_div(El-1,Chunk)+1)*Chunk.
+%% Round up/down to next, prev multiple
+round_up  (El,Chunk) -> Chunk * n_div(El, Chunk).
+round_down(El,Chunk) -> Chunk * p_div(El, Chunk).
 
 
 %% Midpoint, picking smallest if neighbours.
