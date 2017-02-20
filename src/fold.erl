@@ -24,7 +24,7 @@
          range/1,
          map/2,
          fold/3,
-         filter/2,
+         filter/2, filter_map/2, filter_index/2, drop/2,
          empty/0,
          append/1, append/2,
          from_list/1, to_list/1, to_rlist/1,
@@ -32,7 +32,6 @@
          for/2,
          histogram/1,
          split_at/3, split_at/2,
-         drop/2,
          gen/1, gen/2,
          chunks/2,
          iterate/2,
@@ -173,28 +172,19 @@ split_at(HeaderP, Fold) ->
 
 
 
-%% DROP.  Note that without partial continuations, it's not possible
-%% to only take a couple of elements leaving the tail as a Fold.  PCs
-%% or something similar can likely be emulated with Erlang processes.
+%% DROP.  Note that without partial continuations (e.g. emulated by
+%% Erlang tasks), it's not possible to only take a couple of elements
+%% leaving the tail as a Fold.  The entire loop needs to be
+%% transformed.
 
-%% For now, only drop is necessary, which doesn't have this problem as
-%% it can be represented by a state extension without violating the
-%% fold interface.
-
-%% FIXME: implement in terms of enumerate?
+%% It seems simplest to implement this in terms of enumerate and
+%% filter, and also to generalize it to arbitrary index filtering.
 
 drop(N, Fold) ->
-    fun(F, I) -> drop(N, Fold, F, I) end.
-drop(N, Fold, UFun, UState0) ->
-    {_, S} =
-        Fold(fun(Element, {Dropped, UState}) ->
-                     case Dropped of
-                         N -> {Dropped, UFun(Element, UState)};
-                         _ -> {Dropped+1, UState}
-                     end
-             end,
-             {0, UState0}),
-    S.
+    filter_index(fun(I) -> I >= N end, Fold).
+filter_index(PredIndex, Fold) ->
+    filter_map(fun({I, El}) -> {PredIndex(I), El} end,
+               enumerate(Fold)).
 
 %% Convert a Sink-parameterized generator to a Fold.  In general,
 %% prefer Folds, but in some cases it is easier to implement
@@ -286,18 +276,21 @@ split_size(Size, ChunkState, Fun, State) ->
 
     
 
-%% Filter elements
+%% Filter elements.  filter_map is quite common and useful for
+%% optimization, so implement that as main routione.
 filter(Pred, Fold) ->
+    filter_map(fun(El) -> {Pred(El), El} end, Fold).
+filter_map(PredEl, Fold) ->
     fun(Fun, Init) ->
             Fold(
               fun(El, Accu) ->
-                      case Pred(El) of
-                          true -> Fun(El, Accu);
-                          false -> Accu
+                      case PredEl(El) of
+                          {true, FEl} -> Fun(FEl, Accu);
+                          {false, _} -> Accu
                       end
               end, Init)
     end.
-            
+   
                          
 %% Based on left and right fold, implement sink and list patterns.
 iterate({FoldLeft, FoldRight}, IterSpec) ->
