@@ -1,5 +1,5 @@
 -module(obj).
--export([init/0, handle/2, call/2, call/3,
+-export([init/0, handle/2, call/2, call/3, reply/2,
          get/2, get/3, set/3, gets/2,
          update/3, find/2, dump/1, replace/2]).
 
@@ -30,6 +30,7 @@ reply(Pid, Val) -> Pid ! {self(), obj_reply, Val}.
 
 handle({Pid, dump}, Map)           -> reply(Pid, Map), Map;
 handle({Pid, {replace, M}}, _)     -> reply(Pid, ok), M;
+handle({Pid, {remove, K}}, Map)    -> Map1 = maps:remove(K, Map), reply(Pid, ok), Map1;
 handle({Pid, {find, K}}, Map)      -> reply(Pid, maps:find(K, Map)), Map;
 handle({Pid, {set, K, V}}, Map)    -> reply(Pid, ok), maps:put(K, V, Map);
 handle({Pid, {update, K, F}}, Map) -> V = F(maps:get(K, Map)), reply(Pid, V), maps:put(K, V, Map);
