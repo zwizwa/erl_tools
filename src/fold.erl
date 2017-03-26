@@ -18,7 +18,6 @@
 %% This can be thought of as complimentary to sink.erl The combination
 %% of both, and processes, yields input/output behavior.
 
-
 -module(fold).
 -export([fold_range/3,
          range/1,
