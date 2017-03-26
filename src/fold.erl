@@ -237,13 +237,16 @@ gen(Fun, Args) ->
 %% This function converts a fold over arbitrary chunks to a fold over
 %% re-packaged based on a Splitter machine.  The splitter machine
 %% performs the fold over the elements, threading along its splitter
-%% state.
+%% state.  As a consequence of the implementation, the chunks can
+%% themselves be iolists.
 
 -ifdef(TEST).
 chunk_test_() ->
+    %% Split a sequence of iolists into fixed size chunks.
     Out = [<<1,2>>, <<3,4>>, <<5,6>>],
-    [?_assert(to_list(chunks(from_list([1,2,3,4,5,6]),         split_size(2))) =:= Out),
-     ?_assert(to_list(chunks(from_list([<<1,2,3>>,<<4,5,6>>]), split_size(2))) =:= Out)].
+    [?_assert(to_list(chunks(from_list([1,2,3,4,5,6]),           split_size(2))) =:= Out),
+     ?_assert(to_list(chunks(from_list([<<1,2,3>>,<<4,5,6>>]),   split_size(2))) =:= Out),
+     ?_assert(to_list(chunks(from_list([<<1,2,3>>,[<<4,5>>],6]), split_size(2))) =:= Out)].
 -endif.
 
 chunks(Fold, {foldl, Split, SplitInit}=_Splitter) ->
