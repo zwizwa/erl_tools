@@ -64,6 +64,16 @@
 %% License: http://creativecommons.org/publicdomain/zero/1.0
 
 
+-ifdef(TEST).
+hex_test_() ->
+    [?_assert(hex16(16#0123) =:= "0123"),
+     ?_assert(hex8 (16#01)   =:= "01"),
+     ?_assert(hex4 (16#01)   =:= "1"),
+     ?_assert(unhex("012345")  =:= [16#01, 16#23, 16#45]),
+     ?_assert(hex([16#01, 16#23, 16#45]) =:= "012345")
+    ].
+-endif.
+
 
 unhex([]) -> [];
 unhex([H|[L|T]]) ->
@@ -74,6 +84,7 @@ hex_list([H|T]) -> [hex8(H)] ++ hex_list(T);
 hex_list(X) -> hex_list(as_list(X)).
 
 hex(L) -> lists:flatten(hex_list(L)).
+
 
 hex16(Val) -> [_|Hex] = integer_to_list(16#10000 + (Val band 16#FFFF),16), Hex.
 hex8(Val)  -> [_|Hex] = integer_to_list(16#100   + (Val band 16#FF),  16), Hex.
@@ -303,6 +314,12 @@ as_atom(X) when is_list(X) -> list_to_atom(X).
      
      
 %% Parallel map
+-ifdef(TEST).
+pmap_test_() ->
+    F = fun(X) -> X + 1 end,
+    [?_assert(pmap(F, [1, 2, 3])         =:= #{1 => 2, 2 => 3, 3 => 4}),
+     ?_assert(pmap(F, #{a => 1, b => 2}) =:= #{a => 2, b => 3})].
+-endif.
 
 %% Run operation in parallel on elements of map.
 pmap(Fun, Input) when is_map(Input) ->
@@ -327,7 +344,7 @@ pmap(Fun, Input) when is_map(Input) ->
       maps:size(Input));
 
 %% Same, but keys are treated as inputs.
-pmap(Fun, Keys) ->
+pmap(Fun, Keys) when is_list(Keys) ->
     pmap(Fun, maps:from_list([{K,K} || K <- Keys])).
 
 

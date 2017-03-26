@@ -1,4 +1,4 @@
 #!/bin/bash
 cd $(dirname $0)
-exec erl -pa ebin
+exec erl -pa _build/default/lib/erl_tools/ebin/
 
