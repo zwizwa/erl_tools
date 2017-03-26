@@ -48,6 +48,9 @@
          become/1,
          process_dictionary_get_value/2
         ]).
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
 
 %% Ad-hoc tools collection.
 
@@ -186,7 +189,15 @@ unpack_s16(L) ->
 
 
 
-%% Modulo with positive remainder.
+%% integer division with positive and negative remainder.
+-ifdef(TEST).
+p_n_test_() ->
+    [?_assert(p_div_rem( 10,3) =:= { 3, 1}),
+     ?_assert(p_div_rem(-10,3) =:= {-4, 2}),
+     ?_assert(n_div_rem(-10,3) =:= {-3,-1}),
+     ?_assert(n_div_rem( 10,3) =:= { 4,-2})
+    ].
+-endif.
 
 %% Divide and modulo with remainder >= 0
 -spec p_rem(integer(), pos_integer()) -> non_neg_integer().
