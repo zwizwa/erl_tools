@@ -70,7 +70,8 @@ hex_test_() ->
      ?_assert(hex8 (16#01)   =:= "01"),
      ?_assert(hex4 (16#01)   =:= "1"),
      ?_assert(unhex("012345")  =:= [16#01, 16#23, 16#45]),
-     ?_assert(hex([16#01, 16#23, 16#45]) =:= "012345")
+     ?_assert(hex([16#01, 16#23, 16#45]) =:= "012345"),
+     ?_assert(hex_u32(16#01234567) =:= "67452301")
     ].
 -endif.
 
@@ -168,7 +169,17 @@ getter(Dict) ->
     end.
 
 %% Unpack a nested tree of binary messages.  The binary messages
-%% themselves need to be word-aligned.
+%% themselves need to be word-aligned.  See fold:chunks for a more
+%% flexible approach.
+
+-ifdef(TEST).
+unpack_test_() ->
+    [?_assert(unpack_u16(<<1,2,3,4>>)         =:= [16#0201, 16#0403]),
+     ?_assert(unpack_u16([<<1,2>>,<<3,4>>])   =:= [16#0201, 16#0403]),
+     ?_assert(unpack_u16([<<1,2>>,[<<3,4>>]]) =:= [16#0201, 16#0403])
+    ].
+-endif.
+
 
 %% U = unpack binary
 %% H = head

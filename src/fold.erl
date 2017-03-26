@@ -39,6 +39,12 @@
          enumerate/1,
          flatten/1
         ]).
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
+
          
 -export_type([iterspec/0, update/1, chunk/0, sink/0]).
 -type update(State) :: fun((any(), State) -> State).
@@ -232,6 +238,14 @@ gen(Fun, Args) ->
 %% re-packaged based on a Splitter machine.  The splitter machine
 %% performs the fold over the elements, threading along its splitter
 %% state.
+
+-ifdef(TEST).
+chunk_test_() ->
+    Out = [<<1,2>>, <<3,4>>, <<5,6>>],
+    [?_assert(to_list(chunks(from_list([1,2,3,4,5,6]),         split_size(2))) =:= Out),
+     ?_assert(to_list(chunks(from_list([<<1,2,3>>,<<4,5,6>>]), split_size(2))) =:= Out)].
+-endif.
+
 chunks(Fold, {foldl, Split, SplitInit}=_Splitter) ->
     fun(Fun, FunInit) ->
             {FunResult, _} =
@@ -284,7 +298,6 @@ flatten(Fold) ->
             
     
 
-%% fold:to_list(fold:chunks(fold:from_list([1,2,3,4,5,6]), fold:split_size(2))).
 
     
 
