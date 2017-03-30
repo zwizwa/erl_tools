@@ -513,10 +513,15 @@ process_dictionary_get_value(Pid, Key) ->
 %% the Pid if that was not defined.
 annotate_pid(Pid) ->
     case process_info(Pid, registered_name) of
-        {registered_name, Name} -> Name;
+        {registered_name, Name} ->
+            Name;
         _ ->
             case process_dictionary_get_value(Pid, info_name) of
                 undefined -> Pid;
+                {annotate_recursive, OtherPid, Tag} ->
+                    %% Allow for recursive annotation for tasks that
+                    %% do not have a name until later.
+                    {annotate_pid(OtherPid), Tag};
                 Name -> Name
             end
     end.
