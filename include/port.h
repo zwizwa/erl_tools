@@ -1,3 +1,11 @@
+
+// To the extent possible under law, Tom Schouten has waived all
+// copyright and related or neighboring rights to the erl_tools
+// library.
+//
+// Code:    http://zwizwa.be/git/erl_tools
+// License: http://creativecommons.org/publicdomain/zero/1.0
+
 #ifndef PORT_H
 #define PORT_H
 
@@ -32,6 +40,7 @@ static inline int assert_read(int fd, uint8_t *buf, uint32_t nb) {
     }
     else if (rv == 0) {
         LOG("fd %2d: EOF\n", fd);
+        exit(0);
     }
     else if (rv < 0) {
         int e = errno;
@@ -64,16 +73,17 @@ static inline int assert_read_port8_cstring(int fd, char *buf) {
     return len;
 }
 static inline uint32_t assert_read_u32(int fd) {
-    uint8_t be[4];
-    assert_read(fd, &be[0], 4);
+    uint8_t be[4] = {};
+    assert_read_fixed(fd, &be[0], 4);
     return be[0] << 24 | be[1] << 16 | be[2] << 8 | be[3];
 }
 static inline void *assert_read_packet4(int fd) {
     uint32_t buf_len = assert_read_u32(fd);
     if (!buf_len) return NULL;
-    uint8_t *buf;
-    ASSERT(buf = malloc(buf_len+1));
-    assert_read(fd, buf, buf_len);
+    uint8_t *buf = malloc(buf_len+1);
+    if (!buf) { LOG("malloc(0x%08x) failed\n", buf_len+1); }
+    ASSERT(buf);
+    assert_read_fixed(fd, buf, buf_len);
     buf[buf_len] = 0; // hack for LOG("%s").
     return buf;
 }
@@ -87,7 +97,7 @@ static inline int assert_write(int fd, const uint8_t *buf, uint32_t nb) {
     int left = nb;
     while(left > 0) {
         int rv;
-        ASSERT((rv = WRITE(fd, buf, left)) > 0);
+        ASSERT_ERRNO(rv = WRITE(fd, buf, left));
         buf  += rv;
         left -= rv;
     }
@@ -104,16 +114,35 @@ static inline void assert_write_port8(int fd, void *buf, uint8_t nb_bytes) {
 void s_u8(uint8_t b);
 void s_flush(void);
 
+// see also bert.js
+#define BERT_START         131
+#define BERT_SMALL_ATOM    115
+#define BERT_ATOM          100
+#define BERT_BINARY        109
+#define BERT_SMALL_INTEGER  97
+#define BERT_INTEGER        98
+#define BERT_SMALL_BIG     110
+#define BERT_LARGE_BIG     111
+#define BERT_FLOAT          99
+#define BERT_NEW_FLOAT      70
+#define BERT_STRING        107
+#define BERT_LIST          108
+#define BERT_SMALL_TUPLE   104
+#define BERT_LARGE_TUPLE   105
+#define BERT_NIL           106
+#define BERT_MAP           116
+#define BERT_ZERO            0
+
 
 // send things
 static inline void s_u32(uint32_t w) { s_u8(w>>24); s_u8(w>>16); s_u8(w>>8); s_u8(w); }
 static inline void s_bytes(uint32_t len, uint8_t *buf) { for(uint32_t i = 0; i<len; i++) s_u8(buf[i]); }
-static inline void s_tag_term() { s_u8(131); }
-static inline void s_tag_u32()  { s_u8(98); }
-static inline void s_tag_nil()  { s_u8(106); }
-static inline void s_tag_binary(uint32_t len) { s_u8(109); s_u32(len); } // 5
-static inline void s_tag_tuple(uint32_t size) { s_u8(104); s_u8(size); } // 2
-static inline void s_tag_list(uint32_t len) { s_u8(108); s_u32(len); } // 5
+static inline void s_tag_term() { s_u8(BERT_START); }
+static inline void s_tag_u32()  { s_u8(BERT_INTEGER); }
+static inline void s_tag_nil()  { s_u8(BERT_NIL); }
+static inline void s_tag_binary(uint32_t len) { s_u8(BERT_BINARY); s_u32(len); } // 5
+static inline void s_tag_tuple(uint32_t size) { s_u8(BERT_SMALL_TUPLE); s_u8(size); } // 2
+static inline void s_tag_list(uint32_t len) { s_u8(BERT_LIST); s_u32(len); } // 5
 
 
 // http://erlang.org/doc/apps/erts/erl_ext_dist.html
@@ -173,8 +202,6 @@ static inline void s_term_list_of_u32(int n, uint32_t *a){
     }
     s_tag_nil();
 }
-
-
 
 
 #endif
