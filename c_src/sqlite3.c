@@ -1,8 +1,16 @@
+// To the extent possible under law, Tom Schouten has waived all
+// copyright and related or neighboring rights to the erl_tools
+// library.
+//
+// Code:    http://zwizwa.be/git/erl_tools
+// License: http://creativecommons.org/publicdomain/zero/1.0
+
 #include "system.h"
 #include <stdio.h>
 #include <sqlite3.h>
 
 #include "bert.h"
+#include "port.h"
 
 // https://www.sqlite.org/c_interface.html
 // https://www.sqlite.org/quickstart.html
