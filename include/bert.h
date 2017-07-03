@@ -26,7 +26,27 @@
 
 #ifndef BERT_H
 #define BERT_H
-#include "port.h"
+
+#include <stdlib.h>
+#include <stdint.h>
+
+#define BERT_START         131
+#define BERT_SMALL_ATOM    115
+#define BERT_ATOM          100
+#define BERT_BINARY        109
+#define BERT_SMALL_INTEGER  97
+#define BERT_INTEGER        98
+#define BERT_SMALL_BIG     110
+#define BERT_LARGE_BIG     111
+#define BERT_FLOAT          99
+#define BERT_NEW_FLOAT      70
+#define BERT_STRING        107
+#define BERT_LIST          108
+#define BERT_SMALL_TUPLE   104
+#define BERT_LARGE_TUPLE   105
+#define BERT_NIL           106
+#define BERT_MAP           116
+#define BERT_ZERO            0
 
 /* BERT parser with parameterized constructors (i.e a generalized
    right fold). */
