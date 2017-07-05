@@ -6,7 +6,9 @@
         ,from_fold/1]).
 
 %% External iterators, represented as eof or pair wrapped in thunk.
-%% Note: this only works for side-effect free code.  FIXME: add delay/force to eval only once. 
+%% Note: this only works for side-effect free code.
+
+%% FIXME: add delay/force to eval only once?
 
 %% Representation can either be unpacked or not.  This is a small hack
 %% to avoid re-evaluation.
@@ -84,6 +86,14 @@ from_list(List) ->
             end
     end.
 
+%% Mostly an exercise.  Note that this is a leaky abstraction: if the
+%% source is not used up until eof, the underlying Fold will not
+%% terminate and the resources it might use will be left hanging,
+%% together with the process used to execute it.
+
+%% This might make more sense with a pfold if we define a "close"
+%% method on sources.
+
 %% Fold is one-shot, so it needs to be blocked at some point by
 %% running it in a separate process.  Note that the iterator needs to
 %% be used up all the way to eof otherwise the fold will not terminate
@@ -109,11 +119,3 @@ from_fold(Sync, Serv, Next) ->
         {data, Val} -> {Val, fun() -> from_fold(Sync, Serv, Next) end}; 
         eof -> eof
     end.
-
-
-
-                    
-    
-            
-            
-    
