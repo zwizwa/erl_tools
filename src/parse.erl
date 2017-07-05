@@ -26,7 +26,8 @@ bm_tok(Control, InStream) ->
             tok_fld(Control, normal, [], upk(InStream), Fun, Init)
     end.
 
-%% Input is a source.erl outer iterator.
+%% Input is a source.erl outer iterator.  Unpack will generate either
+%% eof or {Char,Rest}.
 upk(Stream) -> source:unpack(Stream).
 
 %% Left fold core routine.

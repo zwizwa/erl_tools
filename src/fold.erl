@@ -31,7 +31,7 @@
          for/2,
          histogram/1,
          split_at/3, split_at/2,
-         gen/1, gen/2,
+         from_gen/1, from_gen/2,
          chunks/2,
          iterate/2,
          split_sub/1,
@@ -197,7 +197,7 @@ filter_index(PredIndex, Fold) ->
 %% interation in terms of side-effecting sinks.  Note that some flow
 %% control is necessary.  Otherwise generator process will just fill
 %% up the message buffer.
-gen(Gen) ->
+from_gen(Gen) ->
     Pid = self(),
     Sink = fun(Msg) ->
                    Pid ! {self(), Msg},
@@ -227,8 +227,8 @@ gen_fold(Fun, Accu, GenPid) ->
                     
 
 %% gen/2 assumes the generator argument is passed last.
-gen(Fun, Args) ->
-    gen(fun(Sink) -> apply(Fun, Args ++ [Sink]) end).
+from_gen(Fun, Args) ->
+    from_gen(fun(Sink) -> apply(Fun, Args ++ [Sink]) end).
 
 
 %% Similar in idea to iolists, it is often the case in low level data
