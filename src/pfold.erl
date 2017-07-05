@@ -17,6 +17,7 @@
 -export([range/1,
          append/2, append/1,
          to_list/1, to_rlist/1,
+         to_list/2, to_rlist/2,
          take/2,
          next/1,
          with_stop_exit/1,
@@ -78,8 +79,16 @@ append([]) ->
 append([S1|S2]) ->
     append(S1, append(S2)).
 
-to_rlist(SF) -> SF(fun(E,S)->{next, [E|S]} end, []).
-to_list(SF) -> lists:reverse(to_rlist(SF)).
+all(_) -> next.
+    
+
+to_rlist(SF,NextOrStop) -> SF(fun(E,S)->{NextOrStop(E), [E|S]} end, []).
+to_rlist(SF) -> to_rlist(SF, fun all/1).
+
+to_list(SF,NextOrStop) -> lists:reverse(to_rlist(SF,NextOrStop)).
+to_list(SF) -> to_list(SF, fun all/1).
+
+    
 
 take(SF, MaxNb) ->
     fun(F, I) ->
@@ -141,6 +150,5 @@ map(MapFun, Fold, FoldFun, Init) ->
                 State)
       end, Init).
                  
-            
 
                  
