@@ -1,7 +1,9 @@
 -module(source).
 -export([range/2,range/1,to_list/1,to_fold/1,map/2,filter/2
-         ,unpack/1
-         ,wind/2, wind_unpack/2]).
+        ,unpack/1
+        ,wind/2, wind_unpack/2
+        ,from_list/1
+        ,from_fold/1]).
 
 %% External iterators, represented as eof or pair wrapped in thunk.
 %% Note: this only works for side-effect free code.  FIXME: add delay/force to eval only once. 
@@ -74,3 +76,44 @@ wind(Pred, Src) ->
             
                             
 
+from_list(List) ->
+    fun() ->
+            case List of
+                [] -> eof;
+                [H|T] -> {H, from_list(T)}
+            end
+    end.
+
+%% Fold is one-shot, so it needs to be blocked at some point by
+%% running it in a separate process.  Note that the iterator needs to
+%% be used up all the way to eof otherwise the fold will not terminate
+%% and any resources it might need to free will stay open.
+from_fold(Fold) ->
+    fun() ->
+            Sync = fun(Val) ->
+                           receive {Pid, next} -> obj:reply(Pid, Val) end
+                   end,
+            Serv = spawn_link(
+                     fun() ->
+                             Fold(fun(Val,_) -> Sync({data,Val}) end, nostate),
+                             Sync(eof)
+                     end),
+            Next = fun() -> 
+                           obj:call(Serv, next)
+                   end,
+            from_fold(Sync, Serv, Next)
+    end.
+
+from_fold(Sync, Serv, Next) ->
+    case Next() of 
+        {data, Val} -> {Val, fun() -> from_fold(Sync, Serv, Next) end}; 
+        eof -> eof
+    end.
+
+
+
+                    
+    
+            
+            
+    
