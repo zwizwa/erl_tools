@@ -85,34 +85,29 @@ from_list(List) ->
     end.
 
 %% Fold is one-shot, so it needs to be blocked at some point by
-%% running it in a separate process.  Use the obj.erl protocol Note
-%% that the iterator needs to be used up all the way to eof otherwise
-%% the fold will not terminate and any resources it might need to free
-%% will stay open.
+%% running it in a separate process.  Note that the iterator needs to
+%% be used up all the way to eof otherwise the fold will not terminate
+%% and any resources it might need to free will stay open.
 from_fold(Fold) ->
-    Sync = fun(Val) ->
-                   receive {Pid, next} -> 
-                           obj:reply(Pid, Val)
-                   end
-           end,
-    Serv = spawn_link(
-             fun() ->
-                     Fold(
-                       fun(Val,_) -> Sync({data,Val}) end,
-                       nostate),
-                     Sync(eof)
-             end),
-    Next = fun() -> 
-                   obj:call(Serv, next)
-           end,
-    from_fold(Sync, Serv, Next).
+    fun() ->
+            Sync = fun(Val) ->
+                           receive {Pid, next} -> obj:reply(Pid, Val) end
+                   end,
+            Serv = spawn_link(
+                     fun() ->
+                             Fold(fun(Val,_) -> Sync({data,Val}) end, nostate),
+                             Sync(eof)
+                     end),
+            Next = fun() -> 
+                           obj:call(Serv, next)
+                   end,
+            from_fold(Sync, Serv, Next)
+    end.
 
 from_fold(Sync, Serv, Next) ->
-    fun() ->
-            case Next() of 
-                {data, Val} -> {Val, from_fold(Sync, Serv, Next)}; 
-                eof -> eof
-            end
+    case Next() of 
+        {data, Val} -> {Val, fun() -> from_fold(Sync, Serv, Next) end}; 
+        eof -> eof
     end.
 
 
