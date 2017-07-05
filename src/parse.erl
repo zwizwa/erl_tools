@@ -18,30 +18,46 @@ test() ->
 
 %% Bi-modal quote/escape tokenizer with single-character controls.
 %% This structure seems quite common for ad-hoc languages.
-bm_tok(Control, List) ->
+%% Token stream structured as a left fold.
+%% Input can be a list or a pair/eof generator.
+bm_tok(Control, InStream) ->
     fun(Fun, Init) ->
-            tok_fld(Control, normal, [], List, Fun, Init)
+            tok_fld(Control, normal, [], InStream, Fun, Init)
     end.
 
+%% Input can be a list
+pop([H])    -> {H,eof};
+pop([H|T])  -> {H,T};
+pop([])     -> error(eof);
+
+%% Or a more general external iterator that pops into {Char,Rest} | eof
+pop({source,Pop}) -> Pop().
+
+
 %% Left fold core routine.
-tok_fld(_,normal,Stack,[],F,S) -> atm(Stack,F,S);
-tok_fld(C,normal,Stack,[Char|Rest], F, S) ->
-    case maps:find(Char, C) of
-        {ok, escape} -> error(bad_escape);
-        {ok, quote}  -> tok_fld(C, quote, Stack, Rest, F, S);
-        {ok, Token}  -> tok_fld(C, normal, [], Rest, F, F(Token,atm(Stack,F,S)));
-        _            -> tok_fld(C, normal, [Char | Stack], Rest, F, S)
-    end;
-tok_fld(C,quote,Stack,[Char|Rest], F, S) ->
+tok_fld(_,normal,Stack,eof,F,S) -> atm(Stack,F,S);
+tok_fld(C,normal,Stack,In,F,S) ->
+    {Char,Rest} = pop(In),
     case maps:find(Char, C) of
         {ok, escape} ->
-            case Rest of
-                [Char1|Rest1] -> tok_fld(C,quote,[Char1|Stack],Rest1,F,S);
-                _ ->             error(bad_quote)
-                    
-            end;
-        {ok, quote} -> tok_fld(C,normal,Stack,Rest,F,S);
-        _ ->           tok_fld(C,quote,[Char|Stack],Rest,F,S)
+            error(bad_escape);
+        {ok, quote} ->
+            tok_fld(C, quote, Stack, Rest, F, S);
+        {ok, Token} ->
+            tok_fld(C, normal, [], Rest, F, F(Token,atm(Stack,F,S)));
+        _ ->
+            tok_fld(C, normal, [Char | Stack], Rest, F, S)
+    end;
+tok_fld(C,quote,Stack,In,F,S) ->
+    {Char,Rest} = pop(In),
+    case maps:find(Char, C) of
+        {ok, escape} ->
+            {Char1,Rest1} = pop(Rest),
+            tok_fld(C,quote,[Char1|Stack],Rest1,F,S);
+        {ok, quote} ->
+            tok_fld(C,normal,Stack,Rest,F,S);
+        _ ->
+            tok_fld(C,quote,[Char|Stack],Rest,F,S)
             
     end.
 atm([], _, S) -> S;
