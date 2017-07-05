@@ -19,7 +19,9 @@
          to_list/1, to_rlist/1,
          take/2,
          next/1,
-         with_stop_exit/1
+         with_stop_exit/1,
+         nchunks/3,
+         map/2
         ]).
          
 -export_type([update/1, chunk/0, sink/0, control/1, seq/0]).
@@ -108,3 +110,37 @@ with_stop_exit(Fold) ->
               end,
               I)
     end.
+
+
+%% pfold version of tools:nchunks/3
+nchunks(Offset, Endx, Max) ->
+    fun(F,S) -> nchunks(Offset, Endx, Max, F, S) end.
+nchunks(Offset, Endx, Max, Fun, State) ->
+    case Offset of
+        Endx -> State;
+        _ ->
+            Left = Endx - Offset,
+            ChunkSize = case Left > Max of true  -> Max; false -> Left end,
+            case Fun({Offset, ChunkSize}, State) of
+                {stop, LastState} ->
+                    LastState;
+                {next, NextState} ->
+                    nchunks(Offset + ChunkSize, Endx, Max, Fun, NextState)
+            end
+    end.
+            
+%% The function to be mapped is pure.  It doesn't seem to make sense
+%% to have this also return next/stop.
+map(MapFun, Fold) ->
+    fun(FoldFun, Init) -> map(MapFun, Fold, FoldFun, Init) end.
+map(MapFun, Fold, FoldFun, Init) ->
+    Fold(
+      fun(Element, State) ->
+              FoldFun(
+                MapFun(Element),
+                State)
+      end, Init).
+                 
+            
+
+                 
