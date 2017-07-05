@@ -62,7 +62,7 @@ sync(Port,Sink) ->
         {Port, {data, {eol, [$(,$g,$d,$b,$)|_]}}} ->
             Sink(eof);
         {Port, {data, {eol, Line}}} ->
-            Sink({data, handle(Line)}),
+            Sink({data, untag(Line)}),
             sync(Port,Sink);
         {Port, Anything} -> 
             Sink({error, Anything}),
@@ -72,7 +72,7 @@ sync(Port,Sink) ->
     end.
 
 %% https://sourceware.org/gdb/onlinedocs/gdb/GDB_002fMI-Output-Syntax.html#GDB_002fMI-Output-Syntax
-handle(Line) ->
+untag(Line) ->
     case Line of
         [$^|S] -> {result,S};
         [$+|S] -> {status,S};
@@ -82,6 +82,13 @@ handle(Line) ->
         [$~|S] -> {console,S};
         Other ->  {other, Other}
     end.
+
+                           
+            
+            
+        
+
+
 
 
 %% non-sink version of cmd_sink/3.
@@ -129,9 +136,7 @@ console_clean({console, QuotedString}) ->
 console_clean(Other) -> {error, Other}.
 
             
-
-
-
+    
 
 
   
@@ -148,3 +153,5 @@ console_clean(Other) -> {error, Other}.
 %%         _ -> error
 %%     end.
             
+
+
