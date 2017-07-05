@@ -1,10 +1,10 @@
 -module(parse).
--export([bm_tok/2,test/0]).
+-export([bimodal_tokenize/2,test/0]).
 
 %% Parse utils
 test() ->
     Fold = 
-        bm_tok(
+        bimodal_tokenize(
           #{ %% Used by tokenizer
              $" => quote,
              $\ => escape,
@@ -21,7 +21,7 @@ test() ->
 %% This structure seems quite common for ad-hoc languages.
 %% Token stream structured as a left fold.
 %% Input can be a list or a pair/eof generator.
-bm_tok(Control, InStream) ->
+bimodal_tokenize(Control, InStream) ->
     fun(Fun, Init) ->
             tok_fld(Control, normal, [], upk(InStream), Fun, Init)
     end.
@@ -56,3 +56,6 @@ tok_fld(C,quote,Stack,{Char,Rest},F,S) ->
     end.
 atm([], _, S) -> S;
 atm(Stack, F, S) -> F({atom,lists:reverse(Stack)},S).
+
+
+

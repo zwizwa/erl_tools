@@ -7,6 +7,7 @@
         ,set/4          %% Set a variable or struct member
         ,send/2, sync/2 %% For blocking interaction
         ,msg_get/2      %% Retreive values from status messages (ad-hoc)
+        ,msg_proplist/1 %% Hack, gathers all bindings
         ]).
 
          
@@ -163,4 +164,34 @@ msg_get({status,Str},Tag) when is_binary(Tag) ->
 %%         _ -> error
 %%     end.
             
+
+
+%% A simple hack to avoid a real parser, using just a bimodal
+%% tokenizer.  We don't care about the nesting of the data structure,
+%% but only want the key,value bindings, so just scan for
+%% [{atom,K},equal,{atom,V}] in the token stream.
+msg_proplist(test) ->
+    msg_proplist("download,{section=\".text\",section-sent=\"1440\",section-size=\"34032\",total-sent=\"1676\",total-size=\"625300\"");
+
+msg_proplist(Str) ->
+    Fold = 
+        parse:bimodal_tokenize(
+          #{ %% Used by tokenizer
+             $" => quote,
+             $\ => escape,
+             %% Left in output stream
+             ${ => open,
+             $} => close,
+             $, => comma,
+             $= => equal },
+          source:from_list(Str)),
+    T = fun(X) -> list_to_atom(X) end,
+    {_,_,Rv} =
+        Fold(
+          fun({atom,V},{equal,{atom,K},L}) -> {x,x,[{T(K),V}|L]};
+             (C,{B,_,L})                   -> {C,B,L} %% shift delay line
+          end,
+          {x,x,[]}),
+    Rv.
+
 
