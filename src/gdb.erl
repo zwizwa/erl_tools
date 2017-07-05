@@ -6,6 +6,7 @@
         ,cmd/3          %% Send command, return formatted response. 
         ,set/4          %% Set a variable or struct member
         ,send/2, sync/2 %% For blocking interaction
+        ,msg_get/2      %% Retreive values from status messages (ad-hoc)
         ]).
 
          
@@ -136,8 +137,17 @@ console_clean({console, QuotedString}) ->
 console_clean(Other) -> {error, Other}.
 
             
-    
+%% There is currently no real parser, but since the structures are
+%% fixed it is possible to use regular expressions to fish out what is
+%% needed.
+msg_get({status,Str},Tag) when is_binary(Tag) ->
+    Re = tools:format("download.*~s=\"(.*?)\"",[Tag]),
+    case re:run(Str, Re, [{capture,all_but_first,binary}]) of
+        {match,[Val]} -> {ok, Val};
+        Other -> {error, Other}
+    end.
 
+%% (gw@10.1.1.81)15> re:run(S,"download.*section-sent=\"(.*?)\"",[{capture,all,list}]).
 
   
 
@@ -153,5 +163,4 @@ console_clean(Other) -> {error, Other}.
 %%         _ -> error
 %%     end.
             
-
 
