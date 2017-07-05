@@ -1,7 +1,8 @@
 -module(source).
 -export([range/2,range/1,to_list/1,to_fold/1,map/2,filter/2
-         ,unpack/1
-         ,wind/2, wind_unpack/2]).
+        ,unpack/1
+        ,wind/2, wind_unpack/2
+        ,from_list/1]).
 
 %% External iterators, represented as eof or pair wrapped in thunk.
 %% Note: this only works for side-effect free code.  FIXME: add delay/force to eval only once. 
@@ -74,3 +75,13 @@ wind(Pred, Src) ->
             
                             
 
+from_list(List) ->
+    fun() ->
+            case List of
+                [] -> eof;
+                [H|T] -> {H, from_list(T)}
+            end
+    end.
+                    
+            
+    

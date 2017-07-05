@@ -13,7 +13,8 @@ test() ->
              $} => close,
              $, => comma,
              $= => equal },
-          "download,{section=\".text\",section-sent=\"1440\",section-size=\"34032\",total-sent=\"1676\",total-size=\"625300\""),
+          source:from_list(
+            "download,{section=\".text\",section-sent=\"1440\",section-size=\"34032\",total-sent=\"1676\",total-size=\"625300\"")),
     fold:to_list(Fold).
 
 %% Bi-modal quote/escape tokenizer with single-character controls.
@@ -22,42 +23,34 @@ test() ->
 %% Input can be a list or a pair/eof generator.
 bm_tok(Control, InStream) ->
     fun(Fun, Init) ->
-            tok_fld(Control, normal, [], InStream, Fun, Init)
+            tok_fld(Control, normal, [], upk(InStream), Fun, Init)
     end.
 
-%% Input can be a list
-pop([H])    -> {H,eof};
-pop([H|T])  -> {H,T};
-pop([])     -> error(eof);
-
-%% Or a more general external iterator that pops into {Char,Rest} | eof
-pop({source,Pop}) -> Pop().
-
+%% Input is a source.erl outer iterator.
+upk(Stream) -> source:unpack(Stream).
 
 %% Left fold core routine.
 tok_fld(_,normal,Stack,eof,F,S) -> atm(Stack,F,S);
-tok_fld(C,normal,Stack,In,F,S) ->
-    {Char,Rest} = pop(In),
+tok_fld(C,normal,Stack,{Char,Rest},F,S) ->
     case maps:find(Char, C) of
         {ok, escape} ->
             error(bad_escape);
         {ok, quote} ->
-            tok_fld(C, quote, Stack, Rest, F, S);
+            tok_fld(C, quote, Stack, upk(Rest), F, S);
         {ok, Token} ->
-            tok_fld(C, normal, [], Rest, F, F(Token,atm(Stack,F,S)));
+            tok_fld(C, normal, [], upk(Rest), F, F(Token,atm(Stack,F,S)));
         _ ->
-            tok_fld(C, normal, [Char | Stack], Rest, F, S)
+            tok_fld(C, normal, [Char | Stack], upk(Rest), F, S)
     end;
-tok_fld(C,quote,Stack,In,F,S) ->
-    {Char,Rest} = pop(In),
+tok_fld(C,quote,Stack,{Char,Rest},F,S) ->
     case maps:find(Char, C) of
         {ok, escape} ->
-            {Char1,Rest1} = pop(Rest),
-            tok_fld(C,quote,[Char1|Stack],Rest1,F,S);
+            {Char1,Rest1} = upk(Rest),
+            tok_fld(C,quote,[Char1|Stack],upk(Rest1),F,S);
         {ok, quote} ->
-            tok_fld(C,normal,Stack,Rest,F,S);
+            tok_fld(C,normal,Stack,upk(Rest),F,S);
         _ ->
-            tok_fld(C,quote,[Char|Stack],Rest,F,S)
+            tok_fld(C,quote,[Char|Stack],upk(Rest),F,S)
             
     end.
 atm([], _, S) -> S;
