@@ -2,10 +2,9 @@
 -export([range/2,range/1,to_list/1,to_fold/1,map/2,filter/2
         ,unpack/1
         ,wind/2, wind_unpack/2
-        ,from_list/1
-        ,from_fold/1]).
+        ,from_list/1]).
 
-%% WORKING -------------------------------------------------------------
+%% PURE SEQUENCES
 
 %% External iterators, represented as eof or pair wrapped in thunk.
 %% Note: this only works for side-effect free code.
@@ -87,54 +86,5 @@ from_list(List) ->
     end.
 
 
-%% EXPERIMENTAL --------------------------------------------------------
-
-%% FIXME: add delay/force to eval only once?
-%%
-%% There are no mutating assignments, so there is no "real" laziness /
-%% memoization.  Apart from process dictionaries, the only way to save
-%% state is in a server process, but for lazy lists, that will avoid
-%% used heads to be collected.
-
-
-
-
-%% DO NOT USE THIS.
-
-%% Mostly an exercise.  Note that this is a leaky abstraction: if the
-%% source is not used up until eof, the underlying Fold will not
-%% terminate and the resources it might use will be left hanging,
-%% together with the process used to execute it.  Also, the thunks
-%% cannot be evaluated more than once.
-
-%% This might make more sense with a pfold if we define a "close"
-%% method on sources.
-
-%% Fold is one-shot, so it needs to be blocked at some point by
-%% running it in a separate process.  Note that the iterator needs to
-%% be used up all the way to eof otherwise the fold will not terminate
-%% and any resources it might need to free will stay open.
-
-from_fold(Fold) ->
-    fun() ->
-            Sync = fun(Val) ->
-                           receive {Pid, next} -> obj:reply(Pid, Val) end
-                   end,
-            Serv = spawn_link(
-                     fun() ->
-                             Fold(fun(Val,_) -> Sync({data,Val}) end, nostate),
-                             Sync(eof)
-                     end),
-            Next = fun() -> 
-                           obj:call(Serv, next)
-                   end,
-            from_fold(Sync, Serv, Next)
-    end.
-
-from_fold(Sync, Serv, Next) ->
-    case Next() of 
-        {data, Val} -> {Val, fun() -> from_fold(Sync, Serv, Next) end}; 
-        eof -> eof
-    end.
-
-
+%% Note that it is possible to have from_fold/1 but since that is
+%% effectful, it seems best to implement that only in egen.erl

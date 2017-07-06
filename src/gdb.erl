@@ -219,13 +219,13 @@ r(Q) -> lists:reverse(Q).
 %% I: input
 %% Q: current queue
 %% S: stack of queues
-p([open |I],    Q,          S)               -> p(I, [],             [Q|S]);
-p([close|I],    Q1,         [[{eq,K}|Q2]|S]) -> p(I, [{K,r(Q1)}|Q2], S);
-p([close|I],    Q1,         [Q2|S])          -> p(I, [r(Q1)|Q2],     S);
+p([open    |I], Q,          S)               -> p(I, [],             [Q|S]);
+p([close   |I], Q1,         [[{eq,K}|Q2]|S]) -> p(I, [{K,r(Q1)}|Q2], S);
+p([close   |I], Q1,         [Q2|S])          -> p(I, [r(Q1)|Q2],     S);
 p([{atom,V}|I], [{eq,K}|Q], S)               -> p(I, [{K,V}|Q],      S);
 p([{atom,A}|I], Q,          S)               -> p(I, [A|Q],          S);
-p([equal|I],    [K|Q],      S)               -> p(I, [{eq,K}|Q],     S);
-p([comma|I],    Q,          S)               -> p(I, Q,              S);  %% (1)
+p([equal   |I], [K|Q],      S)               -> p(I, [{eq,K}|Q],     S);
+p([comma   |I], Q,          S)               -> p(I, Q,              S);  %% (1)
 p([],           Q,          [])              -> r(Q);
     
 p(Input, Queue, Stack) -> error({parse,Input,Queue,Stack}).
@@ -234,9 +234,9 @@ p(Input, Queue, Stack) -> error({parse,Input,Queue,Stack}).
 %% good enough in case we know the input is well-formed.  We only need
 %% it during tokenization.
 
-
-
-    
-
+%% Note that {Q,S} is a representation of the continuation.  S is
+%% always a stack of Qs, but there are two kinds of Qs:
+%% - list     the hole at the end of a list
+%% - {eq,K}   the hole in the second slot of the pair
 
 
