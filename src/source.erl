@@ -5,10 +5,10 @@
         ,from_list/1
         ,from_fold/1]).
 
+%% WORKING -------------------------------------------------------------
+
 %% External iterators, represented as eof or pair wrapped in thunk.
 %% Note: this only works for side-effect free code.
-
-%% FIXME: add delay/force to eval only once?
 
 %% Representation can either be unpacked or not.  This is a small hack
 %% to avoid re-evaluation.
@@ -86,10 +86,26 @@ from_list(List) ->
             end
     end.
 
+
+%% EXPERIMENTAL --------------------------------------------------------
+
+%% FIXME: add delay/force to eval only once?
+%%
+%% There are no mutating assignments, so there is no "real" laziness /
+%% memoization.  Apart from process dictionaries, the only way to save
+%% state is in a server process, but for lazy lists, that will avoid
+%% used heads to be collected.
+
+
+
+
+%% DO NOT USE THIS.
+
 %% Mostly an exercise.  Note that this is a leaky abstraction: if the
 %% source is not used up until eof, the underlying Fold will not
 %% terminate and the resources it might use will be left hanging,
-%% together with the process used to execute it.
+%% together with the process used to execute it.  Also, the thunks
+%% cannot be evaluated more than once.
 
 %% This might make more sense with a pfold if we define a "close"
 %% method on sources.
@@ -98,6 +114,7 @@ from_list(List) ->
 %% running it in a separate process.  Note that the iterator needs to
 %% be used up all the way to eof otherwise the fold will not terminate
 %% and any resources it might need to free will stay open.
+
 from_fold(Fold) ->
     fun() ->
             Sync = fun(Val) ->
@@ -119,3 +136,5 @@ from_fold(Sync, Serv, Next) ->
         {data, Val} -> {Val, fun() -> from_fold(Sync, Serv, Next) end}; 
         eof -> eof
     end.
+
+
