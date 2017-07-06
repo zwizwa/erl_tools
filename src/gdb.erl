@@ -8,6 +8,7 @@
         ,send/2, sync/2 %% For blocking interaction
         ,msg_get/2      %% Retreive values from status messages (ad-hoc)
         ,msg_proplist/1 %% Hack, gathers all bindings
+        ,msg_parse/1    %% Proper parser
         ]).
 
          
@@ -166,25 +167,33 @@ msg_get({status,Str},Tag) when is_binary(Tag) ->
             
 
 
+test() -> "download,{section=\".text\",section-sent=\"1440\",section-size=\"34032\",total-sent=\"1676\",total-size=\"625300\"}".
+    
+tok_fold(Str) ->
+    parse:bimodal_tokenize(
+      #{ %% Used by tokenizer
+         $"  => quote,
+         $\\ => escape,
+         %% Left in output stream
+         ${  => open,
+         $}  => close,
+         $,  => comma,
+         $=  => equal,
+         %% Escaped characters
+         {escape, $r} => 13,
+         {escape, $n} => 10
+       },
+      source:from_list(Str)).
+    
+msg_proplist(test) ->
+    msg_proplist(test());
+
 %% A simple hack to avoid a real parser, using just a bimodal
 %% tokenizer.  We don't care about the nesting of the data structure,
 %% but only want the key,value bindings, so just scan for
 %% [{atom,K},equal,{atom,V}] in the token stream.
-msg_proplist(test) ->
-    msg_proplist("download,{section=\".text\",section-sent=\"1440\",section-size=\"34032\",total-sent=\"1676\",total-size=\"625300\"");
-
 msg_proplist(Str) ->
-    Fold = 
-        parse:bimodal_tokenize(
-          #{ %% Used by tokenizer
-             $" => quote,
-             $\ => escape,
-             %% Left in output stream
-             ${ => open,
-             $} => close,
-             $, => comma,
-             $= => equal },
-          source:from_list(Str)),
+    Fold = tok_fold(Str),
     T = fun(X) -> list_to_atom(X) end,
     {_,_,Rv} =
         Fold(
@@ -193,5 +202,39 @@ msg_proplist(Str) ->
           end,
           {x,x,[]}),
     Rv.
+
+
+%% But a good enough parser isn't actually that difficult.  Work with
+%% concrete lists as lazy lists are hard to express in Erlang.
+msg_parse(test) ->
+    msg_parse(test());
+msg_parse({tok,Tokens}) ->
+    p(Tokens, [], []);
+msg_parse(Str) ->
+    msg_parse({tok,fold:to_list(tok_fold(Str))}).
+
+
+r(Q) -> lists:reverse(Q).
+    
+%% I: input
+%% Q: current queue
+%% S: stack of queues
+p([open |I],          Q,     S)      -> p(I, [],         [Q|S]);
+p([close|I],          Q1,    [Q2|S]) -> p(I, [r(Q1)|Q2], S);
+p([{atom,A}|I],       Q,     S)      -> p(I, [A|Q],      S);
+p([equal,{atom,V}|I], [K|Q], S)      -> p(I, [{K,V}|Q],  S);
+p([comma|I],          Q,     S)      -> p(I, Q,          S);  %% (1)
+p([],                 Q,     [])     -> r(Q);
+    
+p(Input, Queue, Stack) -> error({parse,Input,Queue,Stack}).
+
+%% (1) FIXME: shortcut. this will not catch some bad syntax but is
+%% good enough in case we know the input is well-formed.  We only need
+%% it during tokenization.
+
+
+
+    
+
 
 

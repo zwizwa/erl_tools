@@ -1,29 +1,14 @@
 -module(parse).
--export([bimodal_tokenize/2,test/0]).
+-export([bimodal_tokenize/2]).
 
-%% Parse utils
-test() ->
-    Fold = 
-        bimodal_tokenize(
-          #{ %% Used by tokenizer
-             $" => quote,
-             $\ => escape,
-             %% Left in output stream
-             ${ => open,
-             $} => close,
-             $, => comma,
-             $= => equal },
-          source:from_list(
-            "download,{section=\".text\",section-sent=\"1440\",section-size=\"34032\",total-sent=\"1676\",total-size=\"625300\"")),
-    fold:to_list(Fold).
 
 %% Bi-modal quote/escape tokenizer with single-character controls.
 %% This structure seems quite common for ad-hoc languages.
 %% Token stream structured as a left fold.
 %% Input can be a list or a pair/eof generator.
-bimodal_tokenize(Control, InStream) ->
+bimodal_tokenize(Config, InStream) ->
     fun(Fun, Init) ->
-            tok_fld(Control, normal, [], upk(InStream), Fun, Init)
+            tok_fld(Config, normal, [], upk(InStream), Fun, Init)
     end.
 
 %% Input is a source.erl outer iterator.  Unpack will generate either
@@ -47,7 +32,12 @@ tok_fld(C,quote,Stack,{Char,Rest},F,S) ->
     case maps:find(Char, C) of
         {ok, escape} ->
             {Char1,Rest1} = upk(Rest),
-            tok_fld(C,quote,[Char1|Stack],upk(Rest1),F,S);
+            CharTx = 
+                case maps:find({escape,Char1},C) of
+                    {ok, CharEsc} -> CharEsc;
+                    _ -> Char1
+                end,
+            tok_fld(C,quote,[CharTx|Stack],upk(Rest1),F,S);
         {ok, quote} ->
             tok_fld(C,normal,Stack,upk(Rest),F,S);
         _ ->
