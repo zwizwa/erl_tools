@@ -3,8 +3,8 @@
 
 %% IMPURE GENERATORS
 %%
-%% A stream is represented instead as an effectful generator
-%% that produces the elements on subsequent calls.
+%% A stream is represented as an effectful generator that produces the
+%% elements on subsequent calls.
 
 
 %% Because of side effects, gens need to be closed to free all
