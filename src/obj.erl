@@ -1,7 +1,8 @@
 -module(obj).
 -export([init/0, handle/2, call/2, call/3, reply/2,
          get/2, get/3, set/3, gets/2,
-         update/3, find/2, dump/1, replace/2]).
+         update/3, find/2, dump/1, replace/2,
+         update/4]).
 
 %% Simple async object.
 
@@ -65,3 +66,5 @@ replace(Pid, D)        -> call(Pid, {replace, D}).
 
 gets   (Pid, [Key])    -> get(Pid,Key);
 gets   (Pid, [K|Ks])   -> gets(get(Pid,K),Ks).
+
+update (Pid, Key, Fun, TO) -> call(Pid, {update, Key, Fun}, TO).

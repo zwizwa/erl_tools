@@ -47,6 +47,7 @@ upload({pull, DevNode}, Gdb, TargetPort, Elf, Sink) ->
 upload(TargetHost, Gdb, TargetPort, Elf, Sink) ->
     P = open(Gdb, TargetHost, TargetPort, Elf, Sink),
     Rv = cmd_sink(P, "load", Sink),
+    _Rv = cmd_sink(P, "compare-sections", Sink),
     send(P, "quit"),
     Rv.
 
