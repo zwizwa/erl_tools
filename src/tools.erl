@@ -21,6 +21,7 @@
          mask_bits/1,
          run_session/2, run_script/2,
          maps_apply/4, maps_append/3, maps_count/2,
+         maps_update_path/4,
          tagged_index/2,
          map_to_list/1,
          pop_tail/1,
@@ -785,3 +786,18 @@ become(Name) ->
             timer:sleep(1000),
             become(Name)
     end.
+
+%% maps:update_with/3 is not available in all releases.
+maps_update_with(Key, Fun, Map, Default) ->
+    Init = maps:get(Key, Map, Default),
+    maps:put(Key, Fun(Init), Map).
+
+%% Update variable in nested map structure, creating path if it doesn't exist.
+maps_update_path([Key], Fun, Map, Default) ->
+    maps_update_with(Key, Fun, Map, Default);
+maps_update_path([Top|Path], Fun, Map, Default) ->
+    maps_update_with(
+      Top, 
+      fun(SubMap) -> maps_update_path(Path, Fun, SubMap, Default) end,
+      Map,
+      #{}).
