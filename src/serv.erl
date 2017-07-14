@@ -56,12 +56,30 @@ pids_send(Msg, Pids) ->
     pids_foreach(fun(Pid) -> Pid ! Msg end, Pids).
 
 %% Broadcaster. FIXME: use gen_event
-bc_start() -> spawn_handler(fun pids_new/0, fun serv:bc_handle/2).
-bc_handle({subscribe,   Pid}, Pids) -> pids_add(Pid,Pids);
+bc_start() ->
+    spawn_handler(
+      fun() -> 
+              process_flag(trap_exit, true),
+              pids_new()
+      end,
+      fun serv:bc_handle/2).
+
+bc_handle({subscribe, Pid}, Pids) when is_pid(Pid) -> 
+    link(Pid),
+    pids_add(Pid,Pids);
+bc_handle({subscribe, Atom}, Pids) when is_atom(Atom) -> 
+    bc_handle({subscribe, whereis(Atom)}, Pids);
+
 bc_handle({unsubscribe, Pid}, Pids) -> pids_del(Pid,Pids);
 bc_handle({foreach,     Msg}, Pids) -> pids_foreach(Msg,Pids);
-bc_handle({broadcast,   Msg}, Pids) -> pids_send(Msg,Pids).
+bc_handle({broadcast,   Msg}, Pids) -> pids_send(Msg,Pids);
 
+bc_handle({'EXIT', Pid, _}, Pids) ->
+    pids_del(Pid,Pids);
+
+bc_handle(Msg, Pids) ->
+    tools:info("WARNING: bc_handle: ~p~n",[{Msg,Pids}]),
+    Pids.
 
 
 %% Hub with predicates.
