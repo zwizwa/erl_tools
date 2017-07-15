@@ -12,6 +12,8 @@
 %% Representation can either be unpacked or not.  This is a small hack
 %% to avoid re-evaluation.
 
+%% FIXME: change to tagged representation.
+
 unpack(eof) -> eof;
 unpack({_,_}=Pair) -> Pair;
 unpack(Thunk) when is_function(Thunk) -> Thunk().
