@@ -221,18 +221,22 @@ r(Q) -> lists:reverse(Q).
 %% I: input
 %% Q: current queue
 %% S: stack of queues
-p([open    |I], Q,          S)               -> p(I, [],             [Q|S]);
-p([close   |I], Q1,         [[{eq,K}|Q2]|S]) -> p(I, [{K,r(Q1)}|Q2], S);
-p([close   |I], Q1,         [Q2|S])          -> p(I, [r(Q1)|Q2],     S);
-p([{atom,V}|I], [{eq,K}|Q], S)               -> p(I, [{K,V}|Q],      S);
-p([{atom,A}|I], Q,          S)               -> p(I, [A|Q],          S);
-p([equal   |I], [K|Q],      S)               -> p(I, [{eq,K}|Q],     S);
-p([comma   |I], Q,          S)               -> p(I, Q,              S);  %% (1)
-p([],           Q,          [])              -> r(Q);
+p([{atom,""}|I], Q,          S)               -> p(I, Q,              S);  %% (1)
+p([open     |I], Q,          S)               -> p(I, [],             [Q|S]);
+p([close    |I], Q1,         [[{eq,K}|Q2]|S]) -> p(I, [{K,r(Q1)}|Q2], S);
+p([close    |I], Q1,         [Q2|S])          -> p(I, [r(Q1)|Q2],     S);
+p([{atom,V} |I], [{eq,K}|Q], S)               -> p(I, [{K,V}|Q],      S);
+p([{atom,A} |I], Q,          S)               -> p(I, [A|Q],          S);
+p([equal    |I], [K|Q],      S)               -> p(I, [{eq,K}|Q],     S);
+p([comma    |I], Q,          S)               -> p(I, Q,              S);  %% (2)
+p([],            Q,          [])              -> r(Q);
     
 p(Input, Queue, Stack) -> error({parse,Input,Queue,Stack}).
 
-%% (1) FIXME: shortcut. this will not catch some bad syntax but is
+%% (1) Tokenizer leaves empty atoms inbetween other tokens.  This is
+%% convenient for some things, and easy to filter out here.
+
+%% (2) FIXME: shortcut. this will not catch some bad syntax but is
 %% good enough in case we know the input is well-formed.  We only need
 %% it during tokenization.
 

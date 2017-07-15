@@ -1,5 +1,5 @@
 -module(parse).
--export([bimodal_tokenize/2, csv_tok/1, csv/1]).
+-export([bimodal_tokenize/2, csv_tok/1, csv/1, csv_tok/1]).
 
 
 %% Bi-modal quote/escape tokenizer with single-character controls.
@@ -56,7 +56,7 @@ tok_fld(C,quote,Stack,{Char,Rest},F,S) ->
             tok_fld(C,quote,[Char|Stack],upk(Rest),F,S)
             
     end.
-atm([], _, S) -> S;
+%%atm([],    _, S) -> S; %% Skip empty?
 atm(Stack, F, S) -> F({atom,lists:reverse(Stack)},S).
 
 
@@ -95,12 +95,10 @@ b(L) -> list_to_binary(L).
 %% C: colum state
 %% R: row state
 
-%% FIXME: does not support empty atoms.
-
+csv_p([{atom,""}],  [], R)   -> r(R); %% empty atom between last lf and eof.
 csv_p([{atom,A}|I], C,  R)   -> csv_p(I, [b(A)|C], R);
 csv_p([comma   |I], C,  R)   -> csv_p(I, C,        R); %% only used for tokenizing
 csv_p([cr      |I], C,  R)   -> csv_p(I, C,        R); %% ignored, support CRLF as well
 csv_p([lf      |I], C,  R)   -> csv_p(I, [],       [r(C)|R]); 
-csv_p([],           [], R)   -> r(R);
 
 csv_p(Input, Queue, Stack) -> error({parse,Input,Queue,Stack}).
