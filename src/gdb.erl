@@ -216,6 +216,7 @@ msg_parse(Str) ->
 
 
 r(Q) -> lists:reverse(Q).
+     
     
 %% I: input
 %% Q: current queue

@@ -1,5 +1,8 @@
 -module(igen).
--export([read/1,close/1,to_source/1,from_fold/1,to_fold/1,to_list/1,to_rlist/1]).
+-export([read/1,close/1,
+         from_fold/1,to_fold/1,to_list/1,to_rlist/1,from_list/1,
+
+         to_source_leaky/1]).
 
 %% IMPURE GENERATORS
 %%
@@ -19,6 +22,8 @@ to_fold(Gen,F,S) ->
         {data, Val} -> to_fold(Gen,F,F(Val,S));
         eof -> S
     end.
+
+
     
 slurp(Gen) ->
     (to_fold(Gen))(fun(_,_)->ok end, none).
@@ -53,17 +58,25 @@ from_fold(Fold) ->
 
 
 %% Allow for a conversion of a generator into source.erl stream, with
-%% the caveat that it is a leaky abstraction.  The stream needs to be
-%% used up until eof else the process stays alive with all resources
-%% that might be tied up by the unfinished fold.
-to_source({gen,Read,_Close}=Gen) ->
+%% the caveat that it is a leaky abstraction:
+
+%% 1. The stream needs to be used up until eof, or in some other way
+%%    the original igen:close/1 needs to be called.
+%%
+%% 2. source:unpack/1 can only be called once on each head.
+
+%% This is still useful if those guarantees can be met inside an
+%% implementation, e.g. see parse:bimodal_tokenize
+
+to_source_leaky({igen,Read,_Close}=Gen) ->
     fun() ->
             case Read() of
-                {data, Val} -> {Val, to_source(Gen)};
+                {data, Val} -> {Val, to_source_leaky(Gen)};
                 eof -> eof
             end
     end.
 
 
-
-
+%% This needs some place to store the state!  Use a process.
+from_list(List) ->
+    from_fold(fold:from_list(List)).
