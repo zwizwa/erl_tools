@@ -1,5 +1,5 @@
 -module(parse).
--export([bimodal_tokenize/2, csv_tok/1, csv/1, csv_tok/1]).
+-export([bimodal_tokenize/2, csv_tok/1, csv/1]).
 
 
 %% Bi-modal quote/escape tokenizer with single-character controls.
