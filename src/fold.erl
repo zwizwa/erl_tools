@@ -38,7 +38,7 @@
          split_size/1,
          enumerate/1,
          flatten/1,
-         port/2
+         from_port/2
         ]).
 
 -ifdef(TEST).
@@ -358,15 +358,15 @@ enumerate(Fold) ->
     end.
 
 %% Convert port to fold over data items.
-port(Port, TimeOut) ->
-    fun(F,S) -> port(Port,TimeOut,F,S) end.
-port(Port, TimeOut, Fun, State) ->
+from_port(Port, TimeOut) ->
+    fun(F,S) -> from_port(Port,TimeOut,F,S) end.
+from_port(Port, TimeOut, Fun, State) ->
     receive 
         {Port,{exit_status, 0}} -> 
             State;
         {Port,{data, Data}} ->
             NextState = Fun(Data, State),
-            port(Port, TimeOut, Fun, NextState);
+            from_port(Port, TimeOut, Fun, NextState);
         {Port,Other} -> throw({fold_port, Other})
     after
         TimeOut -> throw({fold_port, timeout})
