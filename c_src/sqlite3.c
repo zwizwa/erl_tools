@@ -17,6 +17,7 @@
 // https://www.sqlite.org/quickstart.html
 
 sqlite3 *db;
+sqlite3_stmt *stmt;
 jmp_buf error_jmp_buf;
 
 /* Use the generalized right fold over the erlang term format provided
@@ -114,7 +115,7 @@ struct sql_error {
 void sql_error_seq(struct bert_writer *w) {
     struct sql_error *err = (void*)w;
     w->small_tuple(w, 2);
-    w->atom  (w, (const uint8_t*)"error", -1);
+    w->atom  (w, (const uint8_t*)"sqlite3_errmsg", -1);
     w->binary(w, (const uint8_t*)err->msg, -1);
 }
 void sql_error(int rv) {
@@ -122,10 +123,18 @@ void sql_error(int rv) {
         .msg = sqlite3_errmsg(db),
     };
     bert_write_packet(&err.w, 4, &sql_error_seq, &msg_send);
+    sentinel();
 
     // Also send on console and abort.
-    LOG("sql_error(%s)", err.msg);
+    LOG("sqlite3_errmsg -> %s\n", err.msg);
     longjmp(error_jmp_buf, 1);
+}
+
+void sentinel() {
+    /* Terminate with an empty message */
+    uint8_t sentinel[4] = {};
+    assert_write(1, sentinel, sizeof(sentinel));
+    fflush(stdout); // ?
 }
 
 
@@ -165,7 +174,6 @@ void query(const uint8_t *buf, uint32_t length) {
 
 
     /* First term is the query string. */
-    sqlite3_stmt *stmt;
     int rv = sqlite3_prepare_v2(
         db, (const char*)r.arg[0].buf, r.arg[0].len, &stmt, NULL);
     if (rv != SQLITE_OK) { sql_error(rv); }
@@ -207,11 +215,8 @@ void query(const uint8_t *buf, uint32_t length) {
             sql_error(rv);
         }
     }
-    sqlite3_finalize(stmt);
-    /* Terminate with an empty message */
-    uint8_t sentinel[4] = {};
-    assert_write(1, sentinel, sizeof(sentinel));
-    fflush(stdout); // ?
+    sqlite3_finalize(stmt); stmt=NULL;
+    sentinel();
 }
 #ifdef BUILD
 #define BUILDINFO " (build " BUILD ")"
@@ -220,9 +225,7 @@ void query(const uint8_t *buf, uint32_t length) {
 #endif
 
 // FIXME
-#ifdef HATDGW
-#define MAIN main
-#else
+#ifndef MAIN
 #define MAIN sqlite3_main
 #endif
 
@@ -255,7 +258,7 @@ int MAIN(int argc, char **argv) {
         }
         else {
             // CATCH
-            // FIXME: free resources
+            sqlite3_finalize(stmt); stmt=NULL;
         }
         free(msg);
     }
