@@ -47,13 +47,13 @@ sqlite3 *db;
 typedef int (*bind_t)(sqlite3_stmt*, int, const void*, int n, void(*)(void*));
 struct slice {
     bind_t bind;
-    uint8_t *buf;
+    const uint8_t *buf;
     uint32_t len;
 };
 #define MAX_NB_SLICES 10
 struct reader {
     struct bert_reader r;
-    uint8_t *buf;
+    const uint8_t *buf;
     uint32_t offset, length, nb_slices;
     bind_t bind;
     struct slice arg[MAX_NB_SLICES];
@@ -73,11 +73,11 @@ static uint8_t pop(struct reader *r) {
 // An atom in the stream sets the current binder, which is picked up by binary().
 static int blobtype(struct reader *r, uint32_t nb_bytes, const char *cstring) {
     return (strlen(cstring) == nb_bytes)
-        && (!strncmp(cstring, r->buf+r->offset, nb_bytes));
+        && (!strncmp(cstring, (const char*)(r->buf+r->offset), nb_bytes));
 }
 static struct bert_object *atom(struct reader *r, uint32_t nb_bytes) {
-    if (blobtype(r,nb_bytes,"blob")) {r->bind = sqlite3_bind_blob; return NULL;}
-    if (blobtype(r,nb_bytes,"text")) {r->bind = sqlite3_bind_text; return NULL;}
+    if (blobtype(r,nb_bytes,"blob")) {r->bind = (bind_t)sqlite3_bind_blob; return NULL;}
+    if (blobtype(r,nb_bytes,"text")) {r->bind = (bind_t)sqlite3_bind_text; return NULL;}
     ERROR("unknown bind type");
 }
 // Side effect stores slice in current slot.
@@ -87,7 +87,7 @@ static struct bert_object* binary(struct reader *r, uint32_t nb_bytes) {
     s->bind = r->bind;
     s->buf = r->buf + r->offset;
     s->len = nb_bytes;
-    r->bind = sqlite3_bind_text; // restore default
+    r->bind = (bind_t)sqlite3_bind_text; // restore default
     return NULL;
 }
 
@@ -112,8 +112,8 @@ struct sql_error {
 void sql_error_seq(struct bert_writer *w) {
     struct sql_error *err = (void*)w;
     w->small_tuple(w, 2);
-    w->atom  (w, "error", -1);
-    w->binary(w, err->msg, -1);
+    w->atom  (w, (const uint8_t*)"error", -1);
+    w->binary(w, (const uint8_t*)err->msg, -1);
 }
 void sql_error(int rv) {
     struct sql_error err = {
@@ -147,7 +147,7 @@ void query(const uint8_t *buf, uint32_t length) {
     struct reader r = {
         .buf = buf,
         .length = length,
-        .bind = sqlite3_bind_text,
+        .bind = (bind_t)sqlite3_bind_text,
         .r = {
             .pop    = (void*)&pop,
             .wind   = (void*)&wind,
@@ -157,13 +157,14 @@ void query(const uint8_t *buf, uint32_t length) {
             .atom   = (void*)&atom,
         }
     };
-    bert_decode(&r); // run for side-effect
+    bert_decode(&r.r); // run for side-effect
     if (r.nb_slices == 0) { ERROR("empty statement"); }
 
 
     /* First term is the query string. */
     sqlite3_stmt *stmt;
-    int rv = sqlite3_prepare_v2(db, r.arg[0].buf, r.arg[0].len, &stmt, NULL);
+    int rv = sqlite3_prepare_v2(
+        db, (const char*)r.arg[0].buf, r.arg[0].len, &stmt, NULL);
     if (rv != SQLITE_OK) { sql_error(rv); }
 
     /* Subsequent terms are optional blob values to bind to the
@@ -209,10 +210,23 @@ void query(const uint8_t *buf, uint32_t length) {
     assert_write(1, sentinel, sizeof(sentinel));
     fflush(stdout); // ?
 }
-int main(int argc, char **argv) {
+#ifdef BUILD
+#define BUILDINFO " (build " BUILD ")"
+#else
+#define BUILDINFO ""
+#endif
+
+// FIXME
+#ifdef HATDGW
+#define MAIN main
+#else
+#define MAIN sqlite3_main
+#endif
+
+int MAIN(int argc, char **argv) {
 
     if (argc < 2) {
-        LOG("%s (build " BUILD ")\n", argv[0]);
+        LOG("%s" BUILDINFO "\n", argv[0]);
         LOG("usage: %s <dbfile>\n", argv[0]);
         exit(1);
     }
@@ -223,8 +237,6 @@ int main(int argc, char **argv) {
         sqlite3_close(db);
         exit(1);
     }
-    void *q;
-
     uint8_t *msg;
     uint32_t msg_len;
     // LOG("entering message loop\n");

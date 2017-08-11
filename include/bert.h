@@ -74,7 +74,7 @@ struct bert_reader {
     struct bert_object* nil;
 
     /* Error handler: this should abort control flow. */
-    void (*error)(struct bert_reader *, const char *msg);
+    void (*error)(struct bert_reader *, const char *msg) __attribute__((noreturn));
 };
 
 struct bert_object *bert_decode(struct bert_reader *s);

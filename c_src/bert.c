@@ -57,9 +57,6 @@ static struct bert_object *r_slice(struct bert_reader *r,
     r->wind(r, size);
     return val;
 }
-static struct bert_object *r_nil(struct bert_reader *r) {
-    return r->nil;
-}
 static struct bert_object *r_object(struct bert_reader *r) {
     uint8_t type = r->pop(r);
     if (type == BERT_LIST)          return r_list(r);
@@ -73,6 +70,7 @@ static struct bert_object *r_object(struct bert_reader *r) {
     if (type == BERT_LARGE_TUPLE)   return r_tuple(r, 4);
     if (type == BERT_STRING)        return r_slice(r, r->string, 2);
     r->error(r, "Unexpected BERT type");
+    return NULL; // not reached
 }
 
 static struct bert_object* c_null(void) {
@@ -103,7 +101,7 @@ static void w_tagged_size(struct bert_writer *w,
 static void w_tagged_bytes(struct bert_writer *w,
                            uint8_t tag, uint32_t size_size,
                            const uint8_t *buf, int32_t nb_bytes) {
-    if (nb_bytes < 0) nb_bytes = strlen(buf);
+    if (nb_bytes < 0) nb_bytes = strlen((const char*)buf);
     w_tagged_size(w, tag, size_size, nb_bytes);
     for (uint32_t i=0; i<nb_bytes; i++) { w->push(w, buf[i]); }
 }
