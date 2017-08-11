@@ -8,6 +8,7 @@
 #include "system.h"
 #include <stdio.h>
 #include <sqlite3.h>
+#include <setjmp.h>
 
 #include "bert.h"
 #include "port.h"
@@ -16,6 +17,7 @@
 // https://www.sqlite.org/quickstart.html
 
 sqlite3 *db;
+jmp_buf error_jmp_buf;
 
 /* Use the generalized right fold over the erlang term format provided
    in bert.[ch] to iterate over the data primitives in the order they
@@ -122,7 +124,8 @@ void sql_error(int rv) {
     bert_write_packet(&err.w, 4, &sql_error_seq, &msg_send);
 
     // Also send on console and abort.
-    ERROR("sql_error(%s)", err.msg);
+    LOG("sql_error(%s)", err.msg);
+    longjmp(error_jmp_buf, 1);
 }
 
 
@@ -245,7 +248,15 @@ int MAIN(int argc, char **argv) {
             ERROR("malloc(0x%08x) failed\n", msg_len);
         }
         assert_read_fixed(0, msg, msg_len);
-        query(msg,msg_len);
+
+        if(!setjmp(error_jmp_buf)) {
+            // TRY
+            query(msg,msg_len);
+        }
+        else {
+            // CATCH
+            // FIXME: free resources
+        }
         free(msg);
     }
     sqlite3_close(db);
