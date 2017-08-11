@@ -24,13 +24,13 @@ close_flush(Port) ->
     receive
         {Port, {exit_status, 0}} -> ok;
         {Port, {exit_status, _}=E} -> exit(E);
-        {Port, _} = M -> 
-            log:info("close_flush ~p~n",[M]),
+        {Port, _} = _M -> 
+            %% log:info("close_flush ~p~n",[_M]),
             close_flush(Port)
     end.
 query(Port, {SQL, Bindings}=Query, Sink) when is_binary(SQL) and is_list(Bindings)->
     Bin = term_to_binary(Query),
-    log:info("query: ~p~n",[Query]),
+    %% log:info("query: ~p~n",[Query]),
     Port ! {self(), {command, Bin}},
     sync(Port, Sink);
 query(Port, {SQL, Bindings}, Sink) ->
@@ -101,8 +101,7 @@ typed({blob, Bin}=B) when is_binary(Bin) -> B;
 typed(Bin) when is_binary(Bin) -> {text,Bin};
 typed(Val) -> 
     ConvVal = {text, tools:as_binary(Val)},
-    log:info("WARNING: ~p is converted to ~p before insert~n"
-            ,[Val,ConvVal]),
+    %% log:info("WARNING: ~p is converted to ~p before insert~n",[Val,ConvVal]),
     ConvVal.
 
 %% BValues is a list of {blob|text, binary()} | binary().
