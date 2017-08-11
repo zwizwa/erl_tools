@@ -11,7 +11,7 @@
 bimodal_tokenize(Config, {igen,_,_}=IGen) ->
     %% upk/1 is only called once for each stream head, so
     %% to_source_leaky/1 can be used as long as we close properly.
-    try bimodal_tokenize(Config, igen:to_source_leaky(Config,IGen))
+    try bimodal_tokenize(Config, igen:to_source_leaky(IGen))
     catch C:E -> igen:close(IGen), throw({C,E})
     end;
 

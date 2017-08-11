@@ -30,7 +30,7 @@ close_flush(Port) ->
     end.
 query(Port, {SQL, Bindings}=Query, Sink) when is_binary(SQL) and is_list(Bindings)->
     Bin = term_to_binary(Query),
-    %% log:info("query: ~p~n",[Query]),
+    log:info("query: ~p~n",[Query]),
     Port ! {self(), {command, Bin}},
     sync(Port, Sink);
 query(Port, {SQL, Bindings}, Sink) ->
@@ -46,10 +46,14 @@ sync(Port, Sink) ->
         {Port, {data, Bin}} ->
             Term = binary_to_term(Bin),
             case Term of
-                {error, Msg} -> throw({sql_error, Msg});
-                _ -> Sink({data, Term})
-            end,
-            sync(Port, Sink)
+                {error, Msg} ->
+                    %% Push error through
+                    Sink({data,{error,Msg}}),
+                    Sink(eof);
+                _ ->
+                    Sink({data, Term}),
+                    sync(Port, Sink)
+            end
     end.
                
 

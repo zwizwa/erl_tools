@@ -29,6 +29,7 @@
 
 #include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
 
 #define BERT_START         131
 #define BERT_SMALL_ATOM    115
@@ -58,8 +59,8 @@ struct bert_object;
 struct bert_reader;
 struct bert_reader {
     /* Stream access */
-    uint8_t (*pop)(struct bert *);
-    void (*wind)(struct bert *, uint32_t bytes);
+    uint8_t (*pop)(struct bert_reader *);
+    void (*wind)(struct bert_reader *, uint32_t bytes);
 
     /* Recursive Constructors */
     struct bert_object* (*tuple)(struct bert_reader *, uint32_t size, struct bert_object **el);
@@ -70,7 +71,7 @@ struct bert_reader {
     struct bert_object* (*atom)(struct bert_reader *, uint32_t size);
     struct bert_object* (*string)(struct bert_reader *, uint32_t size);
     struct bert_object* (*integer)(struct bert_reader *, int32_t val);
-    struct bert_object* *nil;
+    struct bert_object* nil;
 
     /* Error handler: this should abort control flow. */
     void (*error)(struct bert_reader *, const char *msg);

@@ -21,7 +21,7 @@
          mask_bits/1,
          run_session/2, run_script/2,
          maps_apply/4, maps_append/3, maps_count/2,
-         maps_update_path/4,
+         maps_update_path/4, maps_find_path/2,
          tagged_index/2,
          map_to_list/1,
          pop_tail/1,
@@ -786,6 +786,15 @@ become(Name) ->
             timer:sleep(1000),
             become(Name)
     end.
+
+maps_find_path([Key], Map) -> 
+    maps:find(Key, Map);
+maps_find_path([Key|Path], Map) -> 
+    case maps:find(Key, Map) of
+        {ok, SubMap} -> maps_find_path(Path, SubMap);
+        Error -> Error
+    end.
+    
 
 %% maps:update_with/3 is not available in all releases.
 maps_update_with(Key, Fun, Map, Default) ->
