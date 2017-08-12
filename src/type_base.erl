@@ -39,35 +39,31 @@
 -type decoder() :: fun((binary()) -> any()).
 
 
-%% Types can be extended.  User provides an extended type_spec/1
-%% function that possibly calls into type_meta:type_spec/1 for its
-%% catch-all case.
+%% Types can be extended.  User should create a module with
+%% encode/decode and type_encode/type_decode functions calling into
+%% this module, providing impl().
+-type impl() :: {impl, name(), {finite,_}|{_,_}}.
+-spec encoder(name() | impl()) -> encoder().
 
-user_type_spec({type_spec,_,_}=Type) -> Type;
-user_type_spec(Type) -> {type_spec, fun type_spec/1, Type}.
+encoder({impl, TypeSpec, {finite, Alist}}) ->
+    InvAlist = [{B,A} || {A,B} <- Alist],
+    convert_finite(TypeSpec, InvAlist);
+encoder({impl, _, {Encode, _}}) ->
+    Encode;
+%% No implementation provided, use base types from this module.
+encoder(TypeSpec) ->
+    encoder({impl, TypeSpec, type_spec(TypeSpec)}).
+    
 
--type user_type() :: {type_spec, _, _}.
--spec encoder(name() | user_type()) -> encoder().
-encoder(UserType) ->
-    {type_spec, TypeSpec, Type} = user_type_spec(UserType),
-    case TypeSpec(Type) of
-        {finite, Alist} ->
-            InvAlist = [{B,A} || {A,B} <- Alist],
-            convert_finite(Type, InvAlist);
-        {Encode, _} ->
-            Encode
-    end.
 
--spec decoder(name() | user_type()) -> decoder().
-decoder(UserType) ->
-    {type_spec, TypeSpec, Type} = user_type_spec(UserType),
-    case TypeSpec(Type) of
-        {finite, Alist} ->
-            convert_finite(Type, Alist);
-        {_, Decode} ->
-            Decode
-    end.
-
+-spec decoder(name() | impl()) -> decoder().
+decoder({impl, TypeSpec, {finite, Alist}}) ->
+    convert_finite(TypeSpec, Alist);
+decoder({impl, _, {_, Decode}}) ->
+    Decode;
+decoder(TypeSpec) ->
+    decoder({impl, TypeSpec, type_spec(TypeSpec)}).
+    
 
 
 
@@ -275,16 +271,11 @@ convert_finite(Type, PL) ->
 %% For non-quoted printing of binaries and other objects.
 s(Bin) when is_binary(Bin) -> Bin;
 s(P) -> io_lib:format("~p",[P]).
-    
-%% Convert the type spec to and from binary.  This only works for concrete types.
-encode_type(Atom) when is_atom(Atom) -> 
-    atom_to_binary(Atom,utf8);
-encode_type(Term) -> 
-    web:hmac_encode(Term).
-decode_type(Bin) ->
-    try {ok, Term} = web:hmac_decode(Bin), Term
-    catch _:_ -> binary_to_existing_atom(Bin,utf8) end.
-    
+
+
+%% Type specs need to be printable Erlang terms.
+encode_type(Term) -> encode({pterm,Term}).
+decode_type(Bin)  -> decode({pterm,Bin}).
     
 
 %% A type is:
