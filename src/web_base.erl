@@ -52,11 +52,11 @@ input(Types, {Key,{Type, InitTerm}=TaggedValue}) ->
             {input,
              Attrs ++ [{value,BinEncoded}],
              [[BinEncoded]]}
-    end;
+    end.
 
-%% Untagged values values are treated as binary.
-input(Types, {Key,Value}) ->
-    input(Types, {Key,{binary,Value}}).
+
+
+
 
 
 
