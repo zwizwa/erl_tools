@@ -11,7 +11,6 @@
 %% Special input types.
 
 
-    
 
 input(Types, {Key, {button, Label}}) ->
     true = is_binary(Label),

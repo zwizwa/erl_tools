@@ -103,11 +103,15 @@ kv_table({table,TypeMod,DB,Table}) when is_atom(Table) and is_atom(TypeMod) ->
 
     {kvstore, 
      fun
-         (read) ->
+         (find) ->
              fun(Key) ->
                      BinKey = encode_key(TypeMod, Key),
-                     [[_,_] = BinTV] = sql(DB, QRead, [BinKey]),
-                     decode(TypeMod, BinTV)
+                     case sql(DB, QRead, [BinKey]) of
+                         [[_,_] = BinTV] ->
+                             {ok, decode_type_val(TypeMod, BinTV)};
+                         [] ->
+                             error
+                     end
              end;
          (load) ->
              fun() ->
@@ -131,7 +135,7 @@ kv_table({table,TypeMod,DB,Table}) when is_atom(Table) and is_atom(TypeMod) ->
 kv_table_init(DB,Table) when is_atom(Table) ->
     sql(DB,
         tools:format_binary(
-          "create table if not exists ~p (var,type,val)",
+          "create table if not exists ~p (var, type, val, primary key (var))",
           [Table]),
        []).
 
