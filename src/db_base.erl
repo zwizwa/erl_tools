@@ -111,13 +111,15 @@ kv_table({table,TypeMod,DB,Table}) when is_atom(Table) and is_atom(TypeMod) ->
              end;
          (load) ->
              fun() ->
-                     [decode(TypeMod, BinTV)
-                      || BinTV <- sql(DB, QLoad, [])]
+                     maps:from_list(
+                       [decode(TypeMod, BinTV)
+                        || BinTV <- sql(DB, QLoad, [])])
              end;
          (write) ->
              Write;
          (save) ->
-             fun(List) ->
+             fun(Map) ->
+                     List = maps:to_list(Map),
                      transaction(
                        DB, fun() ->
                                    lists:foreach(Write, List)
