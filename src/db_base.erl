@@ -5,10 +5,8 @@
          transaction/2,
          %% Canonical representation for erlang tagged terms.
          encode/2, decode/2,
-         %% Simple key,value store for erlang application state
-         kv_read/2, kv_write/2,
-         kvstore/1,
-         kvstore_init/2, kvstore_delete/2,
+         %% Implementation using DB tables
+         kv_table/1, kv_table_init/2, kv_table_delete/2,
          %% For reloads
          handle/2]).
 
@@ -58,6 +56,91 @@ sql(DB, SQL,Bindings) when
 
 
 
+%% Transactions
+begin_transaction(DB) ->
+    sql(DB, <<"begin transaction">>,[]).
+end_transaction(DB) ->
+    sql(DB, <<"end transaction">>,[]).
+rollback_transaction(DB) ->
+    sql(DB, <<"rollback transaction">>,[]).
+    
+transaction(DB, Fun) ->
+    begin_transaction(DB),
+    try 
+        Rv = Fun(),
+        end_transaction(DB),
+        {ok, Rv}
+    catch
+        C:E ->
+            rollback_transaction(DB),
+            {error, {C,E,erlang:get_stacktrace()}}
+    end.
+
+
+
+%% Implementation based on database table and type_base.erl type conversion.
+kv_table({table,TypeMod,DB,Table}) when is_atom(Table) and is_atom(TypeMod) ->
+    %% Make sure it exists.
+    kv_table_init(DB,Table),
+    QWrite =
+        tools:format_binary(
+          "insert or replace into ~p (var,type,val) values (?,?,?)",
+          [Table]),
+    QRead =
+        tools:format_binary(
+          "select type,val from ~p where var = ?",
+          [Table]),
+    QLoad =
+        tools:format_binary(
+          "select var,type,val from ~p",
+          [Table]),
+
+    Write =
+        fun(KTV) ->
+                BinKTV = encode(TypeMod, KTV),
+                sql(DB,QWrite, BinKTV)
+        end,
+
+    {kvstore, 
+     fun
+         (read) ->
+             fun(Key) ->
+                     BinKey = encode_key(TypeMod, Key),
+                     [[_,_] = BinTV] = sql(DB, QRead, [BinKey]),
+                     decode(TypeMod, BinTV)
+             end;
+         (load) ->
+             fun() ->
+                     [decode(TypeMod, BinTV)
+                      || BinTV <- sql(DB, QLoad, [])]
+             end;
+         (write) ->
+             Write;
+         (save) ->
+             fun(List) ->
+                     transaction(
+                       DB, fun() ->
+                                   lists:foreach(Write, List)
+                           end)
+             end
+     end}.
+                   
+%% Ad-hoc key value stores.
+kv_table_init(DB,Table) when is_atom(Table) ->
+    sql(DB,
+        tools:format_binary(
+          "create table if not exists ~p (var,type,val)",
+          [Table]),
+       []).
+
+kv_table_delete(DB, Table) when is_atom(Table) ->
+    sql(DB,
+        tools:format_binary(
+          "drop table if exists ~p",
+          [Table]),
+        []).
+
+
 %% Canonical way to represent type-tagged erlang terms as
 %% human-readable binary, for db storage and user interfaces.  See
 %% type_base.erl
@@ -78,86 +161,9 @@ decode(TypeMod, [BinKey | BinTV]) ->
     {decode_key(TypeMod, BinKey),
      decode_type_val(TypeMod, BinTV)}.
 
-%% Simple key-value store for ad-hoc app data.  This can access a
-%% table slice.
-
-kv_write({kvstore, TypeMod, Write, _Read}, KeyTypeVal) ->
-    Write(decode(TypeMod, KeyTypeVal)).
-
-kv_read({kvstore, TypeMod, _Write, Read}, Key) ->
-    [[_,_] = BinTV] = Read(encode_key(TypeMod, Key)),
-    decode_type_val(TypeMod, BinTV).
-
-
-%% Abstract access from arbitrary tables. Maybe not needed?
-kvstore({kvstore_spec,TypeMod,DB,Table,{KCol,TCol,VCol}}) ->
-    QWrite =
-        tools:format_binary(
-          "insert or replace into ~s (~s,~s,~s) values (?,?,?)",
-          Table, KCol, TCol, VCol),
-    QRead =
-        tools:format_binary(
-          "select (~s,~s) from ~s where ~s = ?",
-          [TCol, VCol, Table, KCol]),
-    {kvstore,TypeMod,
-     fun(BinKTV) -> sql(DB, QWrite, BinKTV) end,
-     fun(BinKey) -> sql(DB, QRead, [BinKey]) end};
-
-%% Canonical single 3-column DB table.
-kvstore({table,TypeMod,DB,Table}) when is_atom(Table) and is_atom(TypeMod) ->
-    %% Make sure it exists.
-    kvstore_init(DB,Table),
-    QWrite =
-        tools:format_binary(
-          "insert or replace into ~p (var,type,val) values (?,?,?)",
-          [Table]),
-    QRead =
-        tools:format_binary(
-          "select val_type,val from ~p where var = ? and page = '~p'",
-          [Table]),
-    {kvstore, TypeMod,
-     fun(BinKTV) -> sql(DB,QWrite, BinKTV) end,
-     fun(BinKey) -> sql(DB,QRead, [BinKey]) end}.
-    
-
-
-
-%% Canonical kv stores: tables with 3 fixed columns: var,type,val
-
-%% Ad-hoc key value stores.
-kvstore_init(DB,Table) when is_atom(Table) ->
-    sql(DB,
-        tools:format_binary(
-          "create table if not exists ~p (var,type,val)",
-          [Table]),
-       []).
-
-kvstore_delete(DB, Table) when is_atom(Table) ->
-    sql(DB,
-        tools:format_binary(
-          "drop table if exists ~p",
-          [Table]),
-        []).
 
 
 
 
 
-begin_transaction(DB) ->
-    sql(DB, <<"begin transaction">>,[]).
-end_transaction(DB) ->
-    sql(DB, <<"end transaction">>,[]).
-rollback_transaction(DB) ->
-    sql(DB, <<"rollback transaction">>,[]).
-    
-transaction(DB, Fun) ->
-    begin_transaction(DB),
-    try 
-        Rv = Fun(),
-        end_transaction(DB),
-        {ok, Rv}
-    catch
-        C:E ->
-            rollback_transaction(DB),
-            {error, {C,E,erlang:get_stacktrace()}}
-    end.
+
