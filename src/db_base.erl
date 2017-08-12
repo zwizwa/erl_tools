@@ -2,10 +2,13 @@
 -export([db/1,
          query/3,
          sql/3,
+         transaction/2,
          %% Canonical representation for erlang tagged terms.
          encode/2, decode/2,
          %% Simple key,value store for erlang application state
-         kv_read/2, kv_write/2, kv_new/1,
+         kv_read/2, kv_write/2,
+         kvstore/1,
+         kvstore_init/2, kvstore_delete/2,
          %% For reloads
          handle/2]).
 
@@ -85,7 +88,9 @@ kv_read({kvstore, TypeMod, _Write, Read}, Key) ->
     [[_,_] = BinTV] = Read(encode_key(TypeMod, Key)),
     decode_type_val(TypeMod, BinTV).
 
-kv_new({kvstore_spec,TypeMod,DB,Table,{KCol,TCol,VCol}}) ->
+
+%% Abstract access from arbitrary tables. Maybe not needed?
+kvstore({kvstore_spec,TypeMod,DB,Table,{KCol,TCol,VCol}}) ->
     QWrite =
         tools:format_binary(
           "insert or replace into ~s (~s,~s,~s) values (?,?,?)",
@@ -96,6 +101,63 @@ kv_new({kvstore_spec,TypeMod,DB,Table,{KCol,TCol,VCol}}) ->
           [TCol, VCol, Table, KCol]),
     {kvstore,TypeMod,
      fun(BinKTV) -> sql(DB, QWrite, BinKTV) end,
-     fun(BinKey) -> sql(DB, QRead, [BinKey]) end}.
+     fun(BinKey) -> sql(DB, QRead, [BinKey]) end};
+
+%% Canonical single 3-column DB table.
+kvstore({table,TypeMod,DB,Table}) when is_atom(Table) and is_atom(TypeMod) ->
+    %% Make sure it exists.
+    kvstore_init(DB,Table),
+    QWrite =
+        tools:format_binary(
+          "insert or replace into ~p (var,type,val) values (?,?,?)",
+          [Table]),
+    QRead =
+        tools:format_binary(
+          "select val_type,val from ~p where var = ? and page = '~p'",
+          [Table]),
+    {kvstore, TypeMod,
+     fun(BinKTV) -> sql(DB,QWrite, BinKTV) end,
+     fun(BinKey) -> sql(DB,QRead, [BinKey]) end}.
+    
 
 
+
+%% Canonical kv stores: tables with 3 fixed columns: var,type,val
+
+%% Ad-hoc key value stores.
+kvstore_init(DB,Table) when is_atom(Table) ->
+    sql(DB,
+        tools:format_binary(
+          "create table if not exists ~p (var,type,val)",
+          [Table]),
+       []).
+
+kvstore_delete(DB, Table) when is_atom(Table) ->
+    sql(DB,
+        tools:format_binary(
+          "drop table if exists ~p",
+          [Table]),
+        []).
+
+
+
+
+
+begin_transaction(DB) ->
+    sql(DB, <<"begin transaction">>,[]).
+end_transaction(DB) ->
+    sql(DB, <<"end transaction">>,[]).
+rollback_transaction(DB) ->
+    sql(DB, <<"rollback transaction">>,[]).
+    
+transaction(DB, Fun) ->
+    begin_transaction(DB),
+    try 
+        Rv = Fun(),
+        end_transaction(DB),
+        {ok, Rv}
+    catch
+        C:E ->
+            rollback_transaction(DB),
+            {error, {C,E,erlang:get_stacktrace()}}
+    end.
