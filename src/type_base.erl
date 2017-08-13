@@ -44,9 +44,9 @@
 %% Types can be extended.  User should create a module with
 %% encode/decode and type_encode/type_decode functions calling into
 %% this module, providing impl().
--type impl() :: {impl, name(), {finite,_}|{_,_}}.
--spec encoder(name() | impl()) -> encoder().
+-type impl() :: {impl, name(), finite()|{encoder(),decoder()}}.
 
+-spec encoder(name() | impl()) -> encoder().
 encoder({impl, TypeSpec, {finite, Alist}}) ->
     InvAlist = [{B,A} || {A,B} <- Alist],
     convert_finite(TypeSpec, InvAlist);
@@ -100,10 +100,10 @@ decode_try(Arg) ->
     end.
 
     
--spec encode({name(),_}) -> binary().
+-spec encode({name()|impl(),_}) -> binary().
 encode({Type, Val}) -> iolist_to_binary((encoder(Type))(Val)).
 
--spec decode({name(),binary()}) -> _.
+-spec decode({name()|impl(),binary()}) -> _.
 decode({Type, Bin}) when is_binary(Bin) -> (decoder(Type))(Bin).
 
 %% decode({Type, IOList}) -> decode({Type,iolist_to_binary(IOList)}). %% convenient
