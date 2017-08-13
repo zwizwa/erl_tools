@@ -51,6 +51,7 @@ query(DB, FunName, Args) ->
 sql(DB, SQL,Bindings) when
       is_binary(SQL) and
       is_list(Bindings) ->
+    %% log:info("query: ~p~n",[{SQL,Bindings}]),
     query(DB, query, [{SQL,Bindings}]).
 
 
@@ -72,8 +73,16 @@ transaction(DB, Fun) ->
         {ok, Rv}
     catch
         C:E ->
-            rollback_transaction(DB),
-            {error, {C,E,erlang:get_stacktrace()}}
+            %% Rollback can fail apparently.. Log it because it's
+            %% likely a bug elsewhere.
+            Err0 = {C,E,erlang:get_stacktrace()},
+            try
+                rollback_transaction(DB),
+                {error, {rollback_ok, Err0}}
+            catch 
+                %% Why does this happen?
+                C1:E1 -> {error, {rollback_fail, {Err0, {C1,E1}}}}
+            end
     end.
 
 
@@ -94,12 +103,22 @@ kv_table({table,TypeMod,DB,Table}) when is_atom(Table) and is_atom(TypeMod) ->
         tools:format_binary(
           "select var,type,val from ~p",
           [Table]),
+    QKeys =
+        tools:format_binary(
+          "select var from ~p",
+          [Table]),
 
     Write =
         fun(KTV) ->
                 BinKTV = encode(TypeMod, KTV),
                 sql(DB,QWrite, BinKTV)
         end,
+    ToList =
+        fun() ->
+                [decode(TypeMod, BinTV)
+                 || BinTV <- sql(DB, QLoad, [])]
+        end,
+        
 
     {kvstore, 
      fun
@@ -113,15 +132,20 @@ kv_table({table,TypeMod,DB,Table}) when is_atom(Table) and is_atom(TypeMod) ->
                              error
                      end
              end;
-         (load) ->
+         (to_list) ->
+             ToList;
+         (to_map) ->
              fun() ->
-                     maps:from_list(
-                       [decode(TypeMod, BinTV)
-                        || BinTV <- sql(DB, QLoad, [])])
+                     maps:from_list(ToList())
+             end;
+         (keys) ->
+             fun() ->
+                     [decode_key(TypeMod, BinKey)
+                      || [BinKey] <- sql(DB, QKeys, [])]
              end;
          (write) ->
              Write;
-         (save) ->
+         (write_map) ->
              fun(Map) ->
                      List = maps:to_list(Map),
                      transaction(
