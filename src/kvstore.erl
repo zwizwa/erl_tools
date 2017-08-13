@@ -1,4 +1,4 @@
--module(kv).
+-module(kvstore).
 -export([%% Simple key,value store interface
          find/2, read/2, write/2, to_list/1, to_map/1,
          write_map/2, keys/1]).
