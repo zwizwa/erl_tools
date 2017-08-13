@@ -111,7 +111,8 @@ kv_table({table,TypeMod,DB,Table}) when is_atom(Table) and is_atom(TypeMod) ->
     Write =
         fun(KTV) ->
                 BinKTV = encode(TypeMod, KTV),
-                sql(DB,QWrite, BinKTV)
+                sql(DB,QWrite, BinKTV),
+                KTV
         end,
     ToList =
         fun() ->
@@ -150,7 +151,8 @@ kv_table({table,TypeMod,DB,Table}) when is_atom(Table) and is_atom(TypeMod) ->
                      List = maps:to_list(Map),
                      transaction(
                        DB, fun() ->
-                                   lists:foreach(Write, List)
+                                   lists:foreach(Write, List),
+                                   Map
                            end)
              end
      end}.

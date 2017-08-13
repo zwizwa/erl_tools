@@ -1,7 +1,7 @@
 -module(kvstore).
 -export([%% Simple key,value store interface
          find/2, read/2, write/2, to_list/1, to_map/1,
-         write_map/2, keys/1]).
+         write_map/2, keys/1, init/2]).
 
 %% Simple abstract key-value store interface.
 write     ({kvstore, F}, KeyTypeVal)  -> (F(write))(KeyTypeVal).
@@ -11,10 +11,20 @@ to_map    ({kvstore, F})              -> (F(to_map))().
 write_map ({kvstore, F}, Map)         -> (F(write_map))(Map).
 keys      ({kvstore, F})              -> (F(keys))().
 
-read(KVS, Key) ->
-    {ok, RV} = find(KVS, Key),
+read(KVStore, Key) ->
+    {ok, RV} = find(KVStore, Key),
     RV.
 
             
     
-  
+init(KVStore, Init) ->  
+    %% Do not write if nothing changed.  Useful in case writes are
+    %% slow (e.g. sync after each transaction on slow SD card).
+    %% FIXME: there must be a smarter way to do this.
+    Old  = to_map(KVStore),
+    New  = maps:merge(Init,Old),
+    case New == Old of
+        false -> write_map(KVStore, New); %% Returns {ok,_} | {error,_}
+        true -> {ok, already_initialized}
+    end.
+    
