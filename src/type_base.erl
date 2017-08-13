@@ -21,9 +21,8 @@
          format_error/1,
          
          %% Misc low level tools
-         atom/1, int/1,
+         atom/1, int/1
 
-         test/0
          
         ]).
 
@@ -71,7 +70,6 @@ decoder(TypeSpec) ->
 
 
 
-test() -> encode({foo,<<"asdf">>}).
     
 
 

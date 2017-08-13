@@ -7,7 +7,12 @@
          attr_find/2,
          attr_put/3,
          attr_remove/2,
-         attr_merge/2]).
+         attr_merge/2,
+
+         %% HMAC for encoding binary terms in JavaScript strings.
+         hmac_key/0, hmac/2, hmac_encode/2, hmac_decode/2
+
+]).
 %% Special input types.
 
 
@@ -106,3 +111,99 @@ attr_merge(InitAttrs, PutAttrs) ->
 attr_get_integer(Key,Attrs) ->
     list_to_integer(attr_get(Key,Attrs)).
               
+
+
+%% Key used for term authentication (e.g. closures).
+%% Limit time-validity of key to one gw boot session.
+%% Failed keys will cause websocket processes to die, disconnecting
+%% socket which causes client to reconnect.
+hmac_key() ->
+    Pid = serv:up(
+            hmac_key,
+            {handler,
+             fun() -> #{ key => crypto:strong_rand_bytes(32) } end,
+             fun obj:handle/2}),
+    unlink(Pid),
+    obj:get(Pid, key).
+%% hmac_key() -> <<"oT8LGqAtMTGKyBHqoA7ky3PCzjTN5L">>.
+hmac(GetKey,Bin) when is_binary(Bin) -> 
+    crypto:hmac(sha256,GetKey(),Bin).
+
+%% Encode/decode for tunneling through JSON, cookies, embedded JS,
+%% URLs, ...  Use base64 encoding.
+
+hmac_encode(GetKey,Obj) ->
+    Bin = term_to_binary(Obj),
+    Hmac = hmac(GetKey,Bin),
+    base64:encode(term_to_binary({Bin,Hmac})).
+
+hmac_decode(GetKey,Base64) ->
+    {Bin,Hmac} = binary_to_term(base64:decode(Base64)),
+    case hmac(GetKey,Bin) of
+        Hmac  -> {ok, binary_to_term(Bin)};
+        Hmac1 -> {error, {hmac_fail, Hmac, Hmac1}}
+    end.
+
+
+
+
+
+%% FIXME: sort out old ideas
+
+
+
+%% Convert exml to react instantiation code.  FIXME: just an idea -
+%% remains to be seen if this is at all useful.  The main reason would
+%% be to compose widgets on a page, directed by Erlang code.
+%% rexml(El) ->
+%%     rexml("React.createElement",El).
+%% rexml(CreateEl, {Tag,Attrs,Children}) ->
+%%     io_lib:format(
+%%       "~s('~s',~s,~s)",
+%%       [CreateEl, Tag,
+%%        rexml_list([rexml_attr(Attr) || Attr <- Attrs]),
+%%        rexml_list([rexml(CreateEl, Child) || Child <- Children])]);
+%% rexml(_, Text) ->
+%%     io_lib:format("'~s'",[Text]).
+%% rexml_attr({_Tag,_Value}) -> "".
+%% rexml_list([]) -> "null";
+%% rexml_list([H|T]) -> ["[",H,[[",",E]||E<-T],"]"].
+
+%% td_cell({ID,Content}) ->
+%%     td_cell({ID,Content,[]});
+%% td_cell({ID,Content,ExtraAttrs}) ->
+%%     {td,
+%%      [{'data-type','cell'}, %% behavior
+%%       {id, ID}] ++ ExtraAttrs,
+%%      [[Content]]}.
+
+%% A generalized right fold for EXML elements.  Constructors are
+%% optionally picked from the dictionary if they exist, otherwise the
+%% element is left intact.
+
+
+%% %% Default constructor: preserve structure and recurse on elements.
+%% exml_cons_rec(Constructors) ->
+%%     fun(T,As,Es) ->
+%%             {T,As,lists:map(
+%%                     fun(E) -> exml_gfoldr(Constructors, E) end,
+%%                     Es)}
+%%     end.
+
+%% %% Generic: if a constructor is specified, it is assumed to perform
+%% %% the recursion.  This allows more control over the iteration.
+%% exml_gfoldr(Constructors, {Tag, Attrs, Children}) ->
+%%     Cons =
+%%         case maps:find(Tag, Constructors) of
+%%             {ok, Fun} -> Fun;
+%%             _ ->
+%%                 case maps:find('_', Constructors) of
+%%                     {ok, Fun} -> Fun;
+%%                     _ -> exml_cons_rec(Constructors)
+%%                 end
+%%         end,
+%%     Cons(Tag, Attrs, Children);
+%% exml_gfoldr(_Constructors, Other) ->
+%%     %% FIXME: leaf nodes?
+%%     Other.
+
