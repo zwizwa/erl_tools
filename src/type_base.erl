@@ -16,8 +16,11 @@
          %% Type specification , mostly useful for finite types.
          type_spec/1, finite/1,
          encoder/1, decoder/1,
+
+         %% Convert error message to user-readable message.
+         format_error/1,
          
-         %% Miasc low elvel tools
+         %% Misc low level tools
          atom/1, int/1,
 
          test/0
@@ -276,6 +279,14 @@ s(P) -> io_lib:format("~p",[P]).
 %% Type specs need to be printable Erlang terms.
 encode_type(Term) -> encode({pterm,Term}).
 decode_type(Bin)  -> decode({pterm,Bin}).
+
+
+format_error({type,{_Type, Input,Error}}) ->
+    %% User is not interested in rep, leave out _Type
+    tools:format_binary("~s in '~s'",[Error,Input]);
+format_error(Error) ->
+    %% Falback in case of bugs
+    tools:format_binary("~p",[Error]).
     
 
 %% A type is:
