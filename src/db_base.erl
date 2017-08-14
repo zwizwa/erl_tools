@@ -130,7 +130,7 @@ kv_table({table,TypeMod,DB,Table}) when is_atom(Table) and is_atom(TypeMod) ->
                          [[_,_] = BinTV] ->
                              {ok, decode_type_val(TypeMod, BinTV)};
                          [] ->
-                             error
+                             {error, {not_found, Key}}
                      end
              end;
          (to_list) ->
