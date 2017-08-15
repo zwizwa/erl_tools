@@ -198,4 +198,19 @@ decode(TypeMod, [BinKey | BinTV]) ->
 
 
 
+%% TODO: cache query compilation.  For each query, sqlite will return
+%% the pointer to the compiled query together with the response.  This
+%% then enables the driver here to cache the query in its process
+%% state.  This would need the following changes:
+
+%% new messages
+%% - port sends:
+%%   - pointer to query
+%% - port receives:
+%%   - query string or pointer
+%%   - delete compiled query
+
+%% Or turn it around, keeping the C side dumb.  We send the query
+%% together with a number so it can be stored in a table.  Only thing
+%% C side needs to do is to resize the table if needed.
 

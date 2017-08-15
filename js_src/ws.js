@@ -1,4 +1,3 @@
-var _ = require('underscore');
 var ws = new Object();
 var last_evt;
 
@@ -7,14 +6,6 @@ var bert_module = require('./bert');
 var bert_deps = { UTF8Decoder: window['TextDecoder'] };
 var bert = new bert_module.Bert({ UTF8Decoder: window['TextDecoder'] });
 
-var default_handler = {
-    set_cookie: function(msg) {
-        document.cookie = msg.cookie;
-    },
-    reload: function(msg) {
-        window.location.reload();
-    },
-}
 
 function send(msg) {
     ws.send(JSON.stringify(msg));
@@ -88,51 +79,72 @@ function input(action, el) {
     //console.log('msg', msg);
     send(msg);
 }
-function handle(handlers, msg) {
-    // console.log(handlers);
-    var handler = _.find(handlers, function(h) { return h[msg.type]; });
-    if (handler) { (handler[msg.type])(msg); return; }
-    else { console.log(['unknown message', msg.type]); }
+
+
+// Send message to object:
+// - object state:    represented by DOM element
+// - object behavior: obtained from "data-type" attribute
+// See ws:method_call/4
+function method_call_msg(element_behaviors, msg) {
+    var el = document.getElementById(msg.id);
+    if (!el) {
+        console.log("method_call","element not found",msg.id)
+        return;
+    }
+    method_call_el(element_behaviors, el, msg);
 }
+function method_call_el(element_behaviors, el, msg) {
+    var t = el.getAttribute('data-type'); // FIXME: allow multiple!
+    if (!el) {
+        console.log("method_call","no data-type", el);
+        return;
+    }
+    var b = element_behaviors[t];
+    if (!b) {
+        console.log("method_call","no behavior", t);
+        return;
+    }
+    var m = b[msg.method];
+    if (!m) {
+        console.log("method_call","no method",msg.method);
+    }
+    //console.log(m,el,msg.arg);
+    m(el, msg.arg);
+}
+
 
 
 // Open websocket and pass in representation of server-side start code.
 // After that, handle messages coming in from websocket.
 function start(args, element_behaviors) {
+
+    /* We support these messages. */
+    var handlers = {
+        method_call: function(msg) {
+            method_call_msg(element_behaviors, msg);
+        },
+        set_cookie: function(msg) {
+            document.cookie = msg.cookie;
+        },
+        reload: function(msg) {
+            window.location.reload();
+        }
+    };
+    var handle = function(msg) {
+        var handler = handlers[msg.type];
+        if (!handler) {
+            console.log(['unknown message', msg.type]);
+            return;
+        }
+        handler(msg);
+    };
+
+
+    /* Websocket */
     if (!("WebSocket" in window)) {
         alert("WebSocket NOT supported by your Browser!");
         return;
     }
-    var method_call_handler = {
-        // Send message to object represented by DOM element
-        // associated with behavior through "data-type" attr.
-        // e.g.: ws1 ! #{ type => method_call, id => scope, method => update, args => [1,2,3] }.
-        method_call: function(msg) {
-            var el = document.getElementById(msg.id);
-            if (!el) {
-                console.log("method_call","element not found",msg.id)
-                return;
-            }
-            var t = el.getAttribute('data-type'); // FIXME: allow multiple!
-            if (!el) {
-                console.log("method_call","no data-type", el);
-                return;
-            }
-            var b = element_behaviors[t];
-            if (!b) {
-                console.log("method_call","no behavior", t);
-                return;
-            }
-            var m = b[msg.method];
-            if (!m) {
-                console.log("method_call","no method",msg.method);
-            }
-            m(el, msg.arg);
-        }
-    }
-    var handlers = [default_handler,
-                    method_call_handler];
-
     ws = new WebSocket("ws://"+window.location.host+"/ws");
     ws.binaryType = "arraybuffer"; // default is "blob"
     ws.onopen = function() {
@@ -149,13 +161,13 @@ function start(args, element_behaviors) {
             // JSON
             var msg = JSON.parse(evt.data);
             //console.log('jsonmsg',msg);
-            handle(handlers, msg);
+            handle(msg);
         }
         else if (evt.data instanceof ArrayBuffer) {
             // BERT
             var msg = bert.decode(evt.data);
             //console.log('bertmsg',msg);
-            handle(handlers, msg);
+            handle(msg);
         }
         else {
             console.log(['unknown format:', evt.data]);

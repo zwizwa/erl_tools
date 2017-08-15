@@ -125,6 +125,3 @@ insert_or_replace_m(DB,Map,Sink) ->
     insert_or_replace(DB,Cols,Table,Values,Sink).
 
    
-
-
-
