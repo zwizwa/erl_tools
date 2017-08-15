@@ -24,6 +24,7 @@ function form_field(input) {
             input.getAttribute('data-decoder'),  // type
             input_value(input)];                 // value
 }
+// Convert input's value to string based on kind of input.
 function input_value(el) {
     if (el.type == 'checkbox') {
         return el.checked ? 'true' : 'false';
@@ -37,13 +38,13 @@ function input_value(el) {
 }
 
 
-// JavaScript event handlers for DOM inputs and forms This sends the
-// content of the form or input to Erlang over websocket.
+// JavaScript event handlers for DOM inputs and forms. This sends the
+// content of the form or single input to Erlang over websocket.
 function input(action, el) {
     var msg = { type: "ws_action", action: action };
     // console.log('el',el);
 
-    // Copy some properties from the DOM object
+    // Form returns list of fields
     if ('form' == el.nodeName) {
         msg.form= [];
         for (i=0; i<el.elements.length; i++) {
@@ -53,23 +54,14 @@ function input(action, el) {
             }
         }
     }
+    // A single imput returns list with one field
     else {
-        // FIXME: this is no longer used.  Use the 'form' property
-        // instead.
-        copy_fields(el, msg);
-
-        // Represent this as a single-field form to be able to reuse
-        // the form routines server side.
         if (el.name) {
             msg.form = [form_field(el)];
         }
     }
     //console.log('msg', msg);
     send(msg);
-}
-function copy_fields(el, msg) {
-    ['value', 'id', 'checked', 'name']
-        .forEach(function(tag) { msg[tag] = el[tag]; });
 }
 
 
