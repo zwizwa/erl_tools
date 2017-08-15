@@ -1,5 +1,5 @@
 -module(db_base).
--export([db/1,
+-export([db/2,
          query/3,
          sql/3,
          transaction/2,
@@ -12,9 +12,9 @@
 
 %% Process wrapper around sqlite3.erl
 
-db(DbFile) ->
+db(Atom, DbFile) ->
     ParentPid = self(),
-    serv:up(db,
+    serv:up(Atom,
             {handler,
              fun() -> 
                      unlink(ParentPid),
@@ -51,7 +51,7 @@ query(DB, FunName, Args) ->
 sql(DB, SQL,Bindings) when
       is_binary(SQL) and
       is_list(Bindings) ->
-    %% log:info("query: ~p~n",[{SQL,Bindings}]),
+    log:info("query: ~p~n",[{DB,SQL,Bindings}]),
     query(DB, query, [{SQL,Bindings}]).
 
 

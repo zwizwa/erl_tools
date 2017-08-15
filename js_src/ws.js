@@ -109,14 +109,25 @@ function start(args, element_behaviors) {
         // e.g.: ws1 ! #{ type => method_call, id => scope, method => update, args => [1,2,3] }.
         method_call: function(msg) {
             var el = document.getElementById(msg.id);
-            var t = el.getAttribute('data-type');
-            var b = element_behaviors[t];
-            var m = b[msg.method];
-            if (m) { m(el, msg.arg); }
-            else {
-                console.log(['unknown associated element behavior',
-                             msg, el, data_type, fun]);
+            if (!el) {
+                console.log("method_call","element not found",msg.id)
+                return;
             }
+            var t = el.getAttribute('data-type'); // FIXME: allow multiple!
+            if (!el) {
+                console.log("method_call","no data-type", el);
+                return;
+            }
+            var b = element_behaviors[t];
+            if (!b) {
+                console.log("method_call","no behavior", t);
+                return;
+            }
+            var m = b[msg.method];
+            if (!m) {
+                console.log("method_call","no method",msg.method);
+            }
+            m(el, msg.arg);
         }
     }
     var handlers = [default_handler,
