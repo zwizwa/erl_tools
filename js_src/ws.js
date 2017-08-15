@@ -81,48 +81,18 @@ function input(action, el) {
 }
 
 
-// Send message to object:
-// - object state:    represented by DOM element
-// - object behavior: obtained from "data-type" attribute
-// See ws:method_call/4
-function method_call_msg(element_behaviors, msg) {
-    var el = document.getElementById(msg.id);
-    if (!el) {
-        console.log("method_call","element not found",msg.id)
-        return;
-    }
-    method_call_el(element_behaviors, el, msg);
-}
-function method_call_el(element_behaviors, el, msg) {
-    var t = el.getAttribute('data-type'); // FIXME: allow multiple!
-    if (!el) {
-        console.log("method_call","no data-type", el);
-        return;
-    }
-    var b = element_behaviors[t];
-    if (!b) {
-        console.log("method_call","no behavior", t);
-        return;
-    }
-    var m = b[msg.method];
-    if (!m) {
-        console.log("method_call","no method",msg.method);
-    }
-    //console.log(m,el,msg.arg);
-    m(el, msg.arg);
-}
+
+
 
 
 
 // Open websocket and pass in representation of server-side start code.
 // After that, handle messages coming in from websocket.
-function start(args, element_behaviors) {
+function start(args, method_call) {
 
     /* We support these messages. */
     var handlers = {
-        method_call: function(msg) {
-            method_call_msg(element_behaviors, msg);
-        },
+        method_call: method_call,
         set_cookie: function(msg) {
             document.cookie = msg.cookie;
         },
