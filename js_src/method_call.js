@@ -58,11 +58,15 @@ function route_msg(behaviors, msg) {
     }
     route_el_msg(behaviors, el, msg);
 }
-function route_el_msg(behaviors, el, msg) {
-    var t = el.getAttribute('data-type'); // FIXME: allow multiple!
-    if (!el) {
-        console.log("method_call","no data-type", el);
-        return;
+function route_el_msg(behaviors, target_el, msg) {
+    var el = target_el;
+    var t;
+    while (!(t = el.getAttribute('data-type'))) {
+        // See if parent has 
+        el = el.parentElement;
+        if (el == document.body) {
+            console.log("method_call","no data-type in parent chain", el);
+        }
     }
     var b = behaviors[t];
     if (!b) {
@@ -73,7 +77,9 @@ function route_el_msg(behaviors, el, msg) {
     if (!m) {
         console.log("method_call","no method",msg.method);
     }
-    //console.log(m,el,msg.arg);
+    //console.log(m,el,target_el,msg.arg);
+    // FIXME: send target_el as 3rd argument?
+    // route_evt doesn't need it, as it has event.target
     m(el, msg.arg);
 }
 
