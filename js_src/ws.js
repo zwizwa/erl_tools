@@ -7,34 +7,23 @@ var bert_deps = { UTF8Decoder: window['TextDecoder'] };
 var bert = new bert_module.Bert({ UTF8Decoder: window['TextDecoder'] });
 
 
-function send(msg) {
-    ws.send(JSON.stringify(msg));
+// Sending input and form data back to Erlang is done as an array of
+// 3-element arrays of strings, encoding:
+//
+// - key
+// - type
+// - value
+//
+// These are then converted back to Erlang by the type.erl module.
+//
+// See web:form_data/1
+// {Name=atom(),{Type=atom(),Value=binary()}}
+//
+function form_field(input) {
+    return [input.name,                          // key
+            input.getAttribute('data-decoder'),  // type
+            input_value(input)];                 // value
 }
-
-function send_datetime() {
-    var date = new Date();
-    var msg = {
-        type: 'ws_datetime',
-        args: [
-            date.getFullYear(),
-            date.getMonth() + 1, // 0-11 + 1
-            date.getDate(),
-            date.getHours(),
-            date.getMinutes(),
-            date.getSeconds()
-        ]
-    };
-    send(msg);
-}
-
-function copy_fields(el, msg) {
-    ['value', 'id', 'checked', 'name']
-        .forEach(function(tag) { msg[tag] = el[tag]; });
-}
-
-// All values should be binary when they come out of the JSON parser
-// at the Erlang side.  Further parsing uses the 'data-decoder'
-// attribute.
 function input_value(el) {
     if (el.type == 'checkbox') {
         return el.checked ? 'true' : 'false';
@@ -46,14 +35,10 @@ function input_value(el) {
         return el.value;
     }
 }
-// See web:form_data/1
-// {Name=atom(),{Type=atom(),Value=binary()}}
-function form_field(input) {
-    return [input.name,
-            input.getAttribute('data-decoder'),
-            input_value(input)];
-}
 
+
+// JavaScript event handlers for DOM inputs and forms This sends the
+// content of the form or input to Erlang over websocket.
 function input(action, el) {
     var msg = { type: "ws_action", action: action };
     // console.log('el',el);
@@ -69,7 +54,10 @@ function input(action, el) {
         }
     }
     else {
+        // FIXME: this is no longer used.  Use the 'form' property
+        // instead.
         copy_fields(el, msg);
+
         // Represent this as a single-field form to be able to reuse
         // the form routines server side.
         if (el.name) {
@@ -78,6 +66,10 @@ function input(action, el) {
     }
     //console.log('msg', msg);
     send(msg);
+}
+function copy_fields(el, msg) {
+    ['value', 'id', 'checked', 'name']
+        .forEach(function(tag) { msg[tag] = el[tag]; });
 }
 
 
@@ -156,6 +148,26 @@ function start(args, method_call) {
     };
     return ws;
 }
+
+function send(msg) {
+    ws.send(JSON.stringify(msg));
+}
+function send_datetime() {
+    var date = new Date();
+    var msg = {
+        type: 'ws_datetime',
+        args: [
+            date.getFullYear(),
+            date.getMonth() + 1, // 0-11 + 1
+            date.getDate(),
+            date.getHours(),
+            date.getMinutes(),
+            date.getSeconds()
+        ]
+    };
+    send(msg);
+}
+
 
 // API
 exports.start = start;
