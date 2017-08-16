@@ -150,20 +150,6 @@ hmac_decode(GetKey,Base64) ->
 
 
 
-%% Cowboy wrappers
-with_error_resp(Thunk) ->
-    try Thunk() 
-    catch 
-        C:E ->
-            Code = 500, %% Internal server error
-            {data, Headers, Data} =
-                web:resp_text(
-                  io_lib:format(
-                    "~p:~p~n~p",
-                    [C,E,erlang:get_stacktrace()])),
-            {data, Code, Headers, Data}
-    end.
-
 %% Convert Cowboy format for query formats to internal format:
 -spec atom_map([{binary(),binary()}]) -> #{ atom() => binary() }.
 atom_map(PropList) ->
@@ -179,8 +165,7 @@ cowboy_http_handle(Req, State, Get, Post) ->
         case Method of
             <<"POST">> ->
                 {ok, PostData, _} = cowboy_req:body_qs(Req),
-                with_error_resp(
-                  fun() -> Post(BinPath, atom_map(PostData)) end);
+                Post(BinPath, atom_map(PostData));
             <<"GET">> ->
                 {QueryVals, _} = cowboy_req:qs_vals(Req),
                 {Cookies, _} = cowboy_req:cookies(Req),
@@ -190,9 +175,7 @@ cowboy_http_handle(Req, State, Get, Post) ->
                              cookies => atom_map(Cookies)},
                           atom_map(QueryVals)),
                 %% log:info("qv: ~p~n", [QvMap]),
-                with_error_resp(
-                  fun() -> Get(BinPath, QvMap) end)
-
+                Get(BinPath, QvMap)
         end,
     case Reply of
         %% How to set size?  Likely Content-Length in Headers.
