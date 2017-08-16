@@ -12,5 +12,6 @@ clean: $(REBAR)
 	$(REBAR) clean --all ; rm -rf _build
 
 # Cross compilation testing
-%.cross:
-	. ~/devtools/$*.env ; make
+cross.%:
+	. ~/devtools/env.$* ; make ; 
+

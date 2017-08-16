@@ -16,6 +16,7 @@
 %% Process wrapper around sqlite3.erl
 
 test() ->
+    tools:info("~p~n",[?MODULE]),
     ok.
 
 db(Atom, DbFile, DbInit) ->
@@ -59,7 +60,7 @@ query(DB, FunName, Args) ->
 sql(DB, SQL,Bindings) when
       is_binary(SQL) and
       is_list(Bindings) ->
-    log:info("query: ~p~n",[{DB,SQL,Bindings}]),
+    %% log:info("query: ~p~n",[{DB,SQL,Bindings}]),
     query(DB, query, [{SQL,Bindings}]).
 
 

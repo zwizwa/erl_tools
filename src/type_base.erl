@@ -212,30 +212,30 @@ type_spec(Type) ->
         mac ->
             {fun({A,B,C,D,E,F}) ->
                      H = fun(V) -> tools:hex8(V) end,
-                     type_meta:fb("~s:~s:~s:~s:~s:~s",
+                     fb("~s:~s:~s:~s:~s:~s",
                         [H(V) || V <- [A,B,C,D,E,F]])
              end,
              fun(Val) ->
                      X=fun(Bin) -> decode({hex,Bin}) end,
                      case re:split(Val,":") of
                          [A,B,C,D,E,F] -> {X(A),X(B),X(C),X(D),X(E),X(F)};
-                         _ -> type_meta:stop(mac, Val, "Bad MAC")
+                         _ -> stop(mac, Val, "Bad MAC")
                      end
              end};
         ip ->
             {fun({A,B,C,D}) ->
-                     type_meta:fb("~p.~p.~p.~p", [A,B,C,D])
+                     fb("~p.~p.~p.~p", [A,B,C,D])
              end,
              fun(Val) ->
                      X=fun(Bin) -> decode({{int,0,255},Bin}) end,
                      case re:split(Val,"\\.") of
                          [A,B,C,D] -> {X(A),X(B),X(C),X(D)};
-                         _ -> type_meta:stop(ip, Val, "Bad IP")
+                         _ -> stop(ip, Val, "Bad IP")
                      end
              end};
         ip_nm ->
             {fun({IP,NM}) ->
-                     type_meta:fb("~s/~p", [encode({ip,IP}),NM])
+                     fb("~s/~p", [encode({ip,IP}),NM])
              end,
              fun(Val) ->
                      case re:split(Val,"/") of
@@ -243,7 +243,7 @@ type_spec(Type) ->
                              {decode({ip,IP}),
                               decode({{int,0,24},NM})};
                          _ ->
-                             type_meta:stop(ip_nm, Val, "Bad IP/NM pair")
+                             stop(ip_nm, Val, "Bad IP/NM pair")
                      end
              end}
     end.
