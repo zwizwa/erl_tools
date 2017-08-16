@@ -1,4 +1,6 @@
-REBAR = rebar3/rebar3
+## FIXME: remove this from distribution.
+
+REBAR = ~/devtools/rebar3/rebar3
 
 all: $(REBAR)
 	$(REBAR) compile
@@ -9,10 +11,6 @@ test: $(REBAR)
 clean: $(REBAR)
 	$(REBAR) clean --all ; rm -rf _build
 
-$(REBAR):
-	git clone https://github.com/erlang/rebar3.git
-	cd rebar3 ; ./bootstrap
-
 # Cross compilation testing
-%.cross: clean
-	. ~/cross/$*.env ; make
+%.cross:
+	. ~/devtools/$*.env ; make

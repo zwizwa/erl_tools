@@ -1,5 +1,6 @@
 -module(db_base).
 -export([db/3,
+         test/0,
          query/3,
          sql/3,
          transaction/2,
@@ -13,6 +14,9 @@
          handle/2]).
 
 %% Process wrapper around sqlite3.erl
+
+test() ->
+    ok.
 
 db(Atom, DbFile, DbInit) ->
     ParentPid = self(),
