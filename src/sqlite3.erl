@@ -15,7 +15,8 @@
 
 %% Port operations.
 open(DbFile) ->
-    Cmd = tools:format("priv/sqlite3.elf ~s", [DbFile]),
+    Priv = code:priv_dir(erl_tools),
+    Cmd = tools:format("~s/sqlite3.elf ~s", [Priv,DbFile]),
     open_port({spawn, Cmd}, [use_stdio, {packet,4}, exit_status, binary]).
 close(Port) ->
     Port ! {self(), {command, <<>>}},
