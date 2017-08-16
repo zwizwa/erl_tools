@@ -12,3 +12,7 @@ clean: $(REBAR)
 $(REBAR):
 	git clone https://github.com/erlang/rebar3.git
 	cd rebar3 ; ./bootstrap
+
+# Cross compilation testing
+%.cross: clean
+	. ~/cross/$*.env ; make
