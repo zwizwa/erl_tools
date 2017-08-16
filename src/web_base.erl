@@ -9,6 +9,9 @@
          attr_remove/2,
          attr_merge/2,
 
+         %% Cowboy wrappers
+         cowboy_http_handle/4,
+
          %% HMAC for encoding binary terms in JavaScript strings.
          hmac_key/0, hmac/2, hmac_encode/2, hmac_decode/2
 
@@ -147,6 +150,84 @@ hmac_decode(GetKey,Base64) ->
 
 
 
+%% Cowboy wrappers
+with_error_resp(Thunk) ->
+    try Thunk() 
+    catch 
+        C:E ->
+            Code = 500, %% Internal server error
+            {data, Headers, Data} =
+                web:resp_text(
+                  io_lib:format(
+                    "~p:~p~n~p",
+                    [C,E,erlang:get_stacktrace()])),
+            {data, Code, Headers, Data}
+    end.
+
+%% Convert Cowboy format for query formats to internal format:
+-spec atom_map([{binary(),binary()}]) -> #{ atom() => binary() }.
+atom_map(PropList) ->
+    maps:from_list(
+      [{binary_to_atom(Key,utf8),Val} || {Key,Val} <- PropList]).
+      
+
+%% Wrappers to simplify Cowboy API to what is used in web.erl
+cowboy_http_handle(Req, State, Get, Post) ->
+    {BinPath,_} = cowboy_req:path_info(Req),
+    {Method,_} = cowboy_req:method(Req),
+    Reply = 
+        case Method of
+            <<"POST">> ->
+                {ok, PostData, _} = cowboy_req:body_qs(Req),
+                with_error_resp(
+                  fun() -> Post(BinPath, atom_map(PostData)) end);
+            <<"GET">> ->
+                {QueryVals, _} = cowboy_req:qs_vals(Req),
+                {Cookies, _} = cowboy_req:cookies(Req),
+                {Referer, _} = cowboy_req:header(<<"referer">>, Req),
+                QvMap = maps:merge(
+                          #{ referer => Referer,
+                             cookies => atom_map(Cookies)},
+                          atom_map(QueryVals)),
+                %% log:info("qv: ~p~n", [QvMap]),
+                with_error_resp(
+                  fun() -> Get(BinPath, QvMap) end)
+
+        end,
+    case Reply of
+        %% How to set size?  Likely Content-Length in Headers.
+        {fold, Headers, Fold} ->
+            %% Generator exposed as a fold taking a foldee with early
+            %% abort protocol.  This is necessary to handle remote
+            %% connection close.
+            {ok, Req2} =  cowboy_req:chunked_reply(200, Headers, Req),
+            Fold(fun(Data, _) -> 
+                         case cowboy_req:chunk(Data, Req2) of
+                             ok -> {next, ok};
+                             Error -> 
+                                 log:info("chunked_reply: ~p~n",[Error]),
+                                 {stop, Error}
+                         end
+                 end, ok),
+            {ok, Req2, State};
+        {data, Headers, Data} ->
+            %% Plain I/O list
+            {ok, Req2} = cowboy_req:reply(200, Headers, Data, Req),
+            {ok, Req2, State};
+        {data, Code, Headers, Data} ->
+            %% Plain I/O list
+            {ok, Req2} = cowboy_req:reply(Code, Headers, Data, Req),
+            {ok, Req2, State};
+        {redirect, URL} ->
+            cowboy_req:reply(
+              302,
+              [{<<"Location">>, URL}],
+              <<"Redirecting...">>,
+              Req)
+    end.
+
+
+
 
 %% FIXME: sort out old ideas
 
@@ -206,4 +287,6 @@ hmac_decode(GetKey,Base64) ->
 %% exml_gfoldr(_Constructors, Other) ->
 %%     %% FIXME: leaf nodes?
 %%     Other.
+
+
 
