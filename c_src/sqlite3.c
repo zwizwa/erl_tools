@@ -106,6 +106,12 @@ void msg_send(struct bert_writer *w,
     assert_write(1, buf, len);
 }
 
+void sentinel() {
+    /* Terminate with an empty message */
+    uint8_t sentinel[4] = {};
+    assert_write(1, sentinel, sizeof(sentinel));
+    fflush(stdout); // ?
+}
 
 /* Package error message and send it to Erlang side. */
 struct sql_error {
@@ -130,12 +136,6 @@ void sql_error(int rv) {
     longjmp(error_jmp_buf, 1);
 }
 
-void sentinel() {
-    /* Terminate with an empty message */
-    uint8_t sentinel[4] = {};
-    assert_write(1, sentinel, sizeof(sentinel));
-    fflush(stdout); // ?
-}
 
 
 struct sql_row {
@@ -228,6 +228,9 @@ void query(const uint8_t *buf, uint32_t length) {
 #ifndef MAIN
 #define MAIN sqlite3_main
 #endif
+
+//ssize_t raw_read(int fd, void *buf, size_t count);
+//ssize_t raw_write(int fd, const void *buf, size_t count);
 
 int MAIN(int argc, char **argv) {
 
