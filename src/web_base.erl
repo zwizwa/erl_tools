@@ -10,7 +10,8 @@
          attr_merge/2,
 
          %% Cowboy wrappers
-         cowboy_http_handle/4,
+         cowboy_http_request/3,
+         cowboy_http_reply/3,
 
          %% HMAC for encoding binary terms in JavaScript strings.
          hmac_key/0, hmac/2, hmac_encode/2, hmac_decode/2
@@ -155,28 +156,8 @@ hmac_decode(GetKey,Base64) ->
 atom_map(PropList) ->
     maps:from_list(
       [{binary_to_atom(Key,utf8),Val} || {Key,Val} <- PropList]).
-      
 
-%% Wrappers to simplify Cowboy API to what is used in web.erl
-cowboy_http_handle(Req, State, Get, Post) ->
-    {BinPath,_} = cowboy_req:path_info(Req),
-    {Method,_} = cowboy_req:method(Req),
-    Reply = 
-        case Method of
-            <<"POST">> ->
-                {ok, PostData, _} = cowboy_req:body_qs(Req),
-                Post(BinPath, atom_map(PostData));
-            <<"GET">> ->
-                {QueryVals, _} = cowboy_req:qs_vals(Req),
-                {Cookies, _} = cowboy_req:cookies(Req),
-                {Referer, _} = cowboy_req:header(<<"referer">>, Req),
-                QvMap = maps:merge(
-                          #{ referer => Referer,
-                             cookies => atom_map(Cookies)},
-                          atom_map(QueryVals)),
-                %% log:info("qv: ~p~n", [QvMap]),
-                Get(BinPath, QvMap)
-        end,
+cowboy_http_reply(Req, State, Reply) ->
     case Reply of
         %% How to set size?  Likely Content-Length in Headers.
         {fold, Headers, Fold} ->
@@ -207,6 +188,27 @@ cowboy_http_handle(Req, State, Get, Post) ->
               [{<<"Location">>, URL}],
               <<"Redirecting...">>,
               Req)
+    end.
+      
+
+%% Wrappers to simplify Cowboy API to what is used in web.erl
+cowboy_http_request(Req, Get, Post) ->
+    {BinPath,_} = cowboy_req:path_info(Req),
+    {Method,_} = cowboy_req:method(Req),
+    case Method of
+        <<"POST">> ->
+            {ok, PostData, _} = cowboy_req:body_qs(Req),
+            Post(BinPath, atom_map(PostData));
+        <<"GET">> ->
+            {QueryVals, _} = cowboy_req:qs_vals(Req),
+            {Cookies, _} = cowboy_req:cookies(Req),
+            {Referer, _} = cowboy_req:header(<<"referer">>, Req),
+            QvMap = maps:merge(
+                      #{ referer => Referer,
+                         cookies => atom_map(Cookies)},
+                      atom_map(QueryVals)),
+            %% log:info("qv: ~p~n", [QvMap]),
+            Get(BinPath, QvMap)
     end.
 
 
