@@ -66,6 +66,7 @@ function route_el_msg(behaviors, target_el, msg) {
         el = el.parentElement;
         if (el == document.body) {
             console.log("method_call","no data-type in parent chain", el);
+            return;
         }
     }
     var b = behaviors[t];
@@ -76,6 +77,7 @@ function route_el_msg(behaviors, target_el, msg) {
     var m = b[msg.method];
     if (!m) {
         console.log("method_call","no method",msg.method);
+        return;
     }
     //console.log(m,el,target_el,msg.arg);
     // FIXME: send target_el as 3rd argument?
@@ -88,7 +90,7 @@ function route_el_msg(behaviors, target_el, msg) {
 // the same mechanism to be used to dispatch DOM events such as mouse
 // clicks.
 function route_evt(behaviors, event) {
-    console.log("route_evt",event);
+    //console.log("route_evt",event);
     var msg = {
         method: event.type,
         arg: event
