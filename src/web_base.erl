@@ -241,7 +241,7 @@ cowboy_http_request(Req, Get, Post) ->
 %%     td_cell({ID,Content,[]});
 %% td_cell({ID,Content,ExtraAttrs}) ->
 %%     {td,
-%%      [{'data-type','cell'}, %% behavior
+%%      [{'data-behavior','cell'},
 %%       {id, ID}] ++ ExtraAttrs,
 %%      [[Content]]}.
 

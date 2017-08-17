@@ -18,7 +18,7 @@
 // - The message contains a second property 'id' which is used to find
 //   the DOM element.
 //
-// - The DOM element contains a property 'data-type' which is used to
+// - The DOM element contains a property 'data-behavior' which is used to
 //   find the behavior associated to this object.  Think of that as
 //   the object's "class".
 //
@@ -36,7 +36,7 @@
 
 // EXAMPLE
 
-// <div id="my_cell" data-type="cell"/>
+// <div id="my_cell" data-behavior="cell"/>
 //
 // This then makes it possible to send it a message.  If the
 // collection of behaviors contains .cell from widgets.js, the Erlang
@@ -58,18 +58,18 @@ function route_msg(behaviors, msg) {
 }
 function route_el_msg(behaviors, target_el, msg) {
     var el = target_el;
-    var t;
-    while (!(t = el.getAttribute('data-type'))) {
+    var bn;
+    while (!(bn = el.getAttribute('data-behavior'))) {
         // See if parent has 
         el = el.parentElement;
         if (el == document.body) {
-            console.log("method_call","no data-type in parent chain", el);
+            console.log("method_call","no data-behavior in parent chain", el);
             return;
         }
     }
-    var b = behaviors[t];
+    var b = behaviors[bn];
     if (!b) {
-        console.log("method_call","no behavior", t);
+        console.log("method_call","no behavior", bn);
         return;
     }
     var m = b[msg.method];

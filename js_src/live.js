@@ -27,7 +27,6 @@ function append_html(log_el, html, opts) {
     log_append(log_el, div.firstChild, opts);
 }
 
-// Behavior associated to data-type=log
 module.exports.log = {
     append_text: function(el, arg) {
         append_text(el, arg[0], arg[1]);
