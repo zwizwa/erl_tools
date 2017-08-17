@@ -1,12 +1,23 @@
-function select(el, select) {
+function for_children(el, fun) {
     for (var i=0; i<el.children.length; i++) {
-        var child = el.children[i];
-        child.style.display = 'none';
-        // console.log(child);
-        if (child.getAttribute('name') == select) {
-            child.style.display = 'block';
-        }
+        fun(el.children[i]);
     }
+}
+function select(container, select_name) {
+    for_children(
+        container, function(node) {
+            node.style.display = 'none';
+            // console.log(node);
+            if (node.getAttribute('name') == select_name) {
+                node.style.display = 'block';
+            }
+        });
+}
+function select_one(container, display) {
+    for_children(
+        container, function(node) {
+            node.style.display = display;
+        });
 }
 
 // Behavior for standard dom objects
@@ -21,11 +32,19 @@ module.exports = {
         select: select 
     },
     showhide_control: {
-        change: function(el, event) {
-            var id = el.getAttribute('data-target');
-            var val = el.options[el.options.selectedIndex].value;
-            // console.log(id, val, el, event);
-            select(document.getElementById(id), val);
+        change: function(input_el, event) {
+            var id = input_el.getAttribute('data-target');
+            var container = document.getElementById(id);
+            console.log(input_el.type, id, container);
+            if (input_el.type == 'select-one') {
+                var opts = input_el.options;
+                var name = opts[opts.selectedIndex].value;
+                select(container, name);
+            }
+            else if (input_el.type == 'checkbox') {
+                var display = input_el.checked ? 'block' : 'none';
+                select_one(container, display);
+            }
         }
     }
 }

@@ -30,7 +30,8 @@ function input_value(el) {
         return el.checked ? 'true' : 'false';
     }
     else if (el.type == 'select-one') {
-        return el.options[el.options.selectedIndex].value;
+        var opts = el.options;
+        return opts[opts.selectedIndex].value;
     }
     else {
         return el.value;
