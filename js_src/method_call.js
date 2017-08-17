@@ -47,8 +47,6 @@
 // can be used to set the cell's new content
 
 
-// FIXME: if the element has no 'data-type', the parent should be looked up.
-
 
 function route_msg(behaviors, msg) {
     var el = document.getElementById(msg.id);
@@ -98,5 +96,9 @@ function route_evt(behaviors, event) {
     route_el_msg(behaviors, event.target, msg);
 }
 
+
+
+
 exports.msg = route_msg;
 exports.evt = route_evt;
+

@@ -183,11 +183,13 @@ cowboy_http_reply(Req, State, Reply) ->
             {ok, Req2} = cowboy_req:reply(Code, Headers, Data, Req),
             {ok, Req2, State};
         {redirect, URL} ->
-            cowboy_req:reply(
-              302,
-              [{<<"Location">>, URL}],
-              <<"Redirecting...">>,
-              Req)
+            {ok, Req2} =
+                cowboy_req:reply(
+                  302,
+                  [{<<"Location">>, URL}],
+                  <<"Redirecting...">>,
+                  Req),
+            {ok, Req2, State}
     end.
       
 
