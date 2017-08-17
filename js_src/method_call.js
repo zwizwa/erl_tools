@@ -47,14 +47,18 @@
 // can be used to set the cell's new content
 
 
+function error(errmsg) {
+    console.log(errmsg);
+    return {error: errmsg};
+}
+
 
 function route_msg(behaviors, msg) {
     var el = document.getElementById(msg.id);
     if (!el) {
-        console.log("method_call","element not found",msg.id)
-        return;
+        return error(["method_call","element not found",msg.id]);
     }
-    route_el_msg(behaviors, el, msg);
+    return route_el_msg(behaviors, el, msg);
 }
 function route_el_msg(behaviors, target_el, msg) {
     var el = target_el;
@@ -63,24 +67,21 @@ function route_el_msg(behaviors, target_el, msg) {
         // See if parent has 
         el = el.parentElement;
         if (el == document.body) {
-            console.log("method_call","no data-behavior in parent chain", el);
-            return;
+            return error(["method_call","no data-behavior in parent chain", el]);
         }
     }
     var b = behaviors[bn];
     if (!b) {
-        console.log("method_call","no behavior", bn);
-        return;
+        return error(["method_call","no behavior", bn]);
     }
     var m = b[msg.method];
     if (!m) {
-        console.log("method_call",t,"no method",msg.method);
-        return;
+        return error(["method_call",t,"no method",msg.method]);
     }
     //console.log(m,el,target_el,msg.arg);
     // FIXME: send target_el as 3rd argument?
     // route_evt doesn't need it, as it has event.target
-    m(el, msg.arg);
+    return m(el, msg.arg);
 }
 
 

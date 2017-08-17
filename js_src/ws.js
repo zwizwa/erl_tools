@@ -66,8 +66,10 @@ function input(action, el) {
 }
 
 
-
-
+function error(errmsg) {
+    console.log(errmsg);
+    return {error: errmsg};
+}
 
 
 
@@ -83,15 +85,26 @@ function start(args, method_call) {
         },
         reload: function(msg) {
             window.location.reload();
+        },
+        ping: function(msg) {
+            return 'pong';
+        },
+        eval: function(msg) {
+            return eval(msg.code);
         }
     };
     var handle = function(msg) {
         var handler = handlers[msg.type];
-        if (!handler) {
-            console.log(['unknown message', msg.type]);
-            return;
+        var rpl = {
+            type: "ws_action",
+            action: msg.cont,
+            arg: handler ?
+                handler(msg) :
+                error(['unknown message type', msg.type])
         }
-        handler(msg);
+        if (rpl.action) {
+            send(rpl);
+        }
     };
 
 
