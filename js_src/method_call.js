@@ -76,7 +76,7 @@ function route_el_msg(behaviors, target_el, msg) {
     }
     var m = b[msg.method];
     if (!m) {
-        return error(["method_call",t,"no method",msg.method]);
+        return error(["method_call",m,"no method",msg.method]);
     }
     //console.log(m,el,target_el,msg.arg);
     // FIXME: send target_el as 3rd argument?
