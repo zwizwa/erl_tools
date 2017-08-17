@@ -95,7 +95,7 @@ function start(args, method_call) {
     };
     function try_catch(handler, msg) {
         try { return handler(msg) }
-        catch(e) { return e.toString(); }
+        catch(e) { return {error: e.toString()}; }
     }
 
 
@@ -112,7 +112,7 @@ function start(args, method_call) {
             try { send(rpl); }
             catch(e) {
                 // JSON encoding problem
-                rpl.arg = e.toString();
+                rpl.arg = {error: e.toString()};
                 send(rpl);
             }
         }
