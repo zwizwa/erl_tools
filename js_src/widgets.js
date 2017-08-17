@@ -19,6 +19,32 @@ function select_one(container, display) {
             node.style.display = display;
         });
 }
+function select_toggle(container, display) {
+    for_children(
+        container, function(node) {
+            node.style.display =
+                (node.style.display == 'none') ?
+                'block' : 'none';
+        });
+}
+function showhide_event(input_el, event) {
+    // Implement behavior for different input types and buttons.
+    var id = input_el.getAttribute('data-target');
+    var container = document.getElementById(id);
+    console.log(input_el.type, id, container);
+    if (input_el.type == 'select-one') {
+        var opts = input_el.options;
+        var name = opts[opts.selectedIndex].value;
+        select(container, name);
+    }
+    else if (input_el.type == 'checkbox') {
+        var display = input_el.checked ? 'block' : 'none';
+        select_one(container, display);
+    }
+    else if (input_el.type == 'submit') {
+        select_toggle(container);
+    }
+}
 
 // Behavior for standard dom objects
 module.exports = {
@@ -32,19 +58,7 @@ module.exports = {
         select: select 
     },
     showhide_control: {
-        change: function(input_el, event) {
-            var id = input_el.getAttribute('data-target');
-            var container = document.getElementById(id);
-            console.log(input_el.type, id, container);
-            if (input_el.type == 'select-one') {
-                var opts = input_el.options;
-                var name = opts[opts.selectedIndex].value;
-                select(container, name);
-            }
-            else if (input_el.type == 'checkbox') {
-                var display = input_el.checked ? 'block' : 'none';
-                select_one(container, display);
-            }
-        }
+        change: showhide_event,
+        click:  showhide_event
     }
 }
