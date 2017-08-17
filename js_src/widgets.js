@@ -48,15 +48,33 @@ function showhide_event(input_el, event) {
 
 // Behavior for standard dom objects
 module.exports = {
-    checkbox: { // el :: <input type='checkbox' />
+    // el :: <input type='checkbox' />
+    checkbox: { 
         set: function(el, val) { el.checked = val; }
     },
-    cell: { // el :: <td /> or <div />, something to contain the value.
+    // el :: <td /> or <div />, something to contain the value.
+    cell: { 
         set: function(el, val) { el.innerHTML = val; }
     },
-    showhide_list: { // el :: any element that contains a list of children to display/hide
+    // el :: <td /> or <div />, something to contain the values.
+    list: { 
+        // NOT TESTED
+        clear: function(el, html) { 
+            el.innerHTML = '';
+        },
+        append: function(el, html) { 
+            var tmp = document.createElement('div');
+            tmp.innerHTML = html;
+            for (var i=0; i<tmp.children.length; i++) {
+                el.appendChild(tmp.children[i]);
+            }
+        }
+    },
+    // el :: any element that contains a list of children to display/hide
+    showhide_list: {
         select: select 
     },
+    // el :: input element with 'data-target' attribute
     showhide_control: {
         change: showhide_event,
         click:  showhide_event

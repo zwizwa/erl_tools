@@ -143,23 +143,33 @@ kv_table_op({table,TypeMod,DB,Table}, write) ->
             KTV
     end;
 
-kv_table_op(Spec, write_map) ->
+kv_table_op(Spec, write_list) ->
     Write = kv_table_op(Spec, write),
-    kv_table_op(Spec, write_map, Write).
+    kv_table_op(Spec, write_list, Write);
+
+kv_table_op(Spec, write_map) ->
+    WriteList = kv_table_op(Spec, write_list),
+    kv_table_op(Spec, write_map, WriteList).
+
+
+%% Sharing
 
 kv_table_op(_, to_map, ToList) ->
     fun() ->
             maps:from_list(ToList())
     end;
-kv_table_op({table,_,DB,_}, write_map, Write) ->
-    fun(Map) ->
-            List = maps:to_list(Map),
+kv_table_op({table,_,DB,_}, write_list, Write) ->
+    fun(List) ->
             transaction(
               DB, fun() ->
                           lists:foreach(Write, List),
-                          Map
+                          ok
                   end)
-    end.
+    end;
+kv_table_op(_, write_map, WriteList) ->
+    fun(Map) -> WriteList(maps:to_list(Map)) end.
+
+
     
                    
 %% Implementation based on database table and type_base.erl type conversion.
@@ -172,12 +182,13 @@ kv_table({table,TypeMod,DB,Table}=Args) when is_atom(Table) and is_atom(TypeMod)
 %% which is really noticable in hmac encoding.  See db.erl in hatd web
 %% app for lambda-lifted form.
 kv_existing_table(Spec) ->
-    Find     = kv_table_op(Spec, find),
-    ToList   = kv_table_op(Spec, to_list),
-    ToMap    = kv_table_op(Spec, to_map, ToList),
-    Keys     = kv_table_op(Spec, keys),
-    Write    = kv_table_op(Spec, write),
-    WriteMap = kv_table_op(Spec, write_map, Write),
+    Find      = kv_table_op(Spec, find),
+    ToList    = kv_table_op(Spec, to_list),
+    ToMap     =  kv_table_op(Spec, to_map, ToList),
+    Keys      = kv_table_op(Spec, keys),
+    Write     = kv_table_op(Spec, write),
+    WriteList = kv_table_op(Spec, write_map, Write),
+    WriteMap  = kv_table_op(Spec, write_map, WriteList),
     
     {kvstore, 
      fun
