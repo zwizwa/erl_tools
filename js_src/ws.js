@@ -93,17 +93,28 @@ function start(args, method_call) {
             return eval(msg.code);
         }
     };
+    function try_catch(handler, msg) {
+        try { return handler(msg) }
+        catch(e) { return e.toString(); }
+    }
+
+
     var handle = function(msg) {
         var handler = handlers[msg.type];
         var rpl = {
             type: "ws_action",
             action: msg.cont,
             arg: handler ?
-                handler(msg) :
+                try_catch(handler, msg) :
                 error(['unknown message type', msg.type])
         }
         if (rpl.action) {
-            send(rpl);
+            try { send(rpl); }
+            catch(e) {
+                // JSON encoding problem
+                rpl.arg = e.toString();
+                send(rpl);
+            }
         }
     };
 
