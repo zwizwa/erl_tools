@@ -1,23 +1,12 @@
 -module(db_base).
 -export([db/3,
-         test/0,
          query/3,
          sql/3,
          transaction/2,
-         %% Canonical representation for erlang tagged terms.
-         encode/2, decode/2,
-         %% Implementation of kvstore using DB tables
-         kv_table_op/2,
-         kv_table/1, kv_existing_table/1,
-         kv_table_init/2, kv_table_delete/2,
          %% For reloads
          handle/2]).
 
 %% Process wrapper around sqlite3.erl
-
-test() ->
-    tools:info("~p~n",[?MODULE]),
-    ok.
 
 db(Atom, DbFile, DbInit) ->
     ParentPid = self(),
@@ -96,145 +85,6 @@ transaction(DB, Fun) ->
 
 
 
-
-%% Expose operations directly to allow lambda lifting, reducing stored
-%% closure size on client side.  As a penalty, query strings are
-%% recomputed, but it is still possible to cache them by storing the
-%% result of the function lookup.
-kv_table_op({table,TypeMod,DB,Table}, find) ->
-    QRead = tools:format_binary(
-              "select type,val from ~p where var = ?", [Table]),
-    fun(Key) ->
-            BinKey = encode_key(TypeMod, Key),
-            case sql(DB, QRead, [BinKey]) of
-                [[_,_] = BinTV] ->
-                    {ok, decode_type_val(TypeMod, BinTV)};
-                [] ->
-                    {error, {not_found, Key}}
-            end
-    end;
-
-kv_table_op({table,TypeMod,DB,Table}, to_list) ->
-    QLoad = tools:format_binary(
-              "select var,type,val from ~p", [Table]),
-    fun() ->
-            [decode(TypeMod, BinTV)
-             || BinTV <- sql(DB, QLoad, [])]
-    end;
-
-kv_table_op(Spec, to_map) ->
-    ToList = kv_table_op(Spec, to_list),
-    kv_table_op(Spec, to_map, ToList);
-
-kv_table_op({table,TypeMod,DB,Table}, keys) ->
-    QKeys = tools:format_binary(
-              "select var from ~p", [Table]),
-    fun() ->
-            [decode_key(TypeMod, BinKey)
-             || [BinKey] <- sql(DB, QKeys, [])]
-    end;
-
-kv_table_op({table,TypeMod,DB,Table}, write) ->
-    QWrite = tools:format_binary(
-               "insert or replace into ~p (var,type,val) values (?,?,?)", [Table]),
-    fun(KTV) ->
-            BinKTV = encode(TypeMod, KTV),
-            sql(DB, QWrite, BinKTV),
-            KTV
-    end;
-
-kv_table_op(Spec, write_list) ->
-    Write = kv_table_op(Spec, write),
-    kv_table_op(Spec, write_list, Write);
-
-kv_table_op(Spec, write_map) ->
-    WriteList = kv_table_op(Spec, write_list),
-    kv_table_op(Spec, write_map, WriteList).
-
-
-%% Sharing
-
-kv_table_op(_, to_map, ToList) ->
-    fun() ->
-            maps:from_list(ToList())
-    end;
-kv_table_op({table,_,DB,_}, write_list, Write) ->
-    fun(List) ->
-            transaction(
-              DB, fun() ->
-                          lists:foreach(Write, List),
-                          ok
-                  end)
-    end;
-kv_table_op(_, write_map, WriteList) ->
-    fun(Map) -> WriteList(maps:to_list(Map)) end.
-
-
-    
-                   
-%% Implementation based on database table and type_base.erl type conversion.
-kv_table({table,TypeMod,DB,Table}=Args) when is_atom(Table) and is_atom(TypeMod) ->
-    %% Make sure it exists.
-    kv_table_init(DB,Table),
-    kv_existing_table(Args).
-
-%% This form has more sharing and caching but creates large closures,
-%% which is really noticable in hmac encoding.  See db.erl in hatd web
-%% app for lambda-lifted form.
-kv_existing_table(Spec) ->
-    Find      = kv_table_op(Spec, find),
-    ToList    = kv_table_op(Spec, to_list),
-    ToMap     =  kv_table_op(Spec, to_map, ToList),
-    Keys      = kv_table_op(Spec, keys),
-    Write     = kv_table_op(Spec, write),
-    WriteList = kv_table_op(Spec, write_map, Write),
-    WriteMap  = kv_table_op(Spec, write_map, WriteList),
-    
-    {kvstore, 
-     fun
-         (find)      -> Find;
-         (to_list)   -> ToList;
-         (to_map)    -> ToMap;
-         (keys)      -> Keys;
-         (write)     -> Write;
-         (write_map) -> WriteMap
-     end}.
-                   
-%% Ad-hoc key value stores.
-kv_table_init(DB,Table) when is_atom(Table) ->
-    sql(DB,
-        tools:format_binary(
-          "create table if not exists ~p (var, type, val, primary key (var))",
-          [Table]),
-       []).
-
-kv_table_delete(DB, Table) when is_atom(Table) ->
-    sql(DB,
-        tools:format_binary(
-          "drop table if exists ~p",
-          [Table]),
-        []).
-
-
-%% Canonical way to represent type-tagged erlang terms as
-%% human-readable binary, for db storage and user interfaces.  See
-%% type_base.erl
-
-encode_key(TypeMod,Key) -> apply(TypeMod,encode,[{pterm,Key}]).
-decode_key(TypeMod,Key) -> apply(TypeMod,decode,[{pterm,Key}]).
-
-encode(TypeMod, {Key, {Type, Val}}) ->
-    [encode_key(TypeMod,Key),
-     apply(TypeMod,encode_type,[Type]),
-     apply(TypeMod,encode,[{Type,Val}])].
-
-decode_type_val(TypeMod, [BinType, BinVal]) ->
-    Type = apply(TypeMod,decode_type,[BinType]),
-    {Type, apply(TypeMod,decode,[{Type,BinVal}])}.
-
-decode(TypeMod, [BinKey | BinTV]) ->
-    {decode_key(TypeMod, BinKey),
-     decode_type_val(TypeMod, BinTV)}.
 
 
 
