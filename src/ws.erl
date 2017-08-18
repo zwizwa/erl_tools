@@ -13,11 +13,11 @@
          method_call_exml/4,
          method_call_wait_exml/4,
 
-         ws_format/3,
-         ws_ehtml/2, ws_ehtml/3, ws_ehtml/1,
-         ws_console/2,
+         info/3, info_ehtml/2, info_ehtml/3, info_ehtml/1,
+
+         console/2,
          
-         ws_command/3, ws_command/2,
+         command/3, command/2,
          showhide_select/3,
          sockets/0,
          eval/2,
@@ -190,39 +190,38 @@ method_call_wait_exml(Ws, ID, Method, Els) ->
     
 
 %% Format message and send it over websocket to browser.  See ws.js
-ws_text(Ws, Text, Opts) ->      
+info_text(Ws, Text, Opts) ->      
     method_call(Ws, live_log, append_text,
                 [iolist_to_binary(Text), Opts]).
 
 
-ws_format(Ws, Fmt, Args) ->
-    ws_format(Ws, Fmt, Args, #{}).
-ws_format(Ws, Fmt, Args, Opts) ->
+info(Ws, Fmt, Args) ->
+    info(Ws, Fmt, Args, #{}).
+info(Ws, Fmt, Args, Opts) ->
     %% io:format("~p~n",[{Ws,Fmt,Args}]),
-    ws_text(Ws, io_lib:format(Fmt, Args), Opts).
+    info_text(Ws, io_lib:format(Fmt, Args), Opts).
 
 %% Same, but for ehtml.
-ws_ehtml(Ws, Ehtml) ->
-    ws_ehtml(Ws, Ehtml, #{}).
-
-ws_ehtml(Ws, Ehtml, Opts) ->
+info_ehtml(Ws, Ehtml) ->
+    info_ehtml(Ws, Ehtml, #{}).
+info_ehtml(Ws, Ehtml, Opts) ->
     Bin = exml:to_binary([Ehtml]), %% FIXME: this can fail
     method_call(Ws, live_log, append_html, [Bin, Opts]).
 
 %% Curried
-ws_ehtml(Ws) ->
-    fun(Ehtml) -> ws_ehtml(Ws, Ehtml) end.
+info_ehtml(Ws) ->
+    fun(Ehtml) -> info_ehtml(Ws, Ehtml) end.
 
 
-%% Wrap ws_text, ws_ehtml as an io process.
-ws_console(Ws, Opts) ->
-    log:info("ws_console: ~p~n",[Opts]),
+%% Wrap text, ehtml as an io process.
+console(Ws, Opts) ->
+    log:info("console: ~p~n",[Opts]),
     log:format_to_io(
       fun() -> log:set_info_name({tools:annotate_pid(Ws), console}) end,
       fun(_, Fmt, Args) ->
               case log:format_record_ehtml([none, Fmt, Args]) of
-                  {ehtml, Ehtml} -> ws_ehtml(Ws, Ehtml, Opts);
-                  {text, Text}   -> ws_text(Ws, Text, Opts)
+                  {ehtml, Ehtml} -> info_ehtml(Ws, Ehtml, Opts);
+                  {text, Text}   -> info_text(Ws, Text, Opts)
               end
       end).
 
@@ -242,18 +241,18 @@ sockets() ->
      [ws0,ws1,ws2,ws3,ws4]. 
 
 %% Run shell commands, streaming output to websocket log.
-ws_port_handle(Ws, Port) ->
+port_handle(Ws, Port) ->
     receive
         {Port, {data,{eol,Line}}} ->
-            ws_format(Ws,"~s~n",[Line]),
-            ws_port_handle(Ws, Port);
+            info(Ws,"~s~n",[Line]),
+            port_handle(Ws, Port);
         Other ->
             log:info("port: ~p~n", [Other])
     end.
-ws_command(Ws, Fmt, Args) ->
-    ws_command(Ws, tools:format(Fmt,Args)).
-ws_command(Ws, Command) ->
-    ws_port_handle(
+command(Ws, Fmt, Args) ->
+    command(Ws, tools:format(Fmt,Args)).
+command(Ws, Command) ->
+    port_handle(
       Ws,
       open_port({spawn, Command},
                 [{line, 1024}, binary, use_stdio, exit_status])).
