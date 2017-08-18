@@ -46,6 +46,21 @@ function showhide_event(input_el, event) {
     }
 }
 
+// FIXME: share?
+function input_value(el) {
+    if (el.type == 'checkbox') {
+        return el.checked ? 'true' : 'false';
+    }
+    else if (el.type == 'select-one') {
+        var opts = el.options;
+        return opts[opts.selectedIndex].value;
+    }
+    else {
+        return el.value;
+    }
+}
+
+
 // Behavior for standard dom objects
 module.exports = {
     // el :: <input type='checkbox' />
@@ -78,5 +93,36 @@ module.exports = {
     showhide_control: {
         change: showhide_event,
         click:  showhide_event
+    },
+    // el :: settable input element
+    input: {
+        set: function(el, arg) {
+            if (el.type == 'checkbox') {
+                el.checked = arg;
+            }
+            else if (el.type == 'select-one') {
+                //FIXME
+                //var opts = el.options;
+                //return opts[opts.selectedIndex].value;
+            }
+            else {
+                el.value = arg;
+            }
+        },
+        get: function(el) {
+            if (el.type == 'checkbox') {
+                return el.checked;
+            }
+            else if (el.type == 'select-one') {
+                //FIXME
+            }
+            else {
+                return el.value;
+            }
+        },
+        get_tagged: function(el) {
+            return [el.getAttribute('data-decoder'),  // type            
+                    input_value(el)];
+        }
     }
 }
