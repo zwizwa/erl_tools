@@ -3,67 +3,11 @@ var last_evt;
 
 // Use dependency injection for Bert
 var bert_module = require('./bert');
+var widgets = require('./widgets');
 var bert_deps = { UTF8Decoder: window['TextDecoder'] };
 var bert = new bert_module.Bert({ UTF8Decoder: window['TextDecoder'] });
 
 
-// Sending input and form data back to Erlang is done as an array of
-// 3-element arrays of strings, encoding:
-//
-// - key
-// - type
-// - value
-//
-// These are then converted back to Erlang by the type.erl module.
-//
-// See web:form_data/1
-// {Name=atom(),{Type=atom(),Value=binary()}}
-//
-function form_field(input) {
-    return [input.name,                          // key
-            input.getAttribute('data-decoder'),  // type
-            input_value(input)];                 // value
-}
-// Convert input's value to string based on kind of input.
-function input_value(el) {
-    if (el.type == 'checkbox') {
-        return el.checked ? 'true' : 'false';
-    }
-    else if (el.type == 'select-one') {
-        var opts = el.options;
-        return opts[opts.selectedIndex].value;
-    }
-    else {
-        return el.value;
-    }
-}
-
-
-// JavaScript event handlers for DOM inputs and forms. This sends the
-// content of the form or single input to Erlang over websocket.
-function input(action, el) {
-    var msg = { type: "ws_action", action: action };
-    // console.log('el',el);
-
-    // Form returns list of fields
-    if ('form' == el.nodeName) {
-        msg.form= [];
-        for (i=0; i<el.elements.length; i++) {
-            var input = el.elements[i];
-            if (input.name) {
-                msg.form.push(form_field(input));
-            }
-        }
-    }
-    // A single imput returns list with one field
-    else {
-        if (el.name) {
-            msg.form = [form_field(el)];
-        }
-    }
-    //console.log('msg', msg);
-    send(msg);
-}
 
 
 function error(errmsg) {
@@ -184,9 +128,17 @@ function send_datetime() {
     };
     send(msg);
 }
+// JavaScript event handlers for DOM inputs and forms. This sends the
+// content of the form or single input to Erlang over websocket.
+function send_input(action, el) {
+    var msg = { type: "ws_action",
+                action: action,
+                form: widgets.tools.form_data(el) };
+    send(msg);
+}
 
 
 // API
 exports.start = start;
 exports.send  = send;
-exports.input = input;
+exports.send_input = send_input;

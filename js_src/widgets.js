@@ -46,7 +46,25 @@ function showhide_event(input_el, event) {
     }
 }
 
-// FIXME: share?
+
+// Sending input and form data back to Erlang is done as an array of
+// 3-element arrays of strings, encoding:
+//
+// - key
+// - type
+// - value
+//
+// These are then converted back to Erlang by the type.erl module.
+//
+// See web:form_data/1
+// {Name=atom(),{Type=atom(),Value=binary()}}
+//
+function form_field(input) {
+    return [input.name,                          // key
+            input.getAttribute('data-decoder'),  // type
+            input_value(input)];                 // value
+}
+// Convert input's value to string based on kind of input.
 function input_value(el) {
     if (el.type == 'checkbox') {
         return el.checked ? 'true' : 'false';
@@ -59,10 +77,35 @@ function input_value(el) {
         return el.value;
     }
 }
+// Convert a form or input element to form data.
+function form_data(el) {
+    var form;
+
+    // Form returns list of fields
+    if ('form' == el.nodeName) {
+        form= [];
+        for (i=0; i<el.elements.length; i++) {
+            var input = el.elements[i];
+            if (input.name) {
+                form.push(form_field(input));
+            }
+        }
+    }
+    // A single imput returns list with one field
+    else {
+        if (el.name) {
+            form = [form_field(el)];
+        }
+    }
+    return form;
+}
+
 
 
 // Behavior for standard dom objects
 module.exports = {
+
+
     // el :: <input type='checkbox' />
     checkbox: { 
         set: function(el, val) { el.checked = val; }
@@ -124,5 +167,13 @@ module.exports = {
             return [el.getAttribute('data-decoder'),  // type            
                     input_value(el)];
         }
-    }
+    },
+
+
+    // Not a behavior, just some associated tools exposed.
+    tools: {
+        form_data: form_data
+    },
+
+
 }

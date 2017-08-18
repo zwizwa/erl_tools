@@ -25,14 +25,14 @@ port_open(DbFile) ->
     open_port({spawn, Cmd}, [use_stdio, {packet,4}, exit_status, binary]).
 port_close(Port) ->
     Port ! {self(), {command, <<>>}},
-    close_flush(Port).
-close_flush(Port) ->
+    port_close_flush(Port).
+port_close_flush(Port) ->
     receive
         {Port, {exit_status, 0}} -> ok;
         {Port, {exit_status, _}=E} -> exit(E);
         {Port, _} = _M -> 
             %% log:info("close_flush ~p~n",[_M]),
-            close_flush(Port)
+            port_close_flush(Port)
     end.
 port_query(Port, {SQL, Bindings}=Query, Sink) when is_binary(SQL) and is_list(Bindings)->
     Bin = term_to_binary(Query),
@@ -115,7 +115,10 @@ sql(DB, SQL, Bindings) when
     %% If reply contains errors we throw them into the caller's
     %% process.  Normal results are [[binary()]].
     lists:foreach(
-      fun({sqlite3_errmsg,_}=E) -> throw(E); (_) -> ok end, Rows),
+      fun({sqlite3_errmsg,_}=E) -> throw(E);
+         (_) -> ok
+      end,
+      Rows),
     Rows.
 
 
