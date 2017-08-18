@@ -1,6 +1,6 @@
--module(db_kvstore).
+-module(sqlite3_kvstore).
 -export([
-         %% Implementation of kvstore using DB tables
+         %% Implementation of kvstore on top of sqlite3.erl
          table_op/2,
          table/1, existing_table/1,
          table_init/2, table_delete/2,
@@ -12,8 +12,8 @@
          ]).
 
 
-sql(DB,Q,Bs) -> db_base:sql(DB,Q,Bs).
-transaction(DB,F) -> db_base:transaction(DB,F).
+sql(DB,Q,Bs) -> sqlite3:sql(DB,Q,Bs).
+transaction(DB,F) -> sqlite3:transaction(DB,F).
     
     
 

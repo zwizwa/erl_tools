@@ -6,19 +6,32 @@
 %% License: http://creativecommons.org/publicdomain/zero/1.0
 
 -module(sqlite3).
--export([open/1, close/1, query/3,
+-export([%% PORT
+         port_open/1, port_close/1, port_query/3,
+
+         %% EQL (see below)
          select/5, select_m/5, select/4,
          delete/4,
          insert_or_replace/5,
-         insert_or_replace_m/3
+         insert_or_replace_m/3,
+
+         %% SERVER
+         db/3,
+         query/3,
+         sql/3,
+         transaction/2,
+         %% For reloads
+         db_handle/2
         ]).
 
+%% PORT
+
 %% Port operations.
-open(DbFile) ->
+port_open(DbFile) ->
     Priv = code:priv_dir(erl_tools),
     Cmd = tools:format("~s/sqlite3.elf ~s", [Priv,DbFile]),
     open_port({spawn, Cmd}, [use_stdio, {packet,4}, exit_status, binary]).
-close(Port) ->
+port_close(Port) ->
     Port ! {self(), {command, <<>>}},
     close_flush(Port).
 close_flush(Port) ->
@@ -29,18 +42,18 @@ close_flush(Port) ->
             %% log:info("close_flush ~p~n",[_M]),
             close_flush(Port)
     end.
-query(Port, {SQL, Bindings}=Query, Sink) when is_binary(SQL) and is_list(Bindings)->
+port_query(Port, {SQL, Bindings}=Query, Sink) when is_binary(SQL) and is_list(Bindings)->
     Bin = term_to_binary(Query),
     %% log:info("query: ~p~n",[Query]),
     Port ! {self(), {command, Bin}},
-    sync(Port, Sink);
-query(Port, {SQL, Bindings}, Sink) ->
-    query(Port, {iolist_to_binary(SQL), Bindings}, Sink);
-query(Port, SQL, Sink) ->
-    query(Port, {SQL,[]}, Sink).
+    port_sync(Port, Sink);
+port_query(Port, {SQL, Bindings}, Sink) ->
+    port_query(Port, {iolist_to_binary(SQL), Bindings}, Sink);
+port_query(Port, SQL, Sink) ->
+    port_query(Port, {SQL,[]}, Sink).
 
 
-sync(Port, Sink) ->
+port_sync(Port, Sink) ->
     receive
         {Port, {data, <<>>}} ->
             Sink(eof);
@@ -53,27 +66,33 @@ sync(Port, Sink) ->
                     Sink(eof);
                 _ ->
                     Sink({data, Term}),
-                    sync(Port, Sink)
+                    port_sync(Port, Sink)
             end
     end.
                
 
+%% EQL
 
-%% Formatters
+%% Some abstractions over SQL represented as Erlang terms.
+%% This isn't all that useful.  Literal SQL is much more readable.
+
+%% Low-level formatters
 fmt(F,A) -> tools:format(F,A).
 cs(AtomList) -> string:join([fmt("~s",[A]) || A <- AtomList],",").
+
 cl(all) -> "";
 cl({where, Expr}) -> fmt("where ~s",[ex(Expr)]).
+
 ex({'and', E1, E2}) -> fmt("~s and ~s",[ex(E1),ex(E2)]);
 ex({eq, Col, Val}) -> fmt("~s = '~s'", [atom_to_list(Col), Val]).
      
 
 select(DB,Cols,Table,Clause,Sink) ->
-    query(DB, fmt("select ~s from ~s ~s",
+    port_query(DB, fmt("select ~s from ~s ~s",
                  [cs(Cols),Table,cl(Clause)]), Sink).
 
 select(DB,Table,Clause,Sink) ->
-    query(DB, fmt("select * from ~s ~s",
+    port_query(DB, fmt("select * from ~s ~s",
                  [Table,cl(Clause)]), Sink).
 
 select_m(DB,Cols,Table,Clause,Sink) ->
@@ -87,7 +106,7 @@ select_m(DB,Cols,Table,Clause,Sink) ->
              end, Sink)).
 
 delete(DB,Table,Clause,Sink) ->
-    query(DB, fmt("delete from ~s ~s",
+    port_query(DB, fmt("delete from ~s ~s",
                  [Table,cl(Clause)]), Sink).
     
 
@@ -114,7 +133,7 @@ insert_or_replace(DB,Cols,Table,Values,Sink) ->
                [Table,cs(Cols),cs(["?" || _<- Values])]),
              [typed(V) || V <- Values]},
     %% log:info("insert_or_replace: query: ~p~n",[Query]),
-    query(DB, Query, Sink).
+    port_query(DB, Query, Sink).
 
 
 %% Insert record represent as map with type field corresponding to
@@ -126,3 +145,105 @@ insert_or_replace_m(DB,Map,Sink) ->
     insert_or_replace(DB,Cols,Table,Values,Sink).
 
    
+
+
+
+%% SERVER
+
+%% Server process to interact with the sqlite port process.
+
+%% Process wrapper around sqlite3.erl
+
+db(Atom, DbFile, DbInit) ->
+    ParentPid = self(),
+    serv:up(Atom,
+            {handler,
+             fun() -> 
+                     DB = self(),
+                     unlink(ParentPid),
+                     spawn(fun() -> DbInit(DB) end),
+                     #{ db => sqlite3:port_open(DbFile()) }
+             end,
+             fun sqlite3:db_handle/2}).
+
+db_handle({Pid, {query, FunName, Args}}, #{db := DB} = State) ->
+    Pid ! {self(), obj_reply, 
+           sink:gen_to_list(
+             fun(Sink) ->
+                     apply(sqlite3,FunName,[DB]++Args++[Sink])
+             end)},
+    State;
+db_handle(Msg,State) ->
+    obj:handle(Msg,State).
+
+%% Allow for lazy connections.
+-type db() :: fun(() -> pid()).
+-spec raw_query(db(),_,[_]) -> [[binary()] | {sqlite3_errmsg,binary()}].
+raw_query(DB, FunName, Args) ->
+    obj:call(DB(), {query, FunName, Args}).
+
+query(DB, FunName, Args) ->
+    Rows = raw_query(DB, FunName, Args),
+
+    %% If reply contains errors we throw them into the caller's
+    %% process.  Normal results are [[binary()]].
+    lists:foreach(
+      fun({sqlite3_errmsg,_}=E) -> throw(E); (_) -> ok end, Rows),
+    Rows.
+
+%% Shortcut for raw SQL query
+sql(DB, SQL,Bindings) when
+      is_binary(SQL) and
+      is_list(Bindings) ->
+    %% log:info("query: ~p~n",[{DB,SQL,Bindings}]),
+    query(DB, port_query, [{SQL,Bindings}]).
+
+
+
+
+%% Transactions
+begin_transaction(DB) ->
+    sql(DB, <<"begin transaction">>,[]).
+end_transaction(DB) ->
+    sql(DB, <<"end transaction">>,[]).
+rollback_transaction(DB) ->
+    sql(DB, <<"rollback transaction">>,[]).
+    
+transaction(DB, Fun) ->
+    begin_transaction(DB),
+    try 
+        Rv = Fun(),
+        end_transaction(DB),
+        {ok, Rv}
+    catch
+        C:E ->
+            %% Rollback can fail apparently.. Log it because it's
+            %% likely a bug elsewhere.
+            Err0 = {C,E,erlang:get_stacktrace()},
+            try
+                rollback_transaction(DB),
+                {error, {rollback_ok, Err0}}
+            catch 
+                %% Why does this happen?
+                C1:E1 -> {error, {rollback_fail, {Err0, {C1,E1}}}}
+            end
+    end.
+
+
+
+%% TODO: cache query compilation.  For each query, sqlite will return
+%% the pointer to the compiled query together with the response.  This
+%% then enables the driver here to cache the query in its process
+%% state.  This would need the following changes:
+
+%% new messages
+%% - port sends:
+%%   - pointer to query
+%% - port receives:
+%%   - query string or pointer
+%%   - delete compiled query
+
+%% Or turn it around, keeping the C side dumb.  We send the query
+%% together with a number so it can be stored in a table.  Only thing
+%% C side needs to do is to resize the table if needed.
+
