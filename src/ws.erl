@@ -7,6 +7,7 @@
 -export([method_call/4,
          method_call_wait/4,
          method_call_exml/4,
+         method_call_wait_exml/4,
          encode_id/1,
          ws_format/3,
          ws_ehtml/2, ws_ehtml/3, ws_ehtml/1,
@@ -149,14 +150,15 @@ handle_ejson(Msg, State) ->
 encode_id(ID) when is_binary(ID) -> ID;
 encode_id(ID) -> type_base:encode({pterm,ID}).
     
-%% Uni-directional calls.  Do not wait for reply.
+%% Uni-directional calls.  Do not wait for reply.  See method_call.js
 method_call(Ws, ID, Method, Arg) ->
     Ws ! #{ type => method_call,
             id => encode_id(ID),
             method => Method,
             arg => Arg }.
 
-%% Bi-directional calls.  Wait for return value.
+%% Bi-directional calls.  Wait for return value provided through
+%% continuation argument, which carries a signed, encoded closure.
 method_call_wait(Ws, ID, Method, Arg) ->
     Ws ! #{ type => method_call,
             id => encode_id(ID),
@@ -172,9 +174,9 @@ wait_reply() ->
 
 
 method_call_exml(Ws, ID, Method, Els) ->
-    method_call(Ws,ID,Method,
-         list_to_binary(
-           [web:exml(El) || El <- Els])).
+    method_call(Ws,ID,Method,exml:to_binary(Els)).
+method_call_wait_exml(Ws, ID, Method, Els) ->
+    method_call_wait(Ws,ID,Method,exml:to_binary(Els)).
     
 
 %% Format message and send it over websocket to browser.  See ws.js
@@ -194,7 +196,7 @@ ws_ehtml(Ws, Ehtml) ->
     ws_ehtml(Ws, Ehtml, #{}).
 
 ws_ehtml(Ws, Ehtml, Opts) ->
-    Bin = iolist_to_binary(web:exml(Ehtml)), %% FIXME: this can fail
+    Bin = exml:to_binary([Ehtml]), %% FIXME: this can fail
     method_call(Ws, live_log, append_html, [Bin, Opts]).
 
 %% Curried

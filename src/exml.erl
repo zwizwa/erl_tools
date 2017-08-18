@@ -9,6 +9,10 @@
          attr_remove/2,
          attr_merge/2,
 
+         map_attr/2,
+
+         to_binary/1,
+
          encode_key/2,
          decode_key/2,
 
@@ -16,10 +20,36 @@
          hmac_key/0, hmac/2, hmac_encode/2, hmac_decode/2
 
 ]).
+
+
+%% XML embedded in Erlang primitives.
+-type exml_el() :: {exml_tag(), [exml_attr()], [exml_node()]}.
+-type exml_tag() :: atom().
+-type exml_text() :: [binary()] | string().
+-type exml_node() :: exml_el() | exml_text().
+-type exml_attr() :: {atom(), exml_attr_val()}.
+-type exml_attr_val() :: binary() | string() | atom().
+-export_types([exml_el/0, exml_tag/0, exml_text/0, exml_node/0, exml_attr/0, exml_attr_val/0]).
+
+%% NOTE: exml does not support naked binaries in an element list.
+%% exml({p,[],[<<"foo">>,<<"bar">>]}). -> error
+%% exml({p,[],[[<<"foo">>],[<<"bar">>]]}). -> ok
+
+%% call into xmerl
+-spec exml(exml_el()) -> iolist().
+exml({Tag,Attrs,Children}) ->
+    [_, Rv] = xmerl:export_simple(
+                [{Tag,Attrs,Children}],
+                xmerl_xml,[]),
+    Rv.
+
+%% As an export we only provide one routione: convert a list of
+%% elements to a binary.
+-spec to_binary([exml_el()]) -> binary().
+to_binary(Es) -> iolist_to_binary([exml(E) || E <- Es]).
+
+
 %% Special input types.
-
-
-
 input(Types, {Key, {button, Label}}) ->
     true = is_binary(Label),
     {button,
@@ -152,7 +182,11 @@ hmac_decode(GetKey,Base64) ->
 
 
 
-      
+%% Simpler to write it as explicit recursion.
+map_attr(F, {T,As,Es}) ->
+    {T,F(T,As), lists:map(fun(E) -> map_attr(F, E) end, Es)};
+map_attr(_, Other) ->
+   Other.
 
 
 
