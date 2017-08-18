@@ -93,19 +93,17 @@ db_handle({Pid, {query, Query}}, #{db := DB} = State) ->
 db_handle(Msg,State) ->
     obj:handle(Msg,State).
 
-%% Thunk allows for lazy DB connections.
--type db() :: fun(() -> pid()).
 
 -type binding() :: {text,binary()} | {blob,binary()}.
 -type query() :: {binary(),[binding()]}.
-
-
 -spec query(pid(),query()) -> [[binary()] | {sqlite3_errmsg,binary()}].
 query(DbPid, Query) ->
     obj:call(DbPid, {query, Query}).
 
+%% Thunk allows for lazy DB connections.
+-type db() :: fun(() -> pid()).
 %% Shortcut for raw SQL query
-%% -spec sql(db(), binary(), [binding()]) -> [[binary()]].  %% FIXME: or exception
+-spec sql(db(), binary(), [binding()]) -> [[binary()]].  %% FIXME: or exception
 sql(DB, SQL, Bindings) when
       is_binary(SQL) and
       is_list(Bindings) ->
