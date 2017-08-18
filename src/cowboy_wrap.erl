@@ -1,10 +1,18 @@
 -module(cowboy_wrap).
 -export([
-         %% Cowboy wrappers
          http_request/3,
-         http_reply/3
+         http_reply/3,
+
+         resp_xhtml/1,
+         resp_body/2,
+         resp_text/1,
+         resp_term/1,
+         resp_svg/1,
+         html_body/2
+
          ]).
 
+-include("web.hrl").
 
 %% Convert Cowboy format for query formats to internal format:
 -spec atom_map([{binary(),binary()}]) -> #{ atom() => binary() }.
@@ -70,3 +78,30 @@ http_request(Req, Get, Post) ->
 
 
 
+
+%% Use XML/XHTML embedded in erlang.  see exml.erl
+-spec resp_xhtml(exml:exml_el()) -> _.
+resp_xhtml(Ehtml) ->
+    {data, [?XHTML], exml:to_binary([Ehtml])}.
+
+resp_text(Text) ->
+    {data, [?PLAIN], Text}.
+
+-spec resp_body(iolist(), [exml:exml_node()]) -> _.
+resp_body(Title, Ehtml) ->
+    resp_xhtml(html_body(Title, Ehtml)).
+
+resp_term(Term) ->
+    {data, [?PLAIN], io_lib:format("~120p",[Term])}.
+
+-spec resp_svg(exml:exml_el()) -> _.
+resp_svg(Exml) ->
+    {data, [{<<"content-type">>,<<"image/svg+xml">>}], exml:to_binary([Exml])}.
+
+-spec html_body(exml:exml_node(), [exml:exml_node()]) -> _.
+html_body(Title, Ehtml) ->
+    {html, [?XMLNS],
+     [{head,[],
+       [{meta,[?CHARSET],[]},
+        {title,[],[Title]}]},
+      {body,[],Ehtml}]}.

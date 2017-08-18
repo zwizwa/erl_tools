@@ -150,15 +150,14 @@ handle_ejson(Msg, State) ->
 encode_id(ID) when is_binary(ID) -> ID;
 encode_id(ID) -> type_base:encode({pterm,ID}).
     
-%% Uni-directional calls.  Do not wait for reply.  See method_call.js
+%% A-synchronous messages send -- do not wait for reply.  See method_call.js
 method_call(Ws, ID, Method, Arg) ->
     Ws ! #{ type => method_call,
             id => encode_id(ID),
             method => Method,
             arg => Arg }.
 
-%% Bi-directional calls.  Wait for return value provided through
-%% continuation argument, which carries a signed, encoded closure.
+%% Pass continuation to implement synchronous call.
 method_call_wait(Ws, ID, Method, Arg) ->
     Ws ! #{ type => method_call,
             id => encode_id(ID),
@@ -172,7 +171,7 @@ cont_reply(Pid) ->
 wait_reply() -> 
     receive {eval_reply, Msg} -> Msg end.
 
-
+%% Convenient shorthand for routines that expect innerHTML.
 method_call_exml(Ws, ID, Method, Els) ->
     method_call(Ws,ID,Method,exml:to_binary(Els)).
 method_call_wait_exml(Ws, ID, Method, Els) ->
