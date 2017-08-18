@@ -9,6 +9,9 @@
          attr_remove/2,
          attr_merge/2,
 
+         encode_key/2,
+         decode_key/2,
+
          %% HMAC for encoding binary terms in JavaScript strings.
          hmac_key/0, hmac/2, hmac_encode/2, hmac_decode/2
 
@@ -87,6 +90,8 @@ attr_decoder(Types, Type) ->
     {'data-decoder',  %% collected by ws.js code
      apply(Types,encode_type,[Type])}.
 
+decode_key(Types, Key) ->
+    apply(Types,decode,[{pterm,Key}]).
 encode_key(Types, Key) ->
     apply(Types,encode,[{pterm,Key}]).
 type_spec(Types, Type) ->
