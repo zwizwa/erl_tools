@@ -9,18 +9,10 @@
 -export([%% PORT
          port_open/1, port_close/1, port_query/3,
 
-         %% EQL (see below)
-         select/5, select_m/5, select/4,
-         delete/4,
-         insert_or_replace/5,
-         insert_or_replace_m/3,
-
          %% SERVER
-         db/3,
-         query/3,
-         sql/3,
-         transaction/2,
-         %% For reloads
+         db/3, sql/3, transaction/2,
+
+         %% Internal, for reloads
          db_handle/2
         ]).
 
@@ -71,79 +63,6 @@ port_sync(Port, Sink) ->
     end.
                
 
-%% EQL
-
-%% Some abstractions over SQL represented as Erlang terms.
-%% This isn't all that useful.  Literal SQL is much more readable.
-
-%% Low-level formatters
-fmt(F,A) -> tools:format(F,A).
-cs(AtomList) -> string:join([fmt("~s",[A]) || A <- AtomList],",").
-
-cl(all) -> "";
-cl({where, Expr}) -> fmt("where ~s",[ex(Expr)]).
-
-ex({'and', E1, E2}) -> fmt("~s and ~s",[ex(E1),ex(E2)]);
-ex({eq, Col, Val}) -> fmt("~s = '~s'", [atom_to_list(Col), Val]).
-     
-
-select(DB,Cols,Table,Clause,Sink) ->
-    port_query(DB, fmt("select ~s from ~s ~s",
-                 [cs(Cols),Table,cl(Clause)]), Sink).
-
-select(DB,Table,Clause,Sink) ->
-    port_query(DB, fmt("select * from ~s ~s",
-                 [Table,cl(Clause)]), Sink).
-
-select_m(DB,Cols,Table,Clause,Sink) ->
-    select(DB,Cols,Table,Clause,
-           sink:map(
-             fun(Vals) -> 
-                     maps:put(
-                       type, Table,
-                       maps:from_list(
-                         lists:zip(Cols,Vals)))
-             end, Sink)).
-
-delete(DB,Table,Clause,Sink) ->
-    port_query(DB, fmt("delete from ~s ~s",
-                 [Table,cl(Clause)]), Sink).
-    
-
-%% To keep the database type structure consistent, all inserts into
-%% the database need to pass through this command.
-
-%% Add an additional check to sanitize binding annotation before
-%% passing it into the query command.  Add warnings here to track down
-%% old loosely typed calls.
-typed({text, Bin}=B) when is_binary(Bin) -> B;
-typed({blob, Bin}=B) when is_binary(Bin) -> B;
-typed(Bin) when is_binary(Bin) -> {text,Bin};
-typed(Val) -> 
-    ConvVal = {text, tools:as_binary(Val)},
-    %% log:info("WARNING: ~p is converted to ~p before insert~n",[Val,ConvVal]),
-    ConvVal.
-
-%% BValues is a list of {blob|text, binary()} | binary().
-%% The default binding type is text.
-insert_or_replace(DB,Cols,Table,Values,Sink) ->
-    %% log:info("insert_or_replace: args: ~p~n", [{DB,Cols,Table,Values}]),
-    [true = is_atom(A) || A <- [Table | Cols]], %% Typecheck
-    Query = {fmt("insert or replace into ~s (~s) values (~s)",
-               [Table,cs(Cols),cs(["?" || _<- Values])]),
-             [typed(V) || V <- Values]},
-    %% log:info("insert_or_replace: query: ~p~n",[Query]),
-    port_query(DB, Query, Sink).
-
-
-%% Insert record represent as map with type field corresponding to
-%% column name.
-insert_or_replace_m(DB,Map,Sink) ->
-    Cols = maps:keys(Map)--[type],
-    Table = maps:get(type,Map),
-    Values = [maps:get(C, Map) || C <- Cols],
-    insert_or_replace(DB,Cols,Table,Values,Sink).
-
    
 
 
@@ -166,24 +85,34 @@ db(Atom, DbFile, DbInit) ->
              end,
              fun sqlite3:db_handle/2}).
 
-db_handle({Pid, {query, FunName, Args}}, #{db := DB} = State) ->
+db_handle({Pid, {query, Query}}, #{db := DB} = State) ->
     Pid ! {self(), obj_reply, 
            sink:gen_to_list(
-             fun(Sink) ->
-                     apply(sqlite3,FunName,[DB]++Args++[Sink])
-             end)},
+             fun(Sink) -> sqlite3:port_query(DB, Query, Sink) end)},
     State;
 db_handle(Msg,State) ->
     obj:handle(Msg,State).
 
-%% Allow for lazy connections.
+%% Thunk allows for lazy DB connections.
 -type db() :: fun(() -> pid()).
--spec raw_query(db(),_,[_]) -> [[binary()] | {sqlite3_errmsg,binary()}].
-raw_query(DB, FunName, Args) ->
-    obj:call(DB(), {query, FunName, Args}).
 
-query(DB, FunName, Args) ->
-    Rows = raw_query(DB, FunName, Args),
+-type binding() :: {text,binary()} | {blob,binary()}.
+-type query() :: {binary(),[binding()]}.
+
+
+-spec query(pid(),query()) -> [[binary()] | {sqlite3_errmsg,binary()}].
+query(DbPid, Query) ->
+    obj:call(DbPid, {query, Query}).
+
+%% Shortcut for raw SQL query
+%% -spec sql(db(), binary(), [binding()]) -> [[binary()]].  %% FIXME: or exception
+sql(DB, SQL, Bindings) when
+      is_binary(SQL) and
+      is_list(Bindings) ->
+
+
+    %% log:info("query: ~p~n",[{DB,SQL,Bindings}]),
+    Rows = query(DB(), {SQL,Bindings}),
 
     %% If reply contains errors we throw them into the caller's
     %% process.  Normal results are [[binary()]].
@@ -191,12 +120,6 @@ query(DB, FunName, Args) ->
       fun({sqlite3_errmsg,_}=E) -> throw(E); (_) -> ok end, Rows),
     Rows.
 
-%% Shortcut for raw SQL query
-sql(DB, SQL,Bindings) when
-      is_binary(SQL) and
-      is_list(Bindings) ->
-    %% log:info("query: ~p~n",[{DB,SQL,Bindings}]),
-    query(DB, port_query, [{SQL,Bindings}]).
 
 
 
