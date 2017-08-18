@@ -13,6 +13,8 @@
 
          to_binary/1,
 
+         cell/2,
+
          encode_key/2,
          decode_key/2,
 
@@ -190,6 +192,11 @@ map_attr(_, Other) ->
 
     
     
+cell(Key,InitEl) ->
+    {'div',
+     [{'data-behavior',cell},
+      {'id', type:encode({pterm,Key})}],
+     [InitEl]}.
 
 
 
