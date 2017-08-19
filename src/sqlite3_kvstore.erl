@@ -107,17 +107,18 @@ existing_table(Spec) ->
     ToMap     = table_op(Spec, to_map, ToList),
     Keys      = table_op(Spec, keys),
     Write     = table_op(Spec, write),
-    WriteList = table_op(Spec, write_map, Write),
+    WriteList = table_op(Spec, write_list, Write),
     WriteMap  = table_op(Spec, write_map, WriteList),
     
     {kvstore, 
      fun
-         (find)      -> Find;
-         (to_list)   -> ToList;
-         (to_map)    -> ToMap;
-         (keys)      -> Keys;
-         (write)     -> Write;
-         (write_map) -> WriteMap
+         (find)       -> Find;
+         (to_list)    -> ToList;
+         (to_map)     -> ToMap;
+         (keys)       -> Keys;
+         (write)      -> Write;
+         (write_list) -> WriteList;
+         (write_map)  -> WriteMap
      end}.
                    
 %% Ad-hoc key value stores.

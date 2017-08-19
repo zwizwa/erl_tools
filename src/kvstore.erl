@@ -19,7 +19,7 @@ read(KVStore, Key) ->
 
             
     
-init(KVStore, Init) ->  
+init(KVStore, Init) when is_map(Init) ->  
     %% Do not write if nothing changed.  Useful in case writes are
     %% slow (e.g. sync after each transaction on slow SD card).
     %% FIXME: there must be a smarter way to do this.
