@@ -176,9 +176,12 @@ module.exports = {
                 el.checked = arg;
             }
             else if (el.type == 'select-one') {
-                //FIXME
-                //var opts = el.options;
-                //return opts[opts.selectedIndex].value;
+                var o = el.options;
+                for (i = 0; i< o.length; i++) {
+                    if (o[i].value == arg) {
+                        o.selectedIndex = i;
+                    }
+                }
             }
             else {
                 el.value = arg;
