@@ -20,9 +20,9 @@
          %% Convert error message to user-readable message.
          format_error/1,
          
-         %% Misc low level tools
-         atom/1, int/1
-
+         %% Misc tools
+         atom/1, int/1, rotate_finite/1
+         
          
         ]).
 
@@ -304,3 +304,16 @@ format_error(Error) ->
 
 
 
+%% Some tools
+
+%% Find the next element in line.
+next_el(Key,[Key,Next|_]) -> Next;
+next_el(Key,[_|List]) -> next_el(Key,List).
+
+rotate_finite(next) -> fun(V) -> rotate_finite(V, fun(X)->X end) end;
+rotate_finite(prev) -> fun(V) -> rotate_finite(V, fun lists:reverse/1) end.
+
+rotate_finite({{finite,Name2Val}=Type,Current}, Dir) ->
+    Vals = Dir([Val || {_,Val} <- Name2Val]),
+    Next = next_el(Current, Vals ++ Vals),
+    {Type, Next}.

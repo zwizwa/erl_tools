@@ -1,7 +1,7 @@
 -module(kvstore).
 -export([%% Simple key,value store interface
          get/3, get/2, find/2, put/3, clear/1, to_list/1, to_map/1,
-         put_list/2, put_map/2,
+         put_list/2, put_map/2, update/3,
          keys/1, init/2, zero/0, with_default/2,
          combined/2]).
 
@@ -27,6 +27,10 @@ get(KVStore, Key, Default) ->
         {ok, RV} -> RV;
         _ -> Default
     end.
+
+%% FIXME: make this into a separate method so it can be a transaction.
+update(KVStore, Key, Fun) ->
+    put(KVStore, Key, Fun(get(KVStore, Key))).
              
 init(KVStore, Init) when is_map(Init) ->  
     %% Do not write if nothing changed.  Useful in case writes are
