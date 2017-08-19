@@ -68,3 +68,8 @@ gets   (Pid, [Key])    -> get(Pid,Key);
 gets   (Pid, [K|Ks])   -> gets(get(Pid,K),Ks).
 
 update (Pid, Key, Fun, TO) -> call(Pid, {update, Key, Fun}, TO).
+
+
+%% Add kvstore interface
+%% That would make objects easily editable in web widget.
+

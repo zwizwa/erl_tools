@@ -1,24 +1,31 @@
 -module(kvstore).
 -export([%% Simple key,value store interface
-         find/2, read/2, write/2, to_list/1, to_map/1,
-         write_list/2, write_map/2,
+         get/3, get/2, find/2, put/3, to_list/1, to_map/1,
+         put_list/2, put_map/2,
          keys/1, init/2, zero/0, with_default/2]).
 
+%% FIXME: rename these to the interface of obj.erl
+
 %% Simple abstract key-value store interface.
-write      ({kvstore, F}, KeyTypeVal)  -> (F(write))(KeyTypeVal).
-find       ({kvstore, F}, Key)         -> (F(find))(Key).
-to_list    ({kvstore, F})              -> (F(to_list))().
-to_map     ({kvstore, F})              -> (F(to_map))().
-write_map  ({kvstore, F}, Map)         -> (F(write_map))(Map).
-write_list ({kvstore, F}, Map)         -> (F(write_list))(Map).
-keys       ({kvstore, F})              -> (F(keys))().
+put        ({kvstore, F}, Key, TypeVal)  -> (F(put))(Key, TypeVal).
+find       ({kvstore, F}, Key)           -> (F(find))(Key).
+to_list    ({kvstore, F})                -> (F(to_list))().
+to_map     ({kvstore, F})                -> (F(to_map))().
+put_map    ({kvstore, F}, Map)           -> (F(put_map))(Map).
+put_list   ({kvstore, F}, Map)           -> (F(put_list))(Map).
+keys       ({kvstore, F})                -> (F(keys))().
 
-read(KVStore, Key) ->
-    {ok, RV} = find(KVStore, Key),
-    RV.
-
-            
-    
+get(KVStore, Key) ->
+    case find(KVStore, Key) of
+        {ok, RV} -> RV;
+        _ -> throw({error,{not_found,Key}})
+    end.
+get(KVStore, Key, Default) ->
+    case find(KVStore, Key) of
+        {ok, RV} -> RV;
+        _ -> Default
+    end.
+             
 init(KVStore, Init) when is_map(Init) ->  
     %% Do not write if nothing changed.  Useful in case writes are
     %% slow (e.g. sync after each transaction on slow SD card).
@@ -26,7 +33,7 @@ init(KVStore, Init) when is_map(Init) ->
     Old  = to_map(KVStore),
     New  = maps:merge(Init,Old),
     case New == Old of
-        false -> write_map(KVStore, New); %% Returns {ok,_} | {error,_}
+        false -> put_map(KVStore, New); %% Returns {ok,_} | {error,_}
         true -> {ok, already_initialized}
     end.
     

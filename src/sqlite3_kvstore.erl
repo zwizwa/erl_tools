@@ -54,22 +54,22 @@ table_op({table,TypeMod,DB,Table}, keys) ->
              || [BinKey] <- sql(DB, QKeys, [])]
     end;
 
-table_op({table,TypeMod,DB,Table}, write) ->
-    QWrite = tools:format_binary(
+table_op({table,TypeMod,DB,Table}, put) ->
+    QPut = tools:format_binary(
                "insert or replace into ~p (var,type,val) values (?,?,?)", [Table]),
-    fun(KTV) ->
-            BinKTV = encode(TypeMod, KTV),
-            sql(DB, QWrite, BinKTV),
-            KTV
+    fun(K,TV) ->
+            BinKTV = encode(TypeMod, {K,TV}),
+            sql(DB, QPut, BinKTV),
+            ok
     end;
 
-table_op(Spec, write_list) ->
-    Write = table_op(Spec, write),
-    table_op(Spec, write_list, Write);
+table_op(Spec, put_list) ->
+    Put = table_op(Spec, put),
+    table_op(Spec, put_list, Put);
 
-table_op(Spec, write_map) ->
-    WriteList = table_op(Spec, write_list),
-    table_op(Spec, write_map, WriteList).
+table_op(Spec, put_map) ->
+    PutList = table_op(Spec, put_list),
+    table_op(Spec, put_map, PutList).
 
 
 %% Sharing
@@ -78,16 +78,16 @@ table_op(_, to_map, ToList) ->
     fun() ->
             maps:from_list(ToList())
     end;
-table_op({table,_,DB,_}, write_list, Write) ->
+table_op({table,_,DB,_}, put_list, Put) ->
     fun(List) ->
             transaction(
               DB, fun() ->
-                          lists:foreach(Write, List),
+                          lists:foreach(Put, List),
                           ok
                   end)
     end;
-table_op(_, write_map, WriteList) ->
-    fun(Map) -> WriteList(maps:to_list(Map)) end.
+table_op(_, put_map, PutList) ->
+    fun(Map) -> PutList(maps:to_list(Map)) end.
 
 
     
@@ -106,9 +106,9 @@ existing_table(Spec) ->
     ToList    = table_op(Spec, to_list),
     ToMap     = table_op(Spec, to_map, ToList),
     Keys      = table_op(Spec, keys),
-    Write     = table_op(Spec, write),
-    WriteList = table_op(Spec, write_list, Write),
-    WriteMap  = table_op(Spec, write_map, WriteList),
+    Put       = table_op(Spec, put),
+    PutList   = table_op(Spec, put_list, Put),
+    PutMap    = table_op(Spec, put_map, PutList),
     
     {kvstore, 
      fun
@@ -116,9 +116,9 @@ existing_table(Spec) ->
          (to_list)    -> ToList;
          (to_map)     -> ToMap;
          (keys)       -> Keys;
-         (write)      -> Write;
-         (write_list) -> WriteList;
-         (write_map)  -> WriteMap
+         (put)        -> Put;
+         (put_list)   -> PutList;
+         (put_map)    -> PutMap
      end}.
                    
 %% Ad-hoc key value stores.
