@@ -1,0 +1,7 @@
+#!/usr/bin/env escript
+%% -*- erlang -*-
+main([ThisNodeStr, ThatNodeStr, PrivFile]) ->
+    net_kernel:start([list_to_atom(ThisNodeStr), longnames]),
+    RV=rpc:call(list_to_atom(ThatNodeStr),tools,reload_from_beam_list,[PrivFile]),
+    io:format("rv: ~p~n",[RV]).
+

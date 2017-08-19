@@ -5,12 +5,11 @@
 
 [ -z "$2" ] && echo "usage: $0 <top_dir> <stamp_file>" && exit 1
 
+
 TOP=$1
 STAMP=$2
-LST=$TOP/priv/beam.lst
 
 # If there's no stamp file, include all files.  Else only updated ones.
 [ -f $STAMP ] && FIND_ARGS="-newer $STAMP"
 
-(cd $TOP ; find -name '*.beam' $FIND_ARGS) | sed 's/.*\/\([a-z,0-9,_]*\).beam/\1/g' >$LST
-cat $LST
+(cd $TOP ; find -name '*.beam' $FIND_ARGS) | sed 's/.*\/\([a-z,0-9,_]*\).beam/\1/g'

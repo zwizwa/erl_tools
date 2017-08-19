@@ -168,7 +168,8 @@ method_call(Ws, ID, Method, Arg) ->
             method => Method,
             arg => Arg }.
 
-%% Pass continuation to implement synchronous call.
+%% Pass continuation to implement synchronous call.  Other side will
+%% use cont as a ws_action.
 method_call_wait(Ws, ID, Method, Arg) ->
     Ws ! #{ type => method_call,
             id => encode_id(ID),
@@ -178,9 +179,9 @@ method_call_wait(Ws, ID, Method, Arg) ->
     wait_reply().
 cont_reply(Pid) ->
     web:hmac_encode(
-      fun(Msg, State) -> Pid ! {eval_reply, Msg}, State end).
+      fun(Msg, State) -> Pid ! {cont_value, Msg}, State end).
 wait_reply() -> 
-    receive {eval_reply, Msg} -> Msg end.
+    receive {cont_value, Msg} -> Msg end.
 
 %% Convenient shorthand for routines that expect innerHTML.
 method_call_exml(Ws, ID, Method, Els) ->

@@ -47,7 +47,8 @@
          first_ok/1,
          re_dispatch/2,
          become/1,
-         process_dictionary_get_value/2
+         process_dictionary_get_value/2,
+         reload_from_beam_list/1
         ]).
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -810,3 +811,24 @@ maps_update_path([Top|Path], Fun, Map, Default) ->
       fun(SubMap) -> maps_update_path(Path, Fun, SubMap, Default) end,
       Map,
       #{}).
+
+
+
+%% RELOAD.  This is for development only.  The build system will
+%% provide a list of rebuilt modules in a file, one module per line.
+%% See erl_tools/bin/update-beam.lst
+reload(M) ->
+    info("reload ~p~n", [M]),
+    code:purge(M), code:load_file(M).
+reload_from_beam_list(Filename) ->
+    %% Keep database open during reload.  
+    %% Killing it seems to cause all kinds of sync problems.
+    %% DB = db:db(), unlink(DB), exit(DB, kill), 
+    [reload(M) || M <- updated_modules(Filename)],
+    ok.
+updated_modules(FileName) ->
+    {ok, Data} = file:read_file(FileName),
+    BinMods = binary:split(Data, [<<"\n">>], [global,trim_all]),
+    Mods = [binary_to_atom(BinMod, utf8) || BinMod <- BinMods],
+    info("updated_modules = ~p~n", [Mods]),
+    Mods.
