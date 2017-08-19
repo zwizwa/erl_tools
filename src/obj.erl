@@ -1,8 +1,8 @@
 -module(obj).
 -export([init/0, handle/2, call/2, call/3, reply/2,
          get/2, get/3, set/3, gets/2,
-         update/3, find/2, dump/1, replace/2,
-         update/4]).
+         update/3, find/2, dump/1, replace/2, merge/2,
+         update/4, kvstore/1]).
 
 %% Simple async object.
 
@@ -31,6 +31,7 @@ reply(Pid, Val) -> Pid ! {self(), obj_reply, Val}.
 
 handle({Pid, dump}, Map)           -> reply(Pid, Map), Map;
 handle({Pid, {replace, M}}, _)     -> reply(Pid, ok), M;
+handle({Pid, {merge, M1}}, M0)     -> reply(Pid, ok), maps:merge(M0,M1);
 handle({Pid, {remove, K}}, Map)    -> Map1 = maps:remove(K, Map), reply(Pid, ok), Map1;
 handle({Pid, {find, K}}, Map)      -> reply(Pid, maps:find(K, Map)), Map;
 handle({Pid, {set, K, V}}, Map)    -> reply(Pid, ok), maps:put(K, V, Map);
@@ -63,6 +64,8 @@ find   (Pid, Key)      -> call(Pid, {find, Key}).
 set    (Pid, Key, Val) -> call(Pid, {set, Key, Val}).
 update (Pid, Key, Fun) -> call(Pid, {update, Key, Fun}).
 replace(Pid, D)        -> call(Pid, {replace, D}).
+merge  (Pid, D)        -> call(Pid, {merge, D}).
+    
 
 gets   (Pid, [Key])    -> get(Pid,Key);
 gets   (Pid, [K|Ks])   -> gets(get(Pid,K),Ks).
@@ -70,6 +73,23 @@ gets   (Pid, [K|Ks])   -> gets(get(Pid,K),Ks).
 update (Pid, Key, Fun, TO) -> call(Pid, {update, Key, Fun}, TO).
 
 
-%% Add kvstore interface
-%% That would make objects easily editable in web widget.
 
+%% Abstract object as kvstore.
+kvstore(Obj) ->
+    {kvstore, fun(Method) -> kvstore_obj(Obj,Method) end}.
+    
+kvstore_obj(Obj,Method) ->        
+    case Method of
+        find     -> fun(Key)      -> find(Obj,Key) end;
+        put      -> fun(Key,Val)  -> set(Obj,Key,Val) end;
+        to_map   -> fun()         -> dump(Obj) end;
+        to_list  -> fun()         -> maps:to_list(dump(Obj)) end;
+        put_map  -> fun(Map)      -> merge(Obj,Map) end;
+        put_list -> fun(List)     -> merge(Obj,maps:from_list(List)) end
+    end.
+                             
+                           
+                           
+                           
+             
+            

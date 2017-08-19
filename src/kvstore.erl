@@ -1,8 +1,9 @@
 -module(kvstore).
 -export([%% Simple key,value store interface
-         get/3, get/2, find/2, put/3, to_list/1, to_map/1,
+         get/3, get/2, find/2, put/3, clear/1, to_list/1, to_map/1,
          put_list/2, put_map/2,
-         keys/1, init/2, zero/0, with_default/2]).
+         keys/1, init/2, zero/0, with_default/2,
+         combined/2]).
 
 %% FIXME: rename these to the interface of obj.erl
 
@@ -14,6 +15,7 @@ to_map     ({kvstore, F})                -> (F(to_map))().
 put_map    ({kvstore, F}, Map)           -> (F(put_map))(Map).
 put_list   ({kvstore, F}, Map)           -> (F(put_list))(Map).
 keys       ({kvstore, F})                -> (F(keys))().
+clear      ({kvstore, F})                -> (F(clear))().
 
 get(KVStore, Key) ->
     case find(KVStore, Key) of
@@ -66,3 +68,28 @@ with_default({kvstore, F}=Parent, DefaultFind) ->
      
                           
              
+%% Combine two stores.  This is useful to make different keys have
+%% different back-ends.  E.g in GUI:
+%% - viewmodel in RAM: fast, don't care if state gets lost
+%% - rest is persistent store: persistent but slow, infrequent edits
+
+combined({kvstore,F0},{kvstore,F1}) ->
+    {kvstore, combined_impl(F0,F1)}.
+            
+combined_impl(F0,F1) ->
+    fun(Method) ->
+            %% Dispatch based on whether the first store has the key.
+            M = fun(Key) ->
+                        case (F0(find))(Key) of
+                            {ok,_} -> F0(Method);
+                            _      -> F1(Method)
+                        end
+                end,
+            case Method of
+                find -> fun(Key)     -> (M(Key))(Key)     end;
+                put  -> fun(Key,Val) -> (M(Key))(Key,Val) end;
+                %% FIXME: not all methods are supported yet
+                _    -> throw({kvstore_combined,Method})
+            end
+    end.
+

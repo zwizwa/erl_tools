@@ -69,7 +69,11 @@ table_op(Spec, put_list) ->
 
 table_op(Spec, put_map) ->
     PutList = table_op(Spec, put_list),
-    table_op(Spec, put_map, PutList).
+    table_op(Spec, put_map, PutList);
+
+table_op({table,_,DB,Table}, clear) ->
+    QPut = tools:format_binary("delete from ~p", [Table]),
+    fun() -> sql(DB, QPut, []), ok end.
 
 
 %% Sharing

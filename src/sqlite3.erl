@@ -115,7 +115,7 @@ sql(DB, SQL, Bindings) when
     %% If reply contains errors we throw them into the caller's
     %% process.  Normal results are [[binary()]].
     lists:foreach(
-      fun({sqlite3_errmsg,_}=E) -> throw(E);
+      fun({sqlite3_errmsg,_}=E) -> throw({sqlite3,E,{DB,SQL,Bindings}});
          (_) -> ok
       end,
       Rows),
