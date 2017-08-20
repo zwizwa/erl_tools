@@ -9,6 +9,7 @@
 
 %% Socket interaction and tools
 -export([method_call/4,
+         method_call_bundle/2,
          method_call_wait/4,
          method_call_exml/4,
          method_call_wait_exml/4,
@@ -183,12 +184,29 @@ cont_reply(Pid) ->
 wait_reply() -> 
     receive {cont_value, Msg} -> Msg end.
 
-%% Convenient shorthand for routines that expect innerHTML.
+
+%% E.g to avoid repaints when sending gui updates.
+method_call_bundle(Ws, Messages) ->
+    Ws ! #{ type => bundle,
+            messages =>
+                [#{
+                    type => method_call,
+                    id => encode_id(ID),
+                    method => Method,
+                    arg => Arg }
+                 || {ID,Method,Arg} <- Messages] }.
+
+
+
+%% Convenient shorthand for routines that expect innerHTML, which
+%% needs to be sent as a binary.
 method_call_exml(Ws, ID, Method, Els) ->
     method_call(Ws,ID,Method,exml:to_binary(Els)).
 method_call_wait_exml(Ws, ID, Method, Els) ->
     method_call_wait(Ws,ID,Method,exml:to_binary(Els)).
     
+              
+
 
 %% Format message and send it over websocket to browser.  See ws.js
 info_text(Ws, Text, Opts) ->      

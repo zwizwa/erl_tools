@@ -123,7 +123,7 @@ stop(Type, Val, Msg) ->
 %% Reusable encode/decode primitives.
 fb(Fmt,List) when is_list(List) -> tools:format_binary(Fmt,List).
 %%fb_w(Obj) -> fb("~w",[Obj]).
-fb_p(Obj) -> fb("~p",[Obj]).
+fb_p(Obj) -> fb("~99999p",[Obj]).
 
 id(X) -> X.
     

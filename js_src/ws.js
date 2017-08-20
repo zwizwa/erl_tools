@@ -21,6 +21,8 @@ function error(errmsg) {
 // After that, handle messages coming in from websocket.
 function start(args, method_call) {
 
+    var handle;
+
     /* We support these messages. */
     var handlers = {
         method_call: method_call,
@@ -35,6 +37,9 @@ function start(args, method_call) {
         },
         eval: function(msg) {
             return eval(msg.code);
+        },
+        bundle: function(msg) {
+            msg.messages.forEach(handle);
         }
     };
     function try_catch(handler, msg) {
@@ -43,7 +48,7 @@ function start(args, method_call) {
     }
 
 
-    var handle = function(msg) {
+    handle = function(msg) {
         var handler = handlers[msg.type];
         var rpl = {
             type: "ws_action",

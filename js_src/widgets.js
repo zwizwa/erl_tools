@@ -35,7 +35,7 @@ function for_children(el, fun) {
         fun(el.children[i]);
     }
 }
-function select(container, select_name) {
+function display_select(container, select_name) {
     for_children(
         container, function(node) {
             node.style.display = 'none';
@@ -45,21 +45,21 @@ function select(container, select_name) {
             }
         });
 }
-function select_one(container, display) {
+function display_enable(container, enable) {
+    var display = enable ? 'block' : 'none';
+    console.log(enable, display);
     for_children(
         container, function(node) {
             node.style.display = display;
         });
 }
-function select_toggle(container, display) {
+function select_all(container, display) {
     for_children(
         container, function(node) {
-            node.style.display =
-                (node.style.display == 'none') ?
-                'block' : 'none';
+            node.style.display = display;
         });
 }
-function showhide_event(input_el, event) {
+function display_event(input_el, event) {
     // Implement behavior for different input types and buttons.
     var id = input_el.getAttribute('data-target');
     var container = document.getElementById(id);
@@ -67,14 +67,13 @@ function showhide_event(input_el, event) {
     if (input_el.type == 'select-one') {
         var opts = input_el.options;
         var name = opts[opts.selectedIndex].value;
-        select(container, name);
+        display_select(container, name);
     }
     else if (input_el.type == 'checkbox') {
-        var display = input_el.checked ? 'block' : 'none';
-        select_one(container, display);
+        display_enable(container, input_el.checked);
     }
     else if (input_el.type == 'submit') {
-        select_toggle(container);
+        display_toggle(container);
     }
 }
 
@@ -161,13 +160,14 @@ module.exports = {
         }
     },
     // el :: any element that contains a list of children to display/hide
-    showhide_list: {
-        select: select 
+    display_list: {
+        select: display_select,
+        enable: display_enable
     },
     // el :: input element with 'data-target' attribute
-    showhide_control: {
-        change: showhide_event,
-        click:  showhide_event
+    display_control: {
+        change: display_event,
+        click:  display_event
     },
     // el :: settable input element
     input: {
