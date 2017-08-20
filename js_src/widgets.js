@@ -131,6 +131,23 @@ function form_data(el) {
     return form;
 }
 
+// Constructors for specific element types
+function make_element(spec) {
+    specs = {
+        path: function() {
+            // https://stackoverflow.com/questions/16488884/add-svg-element-to-existing-svg-using-dom
+            // Create a path in SVG's namespace
+            var el = document.createElementNS(
+                "http://www.w3.org/2000/svg", 'path'); 
+            for (attr in spec.attr) {
+                el.setAttribute(attr, spec.attr[attr]);
+            }
+            console.log(el);
+            return el;
+        }
+    };
+    return (specs[spec.type])();
+}
 
 
 // Behavior for standard dom objects
@@ -143,15 +160,27 @@ module.exports = {
     },
     // el :: <td /> or <div />, something to contain the value.
     cell: { 
-        set: function(el, html) {
-            el.innerHTML = html;
+        set: function(el, arg) {
+            if (typeof(arg) == "string") {
+                el.innerHTML = arg;
+            }
+            else {
+                el.innerHTML = '';
+                el.appendChild(make_element(arg));
+            }
         },
-        // Something is really wrong with this.
-        append: function(el, html) { 
-            var tmp = document.createElement('div');
-            tmp.innerHTML = html;
-            for (var i=0; i<tmp.children.length; i++) {
-                el.appendChild(tmp.children[i]);
+        // Note: Use make_element to create SVG elements.
+        append: function(el, arg) {
+            console.log(arg);
+            if (typeof(arg) == "string") {
+                var tmp = document.createElement('div');
+                tmp.innerHTML = arg;
+                for (var i=0; i<tmp.children.length; i++) {
+                    el.appendChild(tmp.children[i]);
+                }
+            }
+            else {
+                el.appendChild(make_element(arg));
             }
         }
     },
