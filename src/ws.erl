@@ -8,11 +8,11 @@
          websocket_info/3, websocket_terminate/3]).
 
 %% Socket interaction and tools
--export([method_call/4,
-         method_call_bundle/2,
-         method_call_wait/4,
-         method_call_exml/4,
-         method_call_wait_exml/4,
+-export([call/4,
+         call_bundle/2,
+         call_wait/4,
+         call_exml/4,
+         call_wait_exml/4,
 
          info/3, info_ehtml/2, info_ehtml/3, info_ehtml/1,
 
@@ -157,26 +157,42 @@ handle_ejson(Msg, State) ->
     log:info("ws:handle_ejson: ignore: ~p~n",[Msg]), State.
 
 
+
+%% call
+
+%% Basic call format - see ws.js and method_call.js
+%% Indirections:
+%% ID -> DOM element data-behavior attribute -> behavior object -> method function
+call_fmt(ID,Method,Arg) ->
+    #{ type   => call,
+       id     => encode_id(ID),
+       method => Method,
+       arg    => Arg }.
+    
+%% Some Arg types are sent using Binary ERlang Term format for more
+%% efficient encoding.
+call_msg(ID,Method,{s16_le,_}=Arg) -> {bert, call_fmt(ID,Method,Arg)};
+%% Default is JSON.
+call_msg(ID,Method,Arg) -> call_fmt(ID,Method,Arg).
+
 %% FIXME: check code and make sure no binary IDs are sent, then remove
 %% case and use exml:encode_key
 encode_id(ID) when is_binary(ID) -> ID;
 encode_id(ID) -> type_base:encode({pterm,ID}).
-    
-%% A-synchronous messages send -- do not wait for reply.  See method_call.js
-method_call(Ws, ID, Method, Arg) ->
-    Ws ! #{ type => method_call,
-            id => encode_id(ID),
-            method => Method,
-            arg => Arg }.
+
+
+
+
+%% A-synchronous messages send -- do not wait for reply.  See call.js
+%% Some types are sent using Binary ERlang Term format.
+call(Ws, ID, Method, Arg) -> Ws ! call_msg(ID,Method,Arg).
 
 %% Pass continuation to implement synchronous call.  Other side will
 %% use cont as a ws_action.
-method_call_wait(Ws, ID, Method, Arg) ->
-    Ws ! #{ type => method_call,
-            id => encode_id(ID),
-            method => Method,
-            arg => Arg,
-            cont => cont_reply(self()) },
+call_wait(Ws, ID, Method, Arg) ->
+    Ws ! maps:put(
+           cont, cont_reply(self()),
+           call_msg(ID,Method,Arg)),
     wait_reply().
 cont_reply(Pid) ->
     web:hmac_encode(
@@ -186,31 +202,27 @@ wait_reply() ->
 
 
 %% E.g to avoid repaints when sending gui updates.
-method_call_bundle(Ws, Messages) ->
+call_bundle(Ws, Messages) ->
     Ws ! #{ type => bundle,
             messages =>
-                [#{
-                    type => method_call,
-                    id => encode_id(ID),
-                    method => Method,
-                    arg => Arg }
+                [call_msg(ID,Method,Arg)
                  || {ID,Method,Arg} <- Messages] }.
 
 
 
 %% Convenient shorthand for routines that expect innerHTML, which
-%% needs to be sent as a binary.
-method_call_exml(Ws, ID, Method, Els) ->
-    method_call(Ws,ID,Method,exml:to_binary(Els)).
-method_call_wait_exml(Ws, ID, Method, Els) ->
-    method_call_wait(Ws,ID,Method,exml:to_binary(Els)).
+%% needs to be encoded as binary.
+call_exml(Ws, ID, Method, Els) ->
+    call(Ws,ID,Method,exml:to_binary(Els)).
+call_wait_exml(Ws, ID, Method, Els) ->
+    call_wait(Ws,ID,Method,exml:to_binary(Els)).
     
               
 
 
 %% Format message and send it over websocket to browser.  See ws.js
 info_text(Ws, Text, Opts) ->      
-    method_call(Ws, live_log, append_text,
+    call(Ws, live_log, append_text,
                 [iolist_to_binary(Text), Opts]).
 
 
@@ -225,7 +237,7 @@ info_ehtml(Ws, Ehtml) ->
     info_ehtml(Ws, Ehtml, #{}).
 info_ehtml(Ws, Ehtml, Opts) ->
     Bin = exml:to_binary([Ehtml]), %% FIXME: this can fail
-    method_call(Ws, live_log, append_html, [Bin, Opts]).
+    call(Ws, live_log, append_html, [Bin, Opts]).
 
 %% Curried
 info_ehtml(Ws) ->
@@ -291,7 +303,7 @@ timestamp(Ws) ->
 
 %% See widget.js showhide
 showhide_select(Ws,ID,Name) ->                            
-    method_call(Ws,ID,select,type:encode({pterm,Name})).
+    call(Ws,ID,select,type:encode({pterm,Name})).
 
 
 

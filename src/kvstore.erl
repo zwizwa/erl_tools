@@ -40,7 +40,7 @@ init(KVStore, Init) when is_map(Init) ->
     New  = maps:merge(Init,Old),
     case New == Old of
         false -> put_map(KVStore, New); %% Returns {ok,_} | {error,_}
-        true -> {ok, already_initialized}
+        true -> ok
     end.
     
 zero() ->

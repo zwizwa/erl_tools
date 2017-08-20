@@ -84,13 +84,16 @@ table_op(_, to_map, ToList) ->
     end;
 table_op({table,_,DB,_}, put_list, Put) ->
     fun(List) ->
-            transaction(
-              DB,
-              fun() ->
-                      lists:foreach(
-                        fun({Key,TypeVal}) -> Put(Key, TypeVal) end, 
-                        List), ok
-              end)
+            case transaction(
+                   DB,
+                   fun() ->
+                           lists:foreach(
+                             fun({Key,TypeVal}) -> Put(Key, TypeVal) end, 
+                             List), ok
+                   end) of
+                {ok, RV} -> RV;
+                {error, Error} -> throw({put_list,Error})
+            end
     end;
 table_op(_, put_map, PutList) ->
     fun(Map) -> PutList(maps:to_list(Map)) end.

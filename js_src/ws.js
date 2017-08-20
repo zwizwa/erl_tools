@@ -25,7 +25,7 @@ function start(args, method_call) {
 
     /* We support these messages. */
     var handlers = {
-        method_call: method_call,
+        // Handlers for ws-level messages
         set_cookie: function(msg) {
             document.cookie = msg.cookie;
         },
@@ -40,7 +40,9 @@ function start(args, method_call) {
         },
         bundle: function(msg) {
             msg.messages.forEach(handle);
-        }
+        },
+        // Call a DOM object with mixed in behavior
+        call: method_call
     };
     function try_catch(handler, msg) {
         try { return handler(msg) }
