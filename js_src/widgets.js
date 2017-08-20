@@ -143,14 +143,10 @@ module.exports = {
     },
     // el :: <td /> or <div />, something to contain the value.
     cell: { 
-        set: function(el, val) { el.innerHTML = val; }
-    },
-    // el :: <td /> or <div />, something to contain the values.
-    list: { 
-        // NOT TESTED
-        clear: function(el, html) { 
-            el.innerHTML = '';
+        set: function(el, html) {
+            el.innerHTML = html;
         },
+        // Something is really wrong with this.
         append: function(el, html) { 
             var tmp = document.createElement('div');
             tmp.innerHTML = html;

@@ -8,7 +8,11 @@ var bert_deps = { UTF8Decoder: window['TextDecoder'] };
 var bert = new bert_module.Bert({ UTF8Decoder: window['TextDecoder'] });
 
 
-
+var ws_console = {
+    log: function() {
+        send({log: arguments});
+    }
+}
 
 function error(errmsg) {
     console.log(errmsg);
@@ -40,6 +44,9 @@ function start(args, method_call) {
         },
         bundle: function(msg) {
             msg.messages.forEach(handle);
+        },
+        redirect_console: function(msg) {
+            console = ws_console;
         },
         // Call a DOM object with mixed in behavior
         call: method_call
@@ -143,6 +150,7 @@ function send_input(action, el) {
                 form: widgets.tools.form_data(el) };
     send(msg);
 }
+
 
 
 // API
