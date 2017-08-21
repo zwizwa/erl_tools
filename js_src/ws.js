@@ -74,6 +74,9 @@ function start(args, method_call) {
                 send(rpl);
             }
         }
+        else if (rpl.error) {
+            console.log(rpl.error);
+        }
     };
 
 

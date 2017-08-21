@@ -47,7 +47,7 @@ function display_select(container, select_name) {
 }
 function display_enable(container, enable) {
     var display = enable ? 'block' : 'none';
-    console.log(enable, display);
+    // console.log(enable, display);
     for_children(
         container, function(node) {
             node.style.display = display;
@@ -63,7 +63,7 @@ function display_event(input_el, event) {
     // Implement behavior for different input types and buttons.
     var id = input_el.getAttribute('data-target');
     var container = document.getElementById(id);
-    console.log(input_el.type, id, container);
+    // console.log(input_el.type, id, container);
     if (input_el.type == 'select-one') {
         var opts = input_el.options;
         var name = opts[opts.selectedIndex].value;
@@ -142,11 +142,31 @@ function make_element(spec) {
             for (attr in spec.attr) {
                 el.setAttribute(attr, spec.attr[attr]);
             }
-            console.log(el);
+            // console.log(el);
             return el;
         }
     };
     return (specs[spec.type])();
+}
+
+// arr contains waveform data
+// tx contains transform: tx.scale, tx.offset, tx.inc
+function path_set_waveform(path, arr, tx) {
+    var d_point;
+    var psl = path.pathSegList;
+    psl.clear();
+    arr.forEach(
+        function(y, x) {
+            var point = ((y * tx.scale) + tx.offset);
+            if (null == d_point) {
+                d_point = point;
+                var m = path.createSVGPathSegMovetoAbs(-tx.inc, d_point);
+                psl.appendItem(m)
+            }
+            var l = path.createSVGPathSegLinetoRel(tx.inc, point - d_point);
+            psl.appendItem(l);
+            d_point = point;
+        });
 }
 
 
@@ -171,7 +191,7 @@ module.exports = {
         },
         // Note: Use make_element to create SVG elements.
         append: function(el, arg) {
-            console.log(arg);
+            // console.log(arg);
             if (typeof(arg) == "string") {
                 var tmp = document.createElement('div');
                 tmp.innerHTML = arg;
@@ -239,8 +259,8 @@ module.exports = {
 
     // Not a behavior, just some associated tools exposed.
     tools: {
-        form_data: form_data
-    },
-
+        form_data: form_data,
+        path_set_waveform: path_set_waveform
+    }
 
 }
