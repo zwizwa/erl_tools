@@ -7,6 +7,7 @@ var widgets = require('./widgets');
 var bert_deps = { UTF8Decoder: window['TextDecoder'] };
 var bert = new bert_module.Bert({ UTF8Decoder: window['TextDecoder'] });
 
+var tools = require('./tools');
 
 var ws_console = {
     log: function() {
@@ -43,7 +44,7 @@ function start(args, method_call) {
             return eval(msg.code);
         },
         bundle: function(msg) {
-            msg.messages.forEach(handle);
+            tools.each(msg.messages, handle);
         },
         redirect_console: function(msg) {
             console = ws_console;

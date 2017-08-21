@@ -81,7 +81,10 @@ Stream.prototype = {
 var ascii_decoder = {
     decode: function(arr) {
         var str = '';
-        arr.forEach(function(c) { str += String.fromCharCode(c) });
+        var i;
+        for (i=0; i=arr.length; i++) {
+            str += String.fromCharCode(arr[i])
+        }
         return str;
     }
 }

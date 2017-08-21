@@ -133,6 +133,7 @@ handle_ejson(#{type := <<"ws_action">>, action := CallbackHmac} = Msg,
     M1 = maps:remove(action, Msg),
     M2 = maps:remove(type, M1),
     {ok, Fun} = web:hmac_decode(CallbackHmac),
+    %% log:info("ws_action: ~p ~p~n",[Fun,M2]),
     Fun(M2, State);
 
 %% Date and time from browser.

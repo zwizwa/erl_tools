@@ -1,4 +1,4 @@
-
+var tools = require("./tools");
 
 function log_append(log, item, opts) {
     var first = log.childNodes[0];
@@ -29,35 +29,27 @@ function append_html(log_el, html, opts) {
 }
 
 
-
-function for_children(el, fun) {
-    for (var i=0; i<el.children.length; i++) {
-        fun(el.children[i]);
-    }
-}
 function display_select(container, select_name) {
-    for_children(
-        container, function(node) {
-            node.style.display = 'none';
-            // console.log(node);
-            if (node.getAttribute('name') == select_name) {
-                node.style.display = 'block';
-            }
-        });
+    console.log(select_name, container.children.length);
+    tools.each(container.children, function(node) {
+        console.log(node);
+        node.style.display = 'none';
+        if (node.getAttribute('name') == select_name) {
+            node.style.display = 'block';
+        }
+    });
 }
 function display_enable(container, enable) {
     var display = enable ? 'block' : 'none';
     // console.log(enable, display);
-    for_children(
-        container, function(node) {
-            node.style.display = display;
-        });
+    tools.each(container.children, function(node) {
+        node.style.display = display;
+    });
 }
 function select_all(container, display) {
-    for_children(
-        container, function(node) {
-            node.style.display = display;
-        });
+    tools.each(container.children, function(node) {
+        node.style.display = display;
+    });
 }
 function display_event(input_el, event) {
     // Implement behavior for different input types and buttons.
@@ -114,13 +106,12 @@ function form_data(el) {
 
     // Form returns list of fields
     if ('form' == el.nodeName) {
-        form= [];
-        for (i=0; i<el.elements.length; i++) {
-            var input = el.elements[i];
+        form = [];
+        tools.each(el.elements, function(input) {
             if (input.name) {
                 form.push(form_field(input));
             }
-        }
+        });
     }
     // A single imput returns list with one field
     else {
@@ -132,21 +123,24 @@ function form_data(el) {
 }
 
 // Constructors for specific element types
-function make_element(spec) {
-    specs = {
+function create_element(spec) {
+    node_types = {
         path: function() {
             // https://stackoverflow.com/questions/16488884/add-svg-element-to-existing-svg-using-dom
             // Create a path in SVG's namespace
             var el = document.createElementNS(
                 "http://www.w3.org/2000/svg", 'path'); 
-            for (attr in spec.attr) {
-                el.setAttribute(attr, spec.attr[attr]);
+            for (attr in spec.a) {
+                el.setAttribute(attr, spec.a[attr]);
             }
+            tools.each(spec.e, function(el_spec) {
+                el.appendChild(create_element(el_spec));
+            });
             // console.log(el);
             return el;
         }
     };
-    return (specs[spec.type])();
+    return (node_types[spec.t])();
 }
 
 // arr contains waveform data
@@ -155,18 +149,17 @@ function path_set_waveform(path, arr, tx) {
     var d_point;
     var psl = path.pathSegList;
     psl.clear();
-    arr.forEach(
-        function(y, x) {
-            var point = ((y * tx.scale) + tx.offset);
-            if (null == d_point) {
-                d_point = point;
-                var m = path.createSVGPathSegMovetoAbs(-tx.inc, d_point);
-                psl.appendItem(m)
-            }
-            var l = path.createSVGPathSegLinetoRel(tx.inc, point - d_point);
-            psl.appendItem(l);
+    tools.each(arr, function(y, x) {
+        var point = ((y * tx.scale) + tx.offset);
+        if (null == d_point) {
             d_point = point;
-        });
+            var m = path.createSVGPathSegMovetoAbs(-tx.inc, d_point);
+            psl.appendItem(m)
+        }
+        var l = path.createSVGPathSegLinetoRel(tx.inc, point - d_point);
+        psl.appendItem(l);
+        d_point = point;
+    });
 }
 
 
@@ -186,21 +179,21 @@ module.exports = {
             }
             else {
                 el.innerHTML = '';
-                el.appendChild(make_element(arg));
+                el.appendChild(create_element(arg));
             }
         },
-        // Note: Use make_element to create SVG elements.
+        // Note: Use create_element to create SVG elements.
         append: function(el, arg) {
             // console.log(arg);
             if (typeof(arg) == "string") {
                 var tmp = document.createElement('div');
                 tmp.innerHTML = arg;
-                for (var i=0; i<tmp.children.length; i++) {
-                    el.appendChild(tmp.children[i]);
-                }
+                tools.each(tmp.children, function(child) {
+                    el.appendChild(child);
+                });
             }
             else {
-                el.appendChild(make_element(arg));
+                el.appendChild(create_element(arg));
             }
         }
     },
@@ -221,12 +214,11 @@ module.exports = {
                 el.checked = arg;
             }
             else if (el.type == 'select-one') {
-                var o = el.options;
-                for (i = 0; i< o.length; i++) {
-                    if (o[i].value == arg) {
-                        o.selectedIndex = i;
+                tools.each(el.options, function(option) {
+                    if (option.value == arg) {
+                        el.options.selectedIndex = i;
                     }
-                }
+                });
             }
             else {
                 el.value = arg;
