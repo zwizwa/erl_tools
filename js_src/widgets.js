@@ -215,9 +215,10 @@ module.exports = {
                 el.checked = arg;
             }
             else if (el.type == 'select-one') {
-                tools.each(el.options, function(option) {
+                var o = el.options;
+                tools.each(o, function(option, i) {
                     if (option.value == arg) {
-                        el.options.selectedIndex = i;
+                        o.selectedIndex = i;
                     }
                 });
             }
