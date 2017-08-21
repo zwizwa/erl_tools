@@ -10,7 +10,7 @@ function each(o, f) {
     if (o.forEach !== undefined) {
         o.forEach(f);
         return o;
-    }
+    }x
     console.log("error: each", o, f);
 }
 

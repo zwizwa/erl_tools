@@ -30,9 +30,9 @@ function append_html(log_el, html, opts) {
 
 
 function display_select(container, select_name) {
-    console.log(select_name, container.children.length);
+    // console.log(select_name, container.children.length);
     tools.each(container.children, function(node) {
-        console.log(node);
+        // console.log(node);
         node.style.display = 'none';
         if (node.getAttribute('name') == select_name) {
             node.style.display = 'block';
@@ -124,23 +124,24 @@ function form_data(el) {
 
 // Constructors for specific element types
 function create_element(spec) {
-    node_types = {
+    ns_elements = {
         path: function() {
             // https://stackoverflow.com/questions/16488884/add-svg-element-to-existing-svg-using-dom
             // Create a path in SVG's namespace
-            var el = document.createElementNS(
+            return document.createElementNS(
                 "http://www.w3.org/2000/svg", 'path'); 
-            for (attr in spec.a) {
-                el.setAttribute(attr, spec.a[attr]);
-            }
-            tools.each(spec.e, function(el_spec) {
-                el.appendChild(create_element(el_spec));
-            });
-            // console.log(el);
-            return el;
         }
-    };
-    return (node_types[spec.t])();
+    }
+    var create_el = ns_elements[spec.t];
+    var el = create_el ? create_el() : document.createElement(spec.t); 
+    for (attr in spec.a) {
+        el.setAttribute(attr, spec.a[attr]);
+    }
+    tools.each(spec.e, function(el_spec) {
+        el.appendChild(create_element(el_spec));
+    });
+    // console.log(el);
+    return el;
 }
 
 // arr contains waveform data
