@@ -168,7 +168,7 @@ function path_set_waveform(path, arr, tx) {
     var d_point, path_d;
     tools.each(arr, function(y, x) {
             // console.log(x,y);
-            var point = ((y * tx.scale) + tx.offset)|0;
+            var point = ((y * tx.scale) + tx.offset);
             if (null == d_point) {
                 d_point = point;
                 path_d = 'M-1,' + d_point;
