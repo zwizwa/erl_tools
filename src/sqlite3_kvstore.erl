@@ -60,7 +60,7 @@ table_op({table,TypeMod,DB,Table}, put) ->
     fun(K,TV) ->
             BinKTV = encode(TypeMod, {K,TV}),
             sql(DB, QPut, BinKTV),
-            ok
+            TV %% For chaining
     end;
 
 table_op(Spec, put_list) ->

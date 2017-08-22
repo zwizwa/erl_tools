@@ -47,6 +47,7 @@
 // can be used to set the cell's new content
 
 
+
 function error(errmsg) {
     console.log(errmsg);
     return {error: errmsg};
