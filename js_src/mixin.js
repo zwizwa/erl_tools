@@ -1,7 +1,8 @@
-// TL;DR.  An object is a DOM element associated to some behavior.
+// TL;DR.  An object is a DOM element associated to some behaviors.
 
 // To make Erlang and DOM/JavaScript work together, DOM elements are
-// thought of as objects with internal state and "class" behavior.
+// thought of as objects with internal state and several "mixins" that
+// define behavior.
 //
 //
 // - Erlang can send JSON or BERT messages (see ws.js) that are
@@ -12,31 +13,36 @@
 //   methods", as they do not use object state.  See ws.js
 //
 // - If the message property 'type' is 'method_call', the indirection
-//   mechanism defined in this file.  It associates state (a DOM
-//   element) to behavior.
+//   mechanism defined in this file is used.  It associates state (a
+//   DOM element) to behavior.
 //
 // - The message contains a second property 'id' which is used to find
 //   the DOM element.
 //
-// - The DOM element contains a property 'data-behavior' which is used to
-//   find the behavior associated to this object.  Think of that as
-//   the object's "class".
+// - The DOM element contains a property 'data-mixin' which conains a
+//   space-separate list of behavior names.  
+//
+// - Each name refers to a property recorded in a dictionary of
+//   behaviors or mixins, which in turn contain functions (methods)
+//   parameterized by the element receiving the message.
 //
 // - Once the DOM element and the type (class) object have been found,
-//   the 'method' object in the original message is used to index the
+//   the 'method' string in the original message is used to index the
 //   class object, returning a function.
 //
 // - This function is executed, passing in the DOM element and the
 //   contents of the 'arg' property in the original message.
 //
 // Put this all together, and you can send a message from Erlang to an
-// object living in the web page.
+// object living in the web page.  Note that this is application
+// behavior, not DOM behavor.  Practically, these abstract methods
+// will call into DOM methods to implement their action.
 //
 
 
 // EXAMPLE
 
-// <div id="my_cell" data-behavior="cell"/>
+// <div id="my_cell" data-mixin="cell"/>
 //
 // This then makes it possible to send it a message.  If the
 // collection of behaviors contains .cell from widgets.js, the Erlang
@@ -64,12 +70,12 @@ function route_msg(behaviors, msg) {
 function route_el_msg(behaviors, target_el, msg) {
     var el = target_el;
     var bns;
-    while (!(bns = el.getAttribute('data-behavior'))) {
+    while (!(bns = el.getAttribute('data-mixin'))) {
         // Go up the parent chain
         el = el.parentElement;
         if (el == document.body) {
             error([target_el,
-                   "no data-behavior in parent chain", el]);
+                   "no data-mixin in parent chain", el]);
         }
     }
     // FIXME: multiple classes using bn.split(' ')
