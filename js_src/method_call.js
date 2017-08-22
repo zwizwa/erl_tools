@@ -46,43 +46,49 @@
 //
 // can be used to set the cell's new content
 
-
+var tools = require("./tools");
 
 function error(errmsg) {
-    console.log(errmsg);
-    return {error: errmsg};
+    console.log("method_call", errmsg);
+    throw {method_call: errmsg};
 }
 
 
 function route_msg(behaviors, msg) {
     var el = document.getElementById(msg.id);
     if (!el) {
-        return error(["method_call","element not found",msg.id]);
+        error(["element not found",msg.id]);
     }
     return route_el_msg(behaviors, el, msg);
 }
 function route_el_msg(behaviors, target_el, msg) {
     var el = target_el;
-    var bn;
-    while (!(bn = el.getAttribute('data-behavior'))) {
-        // See if parent has 
+    var bns;
+    while (!(bns = el.getAttribute('data-behavior'))) {
+        // Go up the parent chain
         el = el.parentElement;
         if (el == document.body) {
-            return error(["method_call","no data-behavior in parent chain", el]);
+            error([target_el,
+                   "no data-behavior in parent chain", el]);
         }
     }
-    var b = behaviors[bn];
-    if (!b) {
-        return error(["method_call","no behavior", bn]);
+    // FIXME: multiple classes using bn.split(' ')
+    var found = false;
+    var bs = bns.split(' ');
+    var i, b, m, bn;
+    for (var i=0; i<bs.length; i++) { // no tools.each: local exit
+        bn = bs[i];
+        if (!(b = behaviors[bn])) {
+            error([target_el,
+                   "unknown behavior", bn]);
+        }
+        if ((m = b[msg.method])) {
+            return m(el, msg.arg);
+        }
     }
-    var m = b[msg.method];
-    if (!m) {
-        return error(["method_call",m,"no method",msg.method]);
-    }
-    //console.log(m,el,target_el,msg.arg);
-    // FIXME: send target_el as 3rd argument?
-    // route_evt doesn't need it, as it has event.target
-    return m(el, msg.arg);
+    error([target_el,
+           "method", msg.method, 
+           "not found in behaviors", bns]);
 }
 
 

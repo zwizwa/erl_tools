@@ -52,26 +52,24 @@ function start(args, method_call) {
         // Call a DOM object with mixed in behavior
         call: method_call
     };
-    function try_catch(handler, msg) {
-        try { return handler(msg) }
-        catch(e) { return {error: e.toString()}; }
-    }
-
 
     handle = function(msg) {
-        var handler = handlers[msg.type];
         var rpl = {
             type: "ws_action",
-            action: msg.cont,
-            arg: handler ?
-                try_catch(handler, msg) :
-                error(['unknown message type', msg.type])
+            action: msg.cont
+        };
+        try {
+            rpl.ok = handlers[msg.type](msg);
+        }
+        catch(e) {
+            rpl.error = e;
+            rpl.error_str = e.toString();
         }
         if (rpl.action) {
             try { send(rpl); }
             catch(e) {
-                // JSON encoding problem
-                rpl.arg = {error: e.toString()};
+                rpl.error = "JSON"
+                rpl.error_str = e.toString();
                 send(rpl);
             }
         }
