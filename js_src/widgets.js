@@ -33,30 +33,34 @@ function append_html(log_el, html, opts) {
 function display_list_each(container, fun) {
     tools.each(container.children, fun);
 }
-function display_list_one(container, select_name, fun) {
+function display_list_one(container, name, fun) {
     tools.each(container.children, function(node) {
-        if (node.getAttribute('name') == select_name) { fun(node); }
+        if (node.getAttribute('name') == name) { fun(node); }
     });
 }
+function set_node_style_display(node, display) {
+    //console.log(node, display);
+    node.style.display = display;
+}
 function display_node_enable(node) {
-    node.style.display = 'block';
+    set_node_style_display(node, 'block');
 }
 function display_node_disable(node) {
-    node.style.display = 'none';
+    set_node_style_display(node, 'none');
 }
 function display_node_toggle(node) {
-    node.style.display =
-        (node.style.display == 'none') ? 'block' : 'none';
+    set_node_style_display(
+        node,
+        (node.style.display == 'none') ? 'block' : 'none');
 }
-function display_list_select(container, select_name) {
-    // console.log('display_list_select',select_name);
+function display_list_select(container, name) {
     display_list_each(container, display_node_disable);
-    display_list_one(container, select_name, display_node_enable);
-}
-function display_list_enable(container, select_name) {
     display_list_one(container, name, display_node_enable);
 }
-function display_list_disable(container, select_name) {
+function display_list_enable(container, name) {
+    display_list_one(container, name, display_node_enable);
+}
+function display_list_disable(container, name) {
     display_list_one(container, name, display_node_disable);
 }
 
