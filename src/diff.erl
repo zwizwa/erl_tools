@@ -1,9 +1,12 @@
 -module(diff).
--export([diff/2, diff/3]).
+-export([diff/2, diff/3, as_map/1]).
 
 %% Encode data structure differences as edit commands.  To simplify,
 %% use only maps.  Encode all other data in a separate, unchanging
 %% environment.  
+
+%% To keep the protocol simple, only maps are diffed.  Diffable lists
+%% should be represented as maps.
 
 -type key()  :: atom().
 -type tree() :: leaf()  | #{ key() => tree() }.
@@ -13,6 +16,7 @@
                 {del, path()} |
                 {set, path(), leaf()}.
 
+
 -spec diff(tree(),tree()) -> [edit()].
 diff(A,B) ->
     sink:gen_to_list(
@@ -20,13 +24,7 @@ diff(A,B) ->
 diff(Sink,A,B) ->
     diff([],fun(D) -> Sink({data,D}) end, A, B),
     Sink(eof).
-diff(ParentPath,Edit,Old,New) ->
-    KOld = maps:keys(Old),
-    KNew = maps:keys(New),
-    KDel = lists:subtract(KOld,KNew),
-    KIns = lists:subtract(KNew,KOld),
-    KCommon = lists:subtract(KNew,KIns),
-    
+diff(ParentPath,SaveEdit,OldMap,NewMap) ->
     ForKeys =
         fun(EditType,
             Keys) ->
@@ -34,27 +32,37 @@ diff(ParentPath,Edit,Old,New) ->
                   fun(K) ->
                           Path = ParentPath ++ [K],
                           case EditType of
-                              del -> Edit({del,Path});
-                              ins -> Edit({ins,Path,maps:get(K,New)});
+                              del -> SaveEdit({del, Path});
+                              ins -> SaveEdit({ins, Path,
+                                               maps:get(K,NewMap)});
                               set ->
-                                  VOld = maps:get(K,Old),
-                                  VNew = maps:get(K,New),
-                                  case VNew of
-                                      VOld -> ok;
-                                      VNew when not(is_map(VNew)) ->
-                                          Edit({set, Path, VNew});
+                                  OldVal = maps:get(K,OldMap),
+                                  NewVal = maps:get(K,NewMap),
+                                  case NewVal of
+                                      OldVal -> no_change;
+                                      NewVal when not(is_map(NewVal)) ->
+                                          SaveEdit({set, Path, NewVal});
                                       _ ->
-                                          %% Recursion point.
-                                          diff(Path,Edit,VOld,VNew)
+                                          %% Subtree
+                                          diff(Path,SaveEdit,OldVal,NewVal)
                                   end
                           end
                   end,
                   Keys)
         end,
-    ForKeys(del, KDel),
-    ForKeys(ins, KIns),
-    ForKeys(set, KCommon),
+    Old = maps:keys(OldMap),
+    New = maps:keys(NewMap),
+    Del = lists:subtract(Old,New),
+    Ins = lists:subtract(New,Old),
+    Common = lists:subtract(New,Ins),
+    ForKeys(del, Del),
+    ForKeys(ins, Ins),
+    ForKeys(set, Common),
     ok.
 
 
-    
+%% E.g. for JSON encoding.    
+as_map({del, P})    -> #{op => del, path => P};
+as_map({ins, P, V}) -> #{op => ins, path => P, val => V};
+as_map({set, P, V}) -> #{op => set, path => P, val => V}.
+
