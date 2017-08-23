@@ -2,7 +2,8 @@
 -export([init/0, handle/2, call/2, call/3, reply/2,
          get/2, get/3, set/3, gets/2,
          update/3, find/2, dump/1, replace/2, merge/2,
-         update/4, kvstore/1]).
+         update/4,
+         kvstore/1, kvstore/2]).
 
 %% Simple async object.
 
@@ -70,6 +71,7 @@ merge  (Pid, D)        -> call(Pid, {merge, D}).
 gets   (Pid, [Key])    -> get(Pid,Key);
 gets   (Pid, [K|Ks])   -> gets(get(Pid,K),Ks).
 
+%% FIXME: the others should have timeouts as well.
 update (Pid, Key, Fun, TO) -> call(Pid, {update, Key, Fun}, TO).
 
 
@@ -87,8 +89,26 @@ kvstore_obj(Obj,Method) ->
         put_map  -> fun(Map)      -> merge(Obj,Map) end;
         put_list -> fun(List)     -> merge(Obj,maps:from_list(List)) end
     end.
-                             
-                           
+
+
+%% Similar, but as an object field.
+kvstore(Obj, FieldName) ->                             
+    {kvstore, fun(Method) -> kvstore_obj(Obj,FieldName,Method) end}.
+
+kvstore_obj(Obj,FieldName,Method) ->        
+    Map = fun() -> obj:get(Obj, FieldName) end,
+    Update = fun(Fun) -> obj:update(Obj,FieldName,Fun) end,
+
+    case Method of
+        find     -> fun(Key)      -> maps:find(Key, Map()) end;
+        put      -> fun(Key,Val)  -> Update(fun(M) -> maps:put(Key,Val,M) end) end;
+        to_map   -> fun()         -> Map() end;
+        to_list  -> fun()         -> maps:to_list(Map()) end;
+        put_map  -> fun(M1)       -> Update(fun(M0) -> maps:merge(M0,M1) end) end;
+        put_list -> fun(List)     -> Update(fun(M0) -> maps:merge(M0,maps:from_list(List)) end) end
+    end.
+
+                       
                            
                            
              
