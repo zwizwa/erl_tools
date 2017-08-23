@@ -60,21 +60,34 @@ input(Types, {Key, {button, Label}}) ->
       attr_decoder(Types,button)],
      [[Label]]};
 
-input(Types, {Key,{boolean,Value}}) ->
+input(Types, {Key, {boolean, Value}}) ->
     {input,
      [{name,encode_key(Types, Key)},
       {type, checkbox},
       attr_decoder(Types, boolean)]
      ++ checked(Value),
      []};
-input(Types, {Key,{password,Value}}) -> 
+
+input(Types, {Key, {{float, Min, Max}=Type, _Value}=TaggedValue}) ->
+    BinEncoded = Types:encode(TaggedValue),
+    {input,
+     [{name,encode_key(Types, Key)},
+      {min, Types:encode({float,Min})},
+      {max, Types:encode({float,Max})},
+      {step, Types:encode({float,(Max-Min)/100.0})}, %% FIXME: how to specify?
+      {type, range},
+      attr_decoder(Types, Type)],
+     [[BinEncoded]]};
+
+input(Types, {Key, {password, Value}}) -> 
     {input,[{name,encode_key(Types, Key)},
             {type, password},
             {value, Value},
             attr_decoder(Types, binary)],
      [[Value]]};
-input(Types, {Key,{Type, InitTerm}=TaggedValue}) ->
-    BinEncoded = type:encode(TaggedValue),
+
+input(Types, {Key, {Type, InitTerm}=TaggedValue}) ->
+    BinEncoded = Types:encode(TaggedValue),
     Attrs = [{name,encode_key(Types, Key)},
              attr_decoder(Types, Type)],
     case type_spec(Types,Type) of
@@ -105,13 +118,18 @@ input(Types, {Key,{Type, InitTerm}=TaggedValue}) ->
 input_set_callback({T,As,Es},{AttrName,JavaScript}) ->
     %% Attribute specified explicitly
     {T,attr_put(AttrName, JavaScript, As),Es};
-input_set_callback({Tag,_,_}=El, JavaScript) ->
+input_set_callback({Tag,As,_}=El, JavaScript) ->
     %% Derive attribute from element type.
     AttrName =
         case Tag of
-            input  -> onchange;
             select -> onchange;
-            button -> onclick
+            button -> onclick;
+            input  -> 
+                case maps:from_list(As) of
+                    %% NOT in IE10!
+                    #{type := range} -> oninput;
+                    _ -> onchange
+                end
         end,
     input_set_callback(El, {AttrName, JavaScript}).
 

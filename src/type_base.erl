@@ -137,6 +137,13 @@ atom(Bin) ->
 int(Bin) ->
     try binary_to_integer(Bin)
     catch _:_ -> stop(int, Bin, <<"Bad Integer">>) end.
+
+float(Bin) ->
+    try binary_to_float(Bin)
+    catch _:_ -> 
+            try binary_to_integer(Bin) + 0.0
+            catch _:_ -> stop(float, Bin, <<"Bad Float">>) end
+    end.
              
 term(Bin) ->    
     try binary_to_term(Bin)
@@ -181,6 +188,7 @@ type_spec(Type) ->
         binary  -> {fun id/1,   fun id/1};
         button  -> {fun id/1,   fun id/1}; %% see web.erl input/1 button type
         int     -> {fun fb_p/1, fun int/1};
+        float   -> {fun fb_p/1, fun float/1};
         atom    -> {fun enc_atom/1, fun atom/1};
         pterm   -> {fun enc_pterm/1, fun pterm/1};
         term    -> {fun term_to_binary/1, fun term/1};
@@ -200,6 +208,15 @@ type_spec(Type) ->
                      case (Int >= Min) and (Int =< Max) of
                          true -> Int;
                          false -> stop({int,Min,Max}, Int, {"Outside of range: [~p,~p]",[Min,Max]})
+                     end
+             end};
+        {float,Min,Max} ->
+            {fun fb_p/1,
+             fun(Val) ->
+                     Float = decode({float, Val}),
+                     case (Float >= Min) and (Float =< Max) of
+                         true -> Float;
+                         false -> stop({float,Min,Max}, Float, {"Outside of range: [~p,~p]",[Min,Max]})
                      end
              end};
         hex ->
