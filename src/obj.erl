@@ -83,7 +83,7 @@ kvstore(Obj) ->
 kvstore_obj(Obj,Method) ->        
     case Method of
         find     -> fun(Key)      -> find(Obj,Key) end;
-        put      -> fun(Key,Val)  -> set(Obj,Key,Val) end;
+        put      -> fun(Key,Val)  -> set(Obj,Key,Val), Val end;
         to_map   -> fun()         -> dump(Obj) end;
         to_list  -> fun()         -> maps:to_list(dump(Obj)) end;
         put_map  -> fun(Map)      -> merge(Obj,Map) end;
@@ -101,7 +101,7 @@ kvstore_obj(Obj,FieldName,Method) ->
 
     case Method of
         find     -> fun(Key)      -> maps:find(Key, Map()) end;
-        put      -> fun(Key,Val)  -> Update(fun(M) -> maps:put(Key,Val,M) end) end;
+        put      -> fun(Key,Val)  -> Update(fun(M) -> maps:put(Key,Val,M) end), Val end;
         to_map   -> fun()         -> Map() end;
         to_list  -> fun()         -> maps:to_list(Map()) end;
         put_map  -> fun(M1)       -> Update(fun(M0) -> maps:merge(M0,M1) end) end;
