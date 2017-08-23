@@ -29,28 +29,37 @@ function append_html(log_el, html, opts) {
 }
 
 
-function display_select(container, select_name) {
-    // console.log(select_name, container.children.length);
+// display_list
+function display_list_each(container, fun) {
+    tools.each(container.children, fun);
+}
+function display_list_one(container, select_name, fun) {
     tools.each(container.children, function(node) {
-        // console.log(node);
-        node.style.display = 'none';
-        if (node.getAttribute('name') == select_name) {
-            node.style.display = 'block';
-        }
+        if (node.getAttribute('name') == select_name) { fun(node); }
     });
 }
-function display_enable(container, enable) {
-    var display = enable ? 'block' : 'none';
-    // console.log(enable, display);
-    tools.each(container.children, function(node) {
-        node.style.display = display;
-    });
+function display_node_enable(node) {
+    node.style.display = 'block';
 }
-function select_all(container, display) {
-    tools.each(container.children, function(node) {
-        node.style.display = display;
-    });
+function display_node_disable(node) {
+    node.style.display = 'none';
 }
+function display_node_toggle(node) {
+    node.style.display =
+        (node.style.display == 'none') ? 'block' : 'none';
+}
+function display_list_select(container, select_name) {
+    // console.log('display_list_select',select_name);
+    display_list_each(container, display_node_disable);
+    display_list_one(container, select_name, display_node_enable);
+}
+function display_list_enable(container, select_name) {
+    display_list_one(container, name, display_node_enable);
+}
+function display_list_disable(container, select_name) {
+    display_list_one(container, name, display_node_disable);
+}
+
 function display_event(input_el, event) {
     // Implement behavior for different input types and buttons.
     var id = input_el.getAttribute('data-target');
@@ -59,10 +68,13 @@ function display_event(input_el, event) {
     if (input_el.type == 'select-one') {
         var opts = input_el.options;
         var name = opts[opts.selectedIndex].value;
-        display_select(container, name);
+        display_list_select(container, name);
     }
     else if (input_el.type == 'checkbox') {
-        display_enable(container, input_el.checked);
+        display_list_each(container, 
+                          input_el.checked ?
+                          display_node_enable :
+                          display_node_disable);
     }
     else if (input_el.type == 'submit') {
         display_toggle(container);
@@ -72,7 +84,7 @@ function display_event(input_el, event) {
 
 // Sending input and form data back to Erlang is done as an array of
 // 3-element arrays of strings, encoding:
-//
+// 
 // - key
 // - type
 // - value
@@ -217,8 +229,9 @@ module.exports = {
     },
     // el :: any element that contains a list of children to display/hide
     display_list: {
-        select: display_select,
-        enable: display_enable
+        select:  display_list_select,
+        enable:  display_list_enable,
+        disable: display_list_disable
     },
     // el :: input element with 'data-target' attribute
     display_control: {
