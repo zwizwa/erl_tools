@@ -1,6 +1,6 @@
 -module(exml).
 -export([input/2,
-         attr_decoder/2,
+         attr_decoder/1,
          input_set_callback/2,
          attr_get/2,
          attr_get_integer/2,
@@ -14,9 +14,6 @@
          to_binary/1,
 
          cell/2,
-
-         encode_key/2,
-         decode_key/2,
 
          %% HMAC for encoding binary terms in JavaScript strings.
          hmac_key/0, hmac/2, hmac_encode/2, hmac_decode/2
@@ -52,45 +49,45 @@ to_binary(Es) -> iolist_to_binary([exml(E) || E <- Es]).
 
 
 %% Special input types.
-input(Types, {Key, {button, Label}}) ->
+input(_TypeMod, {Key, {button, Label}}) ->
     true = is_binary(Label),
     {button,
-     [{name,encode_key(Types,Key)},
+     [{name,encode_key(Key)},
       {value,Label},
-      attr_decoder(Types,button)],
+      attr_decoder(button)],
      [[Label]]};
 
-input(Types, {Key, {boolean, Value}}) ->
+input(_TypeMod, {Key, {boolean, Value}}) ->
     {input,
-     [{name,encode_key(Types, Key)},
+     [{name,encode_key(Key)},
       {type, checkbox},
-      attr_decoder(Types, boolean)]
+      attr_decoder(boolean)]
      ++ checked(Value),
      []};
 
-input(Types, {Key, {{float, Min, Max}=Type, _Value}=TaggedValue}) ->
-    BinEncoded = Types:encode(TaggedValue),
+input(TypeMod, {Key, {{float, Min, Max}=Type, _Value}=TaggedValue}) ->
+    BinEncoded = TypeMod:encode(TaggedValue),
     {input,
-     [{name,encode_key(Types, Key)},
-      {min, Types:encode({float,Min})},
-      {max, Types:encode({float,Max})},
-      {step, Types:encode({float,(Max-Min)/100.0})}, %% FIXME: how to specify?
+     [{name, encode_key(Key)},
+      {min, TypeMod:encode({float,Min})},
+      {max, TypeMod:encode({float,Max})},
+      {step, TypeMod:encode({float,(Max-Min)/100.0})}, %% FIXME: how to specify?
       {type, range},
-      attr_decoder(Types, Type)],
+      attr_decoder(Type)],
      [[BinEncoded]]};
 
-input(Types, {Key, {password, Value}}) -> 
-    {input,[{name,encode_key(Types, Key)},
+input(_TypeMod, {Key, {password, Value}}) -> 
+    {input,[{name,encode_key(Key)},
             {type, password},
             {value, Value},
-            attr_decoder(Types, binary)],
+            attr_decoder(binary)],
      [[Value]]};
 
-input(Types, {Key, {Type, InitTerm}=TaggedValue}) ->
-    BinEncoded = Types:encode(TaggedValue),
-    Attrs = [{name,encode_key(Types, Key)},
-             attr_decoder(Types, Type)],
-    case type_spec(Types,Type) of
+input(TypeMod, {Key, {Type, InitTerm}=TaggedValue}) ->
+    BinEncoded = TypeMod:encode(TaggedValue),
+    Attrs = [{name, encode_key(Key)},
+             attr_decoder(Type)],
+    case type_spec(TypeMod,Type) of
         {finite, Vals} -> %% Option box for finite types
             {select,
              Attrs,
@@ -136,16 +133,14 @@ input_set_callback({Tag,As,_}=El, JavaScript) ->
 
 
 %% TOOLS
-attr_decoder(Types, Type) ->
+attr_decoder(Type) ->
     {'data-decoder',  %% collected by ws.js code
-     apply(Types,encode_type,[Type])}.
+     type_base:encode_type(Type)}.
 
-decode_key(Types, Key) ->
-    apply(Types,decode,[{pterm,Key}]).
-encode_key(Types, Key) ->
-    apply(Types,encode,[{pterm,Key}]).
-type_spec(Types, Type) ->
-    apply(Types,type_spec,[Type]).
+encode_key(Key) ->
+    type_base:encode_key(Key).
+type_spec(TypeMod, Type) ->
+    apply(TypeMod,type_spec,[Type]).
 
 checked(true)  -> [{checked,checked}];
 checked(false) -> [].

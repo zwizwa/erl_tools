@@ -3,11 +3,7 @@
          %% Implementation of kvstore on top of sqlite3.erl
          table_op/2,
          table/1, existing_table/1,
-         table_init/2, table_delete/2,
-
-         %% Canonical representation for erlang tagged terms.
-         encode/2, decode/2
-
+         table_init/2, table_delete/2
 
          ]).
 
@@ -25,10 +21,10 @@ table_op({table,TypeMod,DB,Table}, find) ->
     QRead = tools:format_binary(
               "select type,val from ~p where var = ?", [Table]),
     fun(Key) ->
-            BinKey = encode_key(TypeMod, Key),
+            BinKey = type_base:encode_key(Key),
             case sql(DB, QRead, [BinKey]) of
                 [[_,_] = BinTV] ->
-                    {ok, decode_type_val(TypeMod, BinTV)};
+                    {ok, type_base:decode_tv(TypeMod, BinTV)};
                 [] ->
                     {error, {not_found, Key}}
             end
@@ -38,8 +34,8 @@ table_op({table,TypeMod,DB,Table}, to_list) ->
     QLoad = tools:format_binary(
               "select var,type,val from ~p", [Table]),
     fun() ->
-            [decode(TypeMod, BinTV)
-             || BinTV <- sql(DB, QLoad, [])]
+            [type_base:decode_ktv(TypeMod, BinKTV)
+             || BinKTV <- sql(DB, QLoad, [])]
     end;
 
 table_op(Spec, to_map) ->
@@ -50,7 +46,7 @@ table_op({table,TypeMod,DB,Table}, keys) ->
     QKeys = tools:format_binary(
               "select var from ~p", [Table]),
     fun() ->
-            [decode_key(TypeMod, BinKey)
+            [type_base:decode_key(TypeMod, BinKey)
              || [BinKey] <- sql(DB, QKeys, [])]
     end;
 
@@ -58,7 +54,7 @@ table_op({table,TypeMod,DB,Table}, put) ->
     QPut = tools:format_binary(
                "insert or replace into ~p (var,type,val) values (?,?,?)", [Table]),
     fun(K,TV) ->
-            BinKTV = encode(TypeMod, {K,TV}),
+            BinKTV = type_base:encode_ktv(TypeMod, {K,TV}),
             sql(DB, QPut, BinKTV),
             TV %% For chaining
     end;
@@ -145,24 +141,4 @@ table_delete(DB, Table) when is_atom(Table) ->
           [Table]),
         []).
 
-
-%% Canonical way to represent type-tagged erlang terms as
-%% human-readable binary, for db storage and user interfaces.  See
-%% type_base.erl
-
-encode_key(TypeMod,Key) -> apply(TypeMod,encode,[{pterm,Key}]).
-decode_key(TypeMod,Key) -> apply(TypeMod,decode,[{pterm,Key}]).
-
-encode(TypeMod, {Key, {Type, Val}}) ->
-    [encode_key(TypeMod,Key),
-     apply(TypeMod,encode_type,[Type]),
-     apply(TypeMod,encode,[{Type,Val}])].
-
-decode_type_val(TypeMod, [BinType, BinVal]) ->
-    Type = apply(TypeMod,decode_type,[BinType]),
-    {Type, apply(TypeMod,decode,[{Type,BinVal}])}.
-
-decode(TypeMod, [BinKey | BinTV]) ->
-    {decode_key(TypeMod, BinKey),
-     decode_type_val(TypeMod, BinTV)}.
 

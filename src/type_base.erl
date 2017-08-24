@@ -19,6 +19,10 @@
 
          %% Convert error message to user-readable message.
          format_error/1,
+
+         %% Serialization. Parameterized by module.
+         encode_key/1, decode_key/1,
+         decode_tv/2, encode_ktv/2, decode_ktv/2,
          
          %% Misc tools
          atom/1, int/1, rotate_finite/1
@@ -334,3 +338,27 @@ rotate_finite({{finite,Name2Val}=Type,Current}, Dir) ->
     Vals = Dir([Val || {_,Val} <- Name2Val]),
     Next = next_el(Current, Vals ++ Vals),
     {Type, Next}.
+
+
+
+
+%% Canonical way to represent type-tagged erlang terms as
+%% human-readable binary triplets, for db storage and user interfaces.
+%% See type_base.erl
+
+encode_key(Key) -> encode({pterm,Key}).
+decode_key(Key) -> decode({pterm,Key}).
+
+encode_ktv(TypeMod, {Key, {Type, Val}}) ->
+    [encode_key(Key),
+     encode_type(Type),
+     TypeMod:encode({Type,Val})].
+
+decode_tv(TypeMod, [BinType, BinVal]) ->
+    Type = decode_type(BinType),
+    {Type, TypeMod:decode({Type,BinVal})}.
+
+decode_ktv(TypeMod, [BinKey | BinTV]) ->
+    {decode_key(BinKey),
+     decode_tv(TypeMod, BinTV)}.
+
