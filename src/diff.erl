@@ -26,29 +26,33 @@ diff(Sink,A,B) ->
     Sink(eof).
 diff(ParentPath,SaveEdit,OldMap,NewMap) ->
     ForKeys =
-        fun(EditType,
-            Keys) ->
-                lists:foreach(
-                  fun(K) ->
-                          Path = ParentPath ++ [K],
-                          case EditType of
-                              del -> SaveEdit({del, Path});
-                              ins -> SaveEdit({ins, Path,
-                                               maps:get(K,NewMap)});
-                              set ->
-                                  OldVal = maps:get(K,OldMap),
-                                  NewVal = maps:get(K,NewMap),
-                                  case NewVal of
-                                      OldVal -> no_change;
-                                      NewVal when not(is_map(NewVal)) ->
-                                          SaveEdit({set, Path, NewVal});
-                                      _ ->
-                                          %% Subtree
-                                          diff(Path,SaveEdit,OldVal,NewVal)
-                                  end
+        fun(EditType, Keys) ->
+            lists:foreach(
+              fun(K) ->
+                  Path = ParentPath ++ [K],
+                  case EditType of
+                      del ->
+                          SaveEdit({del, Path});
+                      ins ->
+                          NewVal = maps:get(K,NewMap),
+                          SaveEdit({ins, Path, NewVal});
+                      set ->
+                          OldVal = maps:get(K,OldMap),
+                          NewVal = maps:get(K,NewMap),
+                          case NewVal of
+                              OldVal -> nop;
+                              _ when not(is_map(NewVal)) ->
+                                  SaveEdit({set, Path, NewVal});
+                              #{ diff := leaf } ->
+                                  SaveEdit({set, Path, 
+                                            maps:remove(diff, NewVal)});
+                              _ ->
+                                  %% Subtree
+                                  diff(Path,SaveEdit,OldVal,NewVal)
                           end
-                  end,
-                  Keys)
+                  end
+              end,
+              Keys)
         end,
     Old = maps:keys(OldMap),
     New = maps:keys(NewMap),
