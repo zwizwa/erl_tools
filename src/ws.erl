@@ -1,6 +1,7 @@
 -module(ws).
--behaviour(cowboy_http_handler).
--behaviour(cowboy_websocket_handler).
+%% Dialyzer complains about not knowing these behaviors, so comment out.
+%%-behaviour(cowboy_http_handler).
+%%-behaviour(cowboy_websocket_handler).
 
 %% Upstream interface.
 -export([init/3, handle/2, terminate/3]).

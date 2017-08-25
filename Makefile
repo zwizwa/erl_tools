@@ -15,3 +15,5 @@ clean: $(REBAR)
 cross.%:
 	. ~/devtools/env.$* ; make ; 
 
+dialyze:
+	$(REBAR) dialyzer ; cat _build/default/*.dialyzer_warnings

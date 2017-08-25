@@ -95,7 +95,7 @@ gen_tcp(Sock) ->
     fun(Msg) -> 
             case Msg of
                 {data, Data} -> gen_tcp:send(Sock, Data);
-                _ -> ok
+                eof -> ok
             end
     end.
 
@@ -107,7 +107,7 @@ file(Filename) ->
     fun(Msg) ->
             case Msg of
                 {data, Data} -> file:write_file(Filename, Data, [append]);
-                _ -> ok
+                eof -> ok
             end
     end.
 

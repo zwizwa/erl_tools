@@ -22,7 +22,7 @@ table_op({table,TypeMod,DB,Table}, find) ->
               "select type,val from ~p where var = ?", [Table]),
     fun(Key) ->
             BinKey = type_base:encode_key(Key),
-            case sql(DB, QRead, [BinKey]) of
+            case sql(DB, QRead, [{text,BinKey}]) of
                 [[_,_] = BinTV] ->
                     {ok, type_base:decode_tv(TypeMod, BinTV)};
                 [] ->
@@ -42,11 +42,11 @@ table_op(Spec, to_map) ->
     ToList = table_op(Spec, to_list),
     table_op(Spec, to_map, ToList);
 
-table_op({table,TypeMod,DB,Table}, keys) ->
+table_op({table,_TypeMod,DB,Table}, keys) ->
     QKeys = tools:format_binary(
               "select var from ~p", [Table]),
     fun() ->
-            [type_base:decode_key(TypeMod, BinKey)
+            [type_base:decode_key(BinKey)
              || [BinKey] <- sql(DB, QKeys, [])]
     end;
 
