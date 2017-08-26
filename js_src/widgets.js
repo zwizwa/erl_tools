@@ -231,6 +231,12 @@ module.exports = {
             }
         }
     },
+    // NOTE: It seems a lot more straightforward to equip the object
+    // that needs to be turned on an off with a global 'id' attribute,
+    // and set the .style.display property in a method handler for
+    // that object type.  Try this, and delete the entire display_list
+    // behavior?
+
     // el :: any element that contains a list of children to display/hide
     display_list: {
         select:  display_list_select,

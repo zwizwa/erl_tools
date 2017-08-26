@@ -208,7 +208,8 @@ call_bundle(Ws, Messages) ->
     Ws ! #{ type => bundle,
             messages =>
                 [call_msg(ID,Method,Arg)
-                 || {ID,Method,Arg} <- Messages] }.
+                 || {ID,Method,Arg} <- 
+                        lists:flatten(Messages)] }.
 
 
 
