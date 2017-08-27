@@ -190,7 +190,8 @@ type_spec(Type) ->
         %%     end;
         {finite, _} = Spec -> Spec;
         binary  -> {fun id/1,   fun id/1};
-        button  -> {fun id/1,   fun id/1}; %% see web.erl input/1 button type
+        button    -> {fun id/1,   fun id/1}; %% see web.erl input/1 button type
+        clickable -> {fun id/1,   fun id/1}; %% see web.erl input/1 clickable type
         int     -> {fun fb_p/1, fun int/1};
         float   -> {fun fb_p/1, fun float/1};
         atom    -> {fun enc_atom/1, fun atom/1};

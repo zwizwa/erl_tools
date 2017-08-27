@@ -44,12 +44,20 @@ function append_html(log_el, html, opts) {
 // {Name=atom(),{Type=atom(),Value=binary()}}
 //
 function form_field(input) {
-    return [input.name,                          // key
+    return [input_name(input),                   // key
             input.getAttribute('data-decoder'),  // type
             input_value(input)];                 // value
 }
+
+function input_name(el) {
+    var dn = el.getAttribute('data-name');
+    if (dn) { return dn; }
+    else return el.name;
+}
+
 // Convert input's value to string based on kind of input.
 function input_value(el) {
+    var dv;
     if (el.type == 'checkbox') {
         return el.checked ? 'true' : 'false';
     }
@@ -58,7 +66,14 @@ function input_value(el) {
         return opts[opts.selectedIndex].value;
     }
     else {
-        return el.value;
+        var dv = el.getAttribute('data-value');
+        if (dv) {
+            // "clickable" are encoded differently.
+            return dv;
+        }
+        else {
+            return el.value;
+        }
     }
 }
 // Convert a form or input element to form data.
@@ -76,9 +91,7 @@ function form_data(el) {
     }
     // A single imput returns list with one field
     else {
-        if (el.name) {
-            form = [form_field(el)];
-        }
+        form = [form_field(el)];
     }
     return form;
 }

@@ -49,11 +49,24 @@ to_binary(Es) -> iolist_to_binary([exml(E) || E <- Es]).
 
 
 %% Special input types.
+
+
+%% Any kind of clickable templated element.  This behaves similar to
+%% button, but is encoded differently as it is not an <input/> node.
+%% See widget.js
+input(_TypeMod, {Key, {clickable, {Tag,As,Es}}}) ->
+    {Tag,
+     attr_merge(
+       As,[{'data-name',encode_key(Key)},
+           {'data-value',"_"},  %% Value-less event
+           attr_decoder(button)]),
+     Es};
+
 input(_TypeMod, {Key, {button, Label}}) ->
     true = is_binary(Label),
     {button,
      [{name,encode_key(Key)},
-      {value,Label},
+      {value,"_"}, %% Value-less event
       attr_decoder(button)],
      [[Label]]};
 
@@ -126,7 +139,9 @@ input_set_callback({Tag,As,_}=El, JavaScript) ->
                     %% NOT in IE10!
                     #{type := range} -> oninput;
                     _ -> onchange
-                end
+                end;
+            %% Clickable elements can be anything.
+            _ -> onclick
         end,
     input_set_callback(El, {AttrName, JavaScript}).
 
