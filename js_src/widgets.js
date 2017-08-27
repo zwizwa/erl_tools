@@ -29,61 +29,6 @@ function append_html(log_el, html, opts) {
 }
 
 
-// display_list
-function display_list_each(container, fun) {
-    tools.each(container.children, fun);
-}
-function display_list_one(container, name, fun) {
-    tools.each(container.children, function(node) {
-        if (node.getAttribute('name') == name) { fun(node); }
-    });
-}
-function set_node_style_display(node, display) {
-    //console.log(node, display);
-    node.style.display = display;
-}
-function display_node_enable(node) {
-    set_node_style_display(node, 'block');
-}
-function display_node_disable(node) {
-    set_node_style_display(node, 'none');
-}
-function display_node_toggle(node) {
-    set_node_style_display(
-        node,
-        (node.style.display == 'none') ? 'block' : 'none');
-}
-function display_list_select(container, name) {
-    display_list_each(container, display_node_disable);
-    display_list_one(container, name, display_node_enable);
-}
-function display_list_enable(container, name) {
-    display_list_one(container, name, display_node_enable);
-}
-function display_list_disable(container, name) {
-    display_list_one(container, name, display_node_disable);
-}
-
-function display_event(input_el, event) {
-    // Implement behavior for different input types and buttons.
-    var id = input_el.getAttribute('data-target');
-    var container = document.getElementById(id);
-    // console.log(input_el.type, id, container);
-    if (input_el.type == 'select-one') {
-        var opts = input_el.options;
-        var name = opts[opts.selectedIndex].value;
-        display_list_select(container, name);
-    }
-    else if (input_el.type == 'checkbox') {
-        display_list_each(container, 
-                          input_el.checked ?
-                          display_node_enable :
-                          display_node_disable);
-    }
-    else if (input_el.type == 'submit') {
-        display_toggle(container);
-    }
-}
 
 
 // Sending input and form data back to Erlang is done as an array of
@@ -231,23 +176,20 @@ module.exports = {
             }
         }
     },
-    // NOTE: It seems a lot more straightforward to equip the object
-    // that needs to be turned on an off with a global 'id' attribute,
-    // and set the .style.display property in a method handler for
-    // that object type.  Try this, and delete the entire display_list
-    // behavior?
 
-    // el :: any element that contains a list of children to display/hide
-    display_list: {
-        select:  display_list_select,
-        enable:  display_list_enable,
-        disable: display_list_disable
+
+
+    // el :: item in select list.
+    display: {
+        select: function(el) {
+            tools.each(el.parentNode.children, function(node) {
+                node.style.display = 'none';
+            });
+            el.style.display = 'block';
+        }
     },
-    // el :: input element with 'data-target' attribute
-    display_control: {
-        change: display_event,
-        click:  display_event
-    },
+
+
     // el :: settable input element
     input: {
         set: function(el, arg) {

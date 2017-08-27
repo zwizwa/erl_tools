@@ -71,3 +71,14 @@ as_map({del, P})    -> #{op => del, path => P};
 as_map({ins, P, V}) -> #{op => ins, path => P, val => V};
 as_map({set, P, V}) -> #{op => set, path => P, val => V}.
 
+
+
+
+%% The central idea here is the correspondence between a hierarchical
+%% structure (nested dictionaries) and a path list to value map.
+%% These are isomorphic representations, but they both have their
+%% advantages for code and data structuring.  Hierarchical structure
+%% maps better to code, while flat structuring maps better to data
+%% storage and communication, e.g. allowing for the easy difference
+%% encoding above.
+
