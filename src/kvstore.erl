@@ -1,6 +1,7 @@
 -module(kvstore).
 -export([%% Simple key,value store interface
          get/3, get/2, find/2, put/3, clear/1, to_list/1, to_map/1,
+         to_map/2, to_list/2,
          put_list/2, put_map/2, update/3, update_val/3,
          keys/1, init/2, zero/0, with_default/2,
          combined/2]).
@@ -100,4 +101,13 @@ combined_impl(F0,F1) ->
                 _    -> throw({kvstore_combined,Method})
             end
     end.
+
+
+%% Subset
+to_list(KVStore, Keys) ->
+    [{Key,kvstore:get(KVStore,Key)} || Key <- Keys].
+to_map(KVStore, Keys) ->
+    maps:from_list(to_list(KVStore, Keys)).
+    
+
 
