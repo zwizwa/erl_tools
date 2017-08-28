@@ -119,6 +119,7 @@ sql(DB, SQL, Bindings) when
          (_) -> ok
       end,
       Rows),
+    %% log:info("query done~n"),
     Rows.
 
 

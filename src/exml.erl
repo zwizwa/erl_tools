@@ -66,7 +66,7 @@ input(_TypeMod, {Key, {button, Label}}) ->
     true = is_binary(Label),
     {button,
      [{name,encode_key(Key)},
-      {value,"_"}, %% Value-less event
+      {value, "_"}, %% Value-less event 
       attr_decoder(button)],
      [[Label]]};
 

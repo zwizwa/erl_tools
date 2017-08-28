@@ -114,6 +114,7 @@ existing_table(Spec) ->
     Put       = table_op(Spec, put),
     PutList   = table_op(Spec, put_list, Put),
     PutMap    = table_op(Spec, put_map, PutList),
+    Clear     = table_op(Spec, clear),
     
     {kvstore, 
      fun
@@ -123,7 +124,8 @@ existing_table(Spec) ->
          (keys)       -> Keys;
          (put)        -> Put;
          (put_list)   -> PutList;
-         (put_map)    -> PutMap
+         (put_map)    -> PutMap;
+         (clear)      -> Clear
      end}.
                    
 %% Ad-hoc key value stores.
