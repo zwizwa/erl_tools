@@ -1,5 +1,5 @@
 -module(expect).
--export([run/2, run/3, eval/1]).
+-export([run/2, run/3, cmd/1, parse_trace_file/1]).
 
 %% Inspired by: https://blog.janestreet.com/testing-with-expectations/
 %% Main idea:
@@ -39,12 +39,12 @@ save(FileName, New) ->
 
 update(Tests) ->
     maps:map(
-      fun(Expr, _) -> catch eval(Expr) end,
+      fun(Expr, _) -> catch cmd(Expr) end,
       Tests).
 
-eval({Mod,Fun,Args}) ->
+cmd({Mod,Fun,Args}) ->
     apply(Mod,Fun,Args);
-eval(Str) -> 
+cmd(Str) -> 
     {ok,Toks,_} = erl_scan:string(Str),
     {ok,[Expr]} = erl_parse:parse_exprs(Toks),
     {value,Val,_} = erl_eval:expr(Expr,[]),
@@ -52,4 +52,24 @@ eval(Str) ->
 
     
     
+
+
+%% Putting this here for now.  Later, transition to this format for
+%% the the code above.  The idea is to use erl_parse:parse_exprs
+%% because it keeps track of line numbers.
+
+%% Trace file format reuses erlang map syntax.
+parse_trace_file(FileName) ->
+    {ok, Bin} = file:read_file(FileName),
+    Str = tools:format("#{~s}.",[Bin]),
+    {ok,Toks,_}=erl_scan:string(Str),
+    {ok,[{map,_,Assocs}]} = erl_parse:parse_exprs(Toks),
+    [{Line, eval(K), eval(V)} 
+     || {map_field_assoc,Line,K,V} <- Assocs].
+
+eval(AbsStx) ->       
+    {value,Val,_} = erl_eval:expr(AbsStx,[]),
+    Val.
+     
+
 
