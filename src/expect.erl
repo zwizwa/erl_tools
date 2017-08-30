@@ -1,5 +1,11 @@
 -module(expect).
--export([run/2, run/3]).
+-export([run/2, run/3, eval/1]).
+
+%% Inspired by: https://blog.janestreet.com/testing-with-expectations/
+%% Main idea:
+%% - Make it trivial to add a test
+%% - Diff of the expect file indicates change of meaning / error
+%% - A committed diff indicates accepted change of meaning
 
 %% In-place operation on file.
 run(InFile, OutFile) ->
@@ -33,10 +39,17 @@ save(FileName, New) ->
 
 update(Tests) ->
     maps:map(
-      fun({Mod,Fun,Args},_) -> catch apply(Mod,Fun,Args) end,
+      fun(Expr, _) -> catch eval(Expr) end,
       Tests).
 
-    
+eval({Mod,Fun,Args}) ->
+    apply(Mod,Fun,Args);
+eval(Str) -> 
+    {ok,Toks,_} = erl_scan:string(Str),
+    {ok,[Expr]} = erl_parse:parse_exprs(Toks),
+    {value,Val,_} = erl_eval:expr(Expr,[]),
+    Val.
+
     
     
 
