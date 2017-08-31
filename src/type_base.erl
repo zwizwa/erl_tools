@@ -25,7 +25,7 @@
          decode_tv/2, encode_ktv/2, decode_ktv/2,
          
          %% Misc tools
-         atom/1, int/1, rotate_finite/1
+         atom/1, int/1, rotate_finite/1, skip_finite/1
          
          
         ]).
@@ -328,18 +328,33 @@ format_error(Error) ->
 
 %% Some tools
 
-%% Find the next element in line.
-next_el(Key,[Key,Next|_]) -> Next;
-next_el(Key,[_|List]) -> next_el(Key,List).
 
-rotate_finite(next) -> fun(V) -> rotate_finite(V, fun(X)->X end) end;
-rotate_finite(prev) -> fun(V) -> rotate_finite(V, fun lists:reverse/1) end.
 
-rotate_finite({{finite,Name2Val}=Type,Current}, Dir) ->
-    Vals = Dir([Val || {_,Val} <- Name2Val]),
-    Next = next_el(Current, Vals ++ Vals),
+    
+rotate_finite(Dir) -> 
+    fun(V) -> next_finite(V, Dir, true) end.
+skip_finite(Dir) ->
+    fun(V) -> next_finite(V, Dir, false) end.
+
+%% Generic routine
+next_finite({{finite,Name2Val}=Type,Current}, Dir, Extend) ->
+    Vals0 = [Val || {_,Val} <- Name2Val],
+    Vals = case Dir of
+               next -> Vals0;
+               prev -> lists:reverse(Vals0)
+           end,
+    Next = next_el(
+             Current, 
+             case Extend of
+                 true -> Vals ++ Vals;
+                 false -> Vals
+             end),
     {Type, Next}.
 
+%% Find the next element in line.
+next_el(Key,[Key,Next|_]) -> Next;
+next_el(Key,[_|List]) -> next_el(Key,List);
+next_el(Key,[]) -> Key.
 
 
 
