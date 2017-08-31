@@ -39,9 +39,9 @@ handle({Pid, {set, K, V}}, Map)    -> reply(Pid, ok), maps:put(K, V, Map);
 handle({Pid, {update, K, F}}, Map) -> V = F(maps:get(K, Map)), reply(Pid, V), maps:put(K, V, Map);
 handle(shutdown, _)                -> exit(shutdown);
 
-handle(Bad, _) ->
-    tools:info("obj:handle: bad request ~p~n",[Bad]),
-    exit({handle_bad,Bad}).
+handle(Msg, State) ->
+    %% tools:info("obj:handle: bad request ~p~n",[Bad]),
+    throw({obj_handle, {Msg, State}}).
 
 call(Pid, Req, Timeout) when is_pid(Pid) ->
     Pid ! {self(), Req},

@@ -28,6 +28,7 @@
          read_eval_print/2, string_to_exprs/1,
          annotate_pid/1,
          maps_map_keys/2,
+         map_find_list/2,
          script_line/1,
          script_print/2,
          s2u_16/1,
@@ -509,7 +510,18 @@ maps_map_keys(Fun, Map) ->
                  | List]
         end,
         [], Map)).
-      
+
+%% Collect whatever is found.      
+map_find_list(Keys,Map) ->
+    lists:append(
+      lists:map(
+        fun(Key) ->
+                case maps:find(Key, Map) of
+                    {ok, Val} -> [{Key,Val}];
+                    _ -> []
+                end
+        end,
+        Keys)).
               
                        
     
