@@ -102,9 +102,9 @@ websocket_info(Msg, Req, State) ->
     log:info("ws:websocket_info: ignore: ~p~n",[Msg]),
     {ok, Req, State}.
 
-websocket_terminate(_Reason, _Req, #{terminate := Terminate}=_State) ->
+websocket_terminate(_Reason, _Req, #{terminate := Terminate}=State) ->
     log:info("terminate~n"),
-    Terminate(), ok;
+    Terminate(State), ok;
 websocket_terminate(_Reason, _Req, _State) ->
     log:info("ws:websocket_terminate: no terminate handler~n"),
     ok.

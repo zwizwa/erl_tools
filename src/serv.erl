@@ -13,6 +13,8 @@
          %% Several spawning methods
          start/1,
          enter/1,
+         %% Rate limiting
+         throttle/2,
 
          %% Private, needed for reloading.
          bc_handle/2,
@@ -187,3 +189,28 @@ periodic_loop(Ms, Body, State) ->
     serv:periodic_loop(Ms, Body, NextState).
 
     
+
+
+%% Rate limiter.  Passes last message to Thunk.
+throttle(Delay, Thunk) ->
+    spawn_link(fun() -> throttle_idle(Delay, Thunk) end).
+throttle_idle(Delay, Thunk) ->
+    receive
+        First ->
+            Pid = self(),
+            Ref = make_ref(),
+            spawn_link(
+              fun() ->
+                      timer:sleep(Delay),
+                      Pid ! Ref
+              end),
+            throttle_wait(Delay, Thunk, Ref, First)
+    end.
+throttle_wait(Delay, Thunk, Ref, Last) ->
+    receive
+        Ref ->
+            Thunk(Last),
+            throttle_idle(Delay, Thunk);
+        New ->
+            throttle_wait(Delay, Thunk, Ref, New)
+    end.

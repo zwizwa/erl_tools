@@ -39,9 +39,11 @@
 %% call into xmerl
 -spec exml(exml_el()) -> iolist().
 exml({Tag,Attrs,Children}) ->
+    log:info("xmerl:export_simple start~n"),
     [_, Rv] = xmerl:export_simple(
                 [{Tag,Attrs,Children}],
                 xmerl_xml,[]),
+    log:info("xmerl:export_simple end~n"),
     Rv.
 
 %% As an export we only provide one routione: convert a list of
