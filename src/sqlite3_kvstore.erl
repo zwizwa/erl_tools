@@ -68,8 +68,15 @@ table_op(Spec, put_map) ->
     table_op(Spec, put_map, PutList);
 
 table_op({table,_,DB,Table}, clear) ->
-    QPut = tools:format_binary("delete from ~p", [Table]),
-    fun() -> sql(DB, QPut, []), ok end.
+    QClear = tools:format_binary("delete from ~p", [Table]),
+    fun() -> sql(DB, QClear, []), ok end;
+
+table_op({table,_,DB,Table}, remove) ->
+    QRemove = tools:format_binary("delete from ~p where var = ?", [Table]),
+    fun(Key) ->
+            BinKey = type_base:encode_key(Key),
+            sql(DB, QRemove, [BinKey]), ok
+    end.
 
 
 %% Sharing
@@ -115,6 +122,7 @@ existing_table(Spec) ->
     PutList   = table_op(Spec, put_list, Put),
     PutMap    = table_op(Spec, put_map, PutList),
     Clear     = table_op(Spec, clear),
+    Remove    = table_op(Spec, remove),
     
     {kvstore, 
      fun
@@ -125,7 +133,8 @@ existing_table(Spec) ->
          (put)        -> Put;
          (put_list)   -> PutList;
          (put_map)    -> PutMap;
-         (clear)      -> Clear
+         (clear)      -> Clear;
+         (remove)     -> Remove
      end}.
                    
 %% Ad-hoc key value stores.

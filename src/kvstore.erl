@@ -2,6 +2,7 @@
 -export([%% Simple key,value store interface
          get/3, get/2, get_or_make/3,
          find/2, put/3, clear/1, to_list/1, to_map/1,
+         remove/2,
          to_map/2, to_list/2,
          put_list/2, put_map/2,
          update/4, update_val/4,
@@ -22,7 +23,7 @@ put_map    ({kvstore, F}, Map)           -> (F(put_map))(Map).
 put_list   ({kvstore, F}, Map)           -> (F(put_list))(Map).
 keys       ({kvstore, F})                -> (F(keys))().
 clear      ({kvstore, F})                -> (F(clear))().
-
+remove     ({kvstore, F}, Key)           -> (F(remove))(Key).
 
 get_or_make(KVStore, Key, Make) ->
     case find(KVStore, Key) of
