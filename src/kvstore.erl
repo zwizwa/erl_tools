@@ -1,8 +1,11 @@
 -module(kvstore).
 -export([%% Simple key,value store interface
-         get/3, get/2, find/2, put/3, clear/1, to_list/1, to_map/1,
+         get/3, get/2, get_or_make/3,
+         find/2, put/3, clear/1, to_list/1, to_map/1,
          to_map/2, to_list/2,
-         put_list/2, put_map/2, update/3, update_val/3,
+         put_list/2, put_map/2,
+         update/4, update_val/4,
+         update/3, update_val/3,
          keys/1, init/2, zero/0, with_default/2,
          read_only/1,
          get_type_bin_val/2,
@@ -20,24 +23,39 @@ put_list   ({kvstore, F}, Map)           -> (F(put_list))(Map).
 keys       ({kvstore, F})                -> (F(keys))().
 clear      ({kvstore, F})                -> (F(clear))().
 
+
+get_or_make(KVStore, Key, Make) ->
+    case find(KVStore, Key) of
+        {ok, RV} -> RV;
+        _ -> Make()
+    end.
+not_found(Key) ->
+    fun() -> throw({error,{not_found,Key}}) end.
 get(KVStore, Key) ->
-    case find(KVStore, Key) of
-        {ok, RV} -> RV;
-        _ -> throw({error,{not_found,Key}})
-    end.
+    get_or_make(
+      KVStore, Key, not_found(Key)).
+      
 get(KVStore, Key, Default) ->
-    case find(KVStore, Key) of
-        {ok, RV} -> RV;
-        _ -> Default
-    end.
+    get_or_make(
+      KVStore, Key,
+      fun() -> Default end).
 
 %% FIXME: make this into a separate method so it can be a transaction.
-update(KVStore, Key, Fun) ->
-    put(KVStore, Key, Fun(get(KVStore, Key))).
+update(KVStore, Key, Fun, Make) ->
+    put(KVStore, Key, Fun(get_or_make(KVStore, Key, Make))).
+update(S,K,F) ->
+    update(S,K,F,not_found(K)).
+    
 
-update_val(KVStore, Key, Fun) ->
-    {_, NewVal} = update(KVStore, Key, fun({Type,Val}) -> {Type, Fun(Val)} end),
+update_val(KVStore, Key, Fun, Make) ->
+    {_, NewVal} =
+        update(KVStore, 
+               Key,
+               fun({Type,Val}) -> {Type, Fun(Val)} end,
+               Make),
     NewVal.  %% For chaining
+update_val(S,K,F) ->
+    update_val(S,K,F,not_found(K)).
              
 init(KVStore, Init) when is_map(Init) ->  
     %% Do not write if nothing changed.  Useful in case writes are
