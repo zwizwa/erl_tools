@@ -15,6 +15,8 @@
 
          cell/2,
 
+         json/2,
+
          %% HMAC for encoding binary terms in JavaScript strings.
          hmac_key/0, hmac/2, hmac_encode/2, hmac_decode/2
 
@@ -225,6 +227,14 @@ cell(Key,InitEl) ->
      [{'data-behavior',cell},
       {'id', type:encode({pterm,Key})}],
      [InitEl]}.
+
+
+
+%% Embed JSON in web page
+json(ID,Data) ->
+    {script,[{type,"application/json"},
+             {id,encode_key(ID)}],
+     [[json:encode(Data)]]}.
 
 
 
