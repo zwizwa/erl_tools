@@ -4,6 +4,7 @@
          to_map/2, to_list/2,
          put_list/2, put_map/2, update/3, update_val/3,
          keys/1, init/2, zero/0, with_default/2,
+         get_type_bin_val/2,
          combined/2]).
 
 %% FIXME: rename these to the interface of obj.erl
@@ -110,4 +111,7 @@ to_map(KVStore, Keys) ->
     maps:from_list(to_list(KVStore, Keys)).
     
 
-
+%% Get type, binary representation, and Erlang value
+get_type_bin_val(KVStore, Key) ->
+    {Type,Val}=TV=kvstore:get(KVStore, Key),
+    {Type,type:encode(TV),Val}.
