@@ -10,7 +10,7 @@
 
 %% Socket interaction and tools
 -export([call/4,
-         call_bundle/2,
+         call_sequence/2,
          call_wait/4,
          call_exml/4,
          call_wait_exml/4,
@@ -204,7 +204,7 @@ wait_reply() ->
 
 
 %% E.g to avoid repaints when sending gui updates.
-call_bundle(Ws, Messages) ->
+call_sequence(Ws, Messages) ->
     Ws ! #{ type => bundle,
             messages =>
                 [call_msg(ID,Method,Arg)

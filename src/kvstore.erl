@@ -7,7 +7,7 @@
          update/4, update_val/4,
          update/3, update_val/3,
          keys/1, init/2, zero/0, with_default/2,
-         read_only/1,
+         read_only/1, read_only_from_map/1,
          get_type_bin_val/2,
          combined/2]).
 
@@ -139,4 +139,16 @@ get_type_bin_val(KVStore, Key) ->
 %% Limit to read-only access.
 read_only({kvstore, F}) ->
     {kvstore, fun(find) -> F(find) end}.
+                      
+read_only_from_map(Map) ->
+    {kvstore,
+     fun(find) ->
+             fun(Key) -> maps:find(Key, Map) end;
+        (to_map)  ->
+             fun() -> Map end;
+        (to_list)  ->
+             fun() -> maps:to_list(Map) end
+     end}.
+
+                                   
                       
