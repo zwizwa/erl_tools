@@ -4,6 +4,7 @@
          to_map/2, to_list/2,
          put_list/2, put_map/2, update/3, update_val/3,
          keys/1, init/2, zero/0, with_default/2,
+         read_only/1,
          get_type_bin_val/2,
          combined/2]).
 
@@ -115,3 +116,9 @@ to_map(KVStore, Keys) ->
 get_type_bin_val(KVStore, Key) ->
     {Type,Val}=TV=kvstore:get(KVStore, Key),
     {Type,type:encode(TV),Val}.
+
+
+%% Limit to read-only access.
+read_only({kvstore, F}) ->
+    {kvstore, fun(find) -> F(find) end}.
+                      
