@@ -152,10 +152,19 @@ function send_input(action, el) {
                 form: widgets.tools.form_data(el) };
     send(msg);
 }
-
+function send_event(action, event) {
+    var msg = {
+        type: "ws_action",
+        action: action,
+        form: [[event.type,"pterm",
+                "{"+event.clientX+","+event.clientY+"}"]]
+    };
+    send(msg);
+}
 
 
 // API
 exports.start = start;
 exports.send  = send;
 exports.send_input = send_input;
+exports.send_event = send_event;

@@ -62,7 +62,7 @@ websocket_init(_TransportName, Req, _Opts) ->
     tools:register_suffix(ws, self()),
     log:info("ws: init ~p~n",[Agent]),
 
-    {ok, Req, #{terminate => fun() -> ok end}}.
+    {ok, Req, #{terminate => fun(_) -> ok end}}.
 
 websocket_handle({text, Json}, Req, State) ->
     %% Interpret all incoming messages as JSON.
@@ -360,6 +360,6 @@ form_list(Types, EJson) ->
     KTVs.
 
 
-
+%% FIXME: move spa_edit.erl input parser code here.
 
     
