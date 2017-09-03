@@ -54,9 +54,9 @@ update(Tests, Eval) when is_function(Eval) ->
 update(Tests, Functions) when is_map(Functions) ->
     update(
       Tests,
-      fun({Fun,Args}) ->
-              log:info("~p~n",[{Fun,Functions}]),
-              apply(maps:get(Fun,Functions),Args)
+      %% Useful for testing internal functions.
+      fun({Fun,Args}) -> apply(maps:get(Fun,Functions),Args);
+         (Cmd) -> cmd(Cmd)
       end).
                           
     
