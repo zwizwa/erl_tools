@@ -12,9 +12,9 @@
 -type tree() :: leaf()  | #{ key() => tree() }.
 -type leaf() :: _.  
 -type path() :: [key()].
--type edit() :: {add, path(), leaf()} |
-                {del, path()} |
-                {set, path(), leaf()}.
+-type edit() :: {insert, path(), leaf()} |
+                {delete, path()} |
+                {update, path(), leaf(), leaf()}.
 
 
 -spec diff(tree(),tree()) -> [edit()].
@@ -31,18 +31,18 @@ diff(ParentPath,SaveEdit,OldMap,NewMap) ->
               fun(K) ->
                   Path = ParentPath ++ [K],
                   case EditType of
-                      del ->
-                          SaveEdit({del, Path});
-                      ins ->
+                      delete ->
+                          SaveEdit({delete, Path});
+                      insert ->
                           NewVal = maps:get(K,NewMap),
-                          SaveEdit({ins, Path, NewVal});
-                      set ->
+                          SaveEdit({insert, Path, NewVal});
+                      update ->
                           OldVal = maps:get(K,OldMap),
                           NewVal = maps:get(K,NewMap),
                           case NewVal of
                               OldVal -> nop;
                               _ when not(is_map(NewVal)) ->
-                                  SaveEdit({set, Path, NewVal});
+                                  SaveEdit({update, Path, OldVal, NewVal});
                               %% Use lists instead
                               %%#{ diff := leaf } ->
                               %%    SaveEdit({set, Path, 
@@ -60,9 +60,9 @@ diff(ParentPath,SaveEdit,OldMap,NewMap) ->
     Del = lists:subtract(Old,New),
     Ins = lists:subtract(New,Old),
     Common = lists:subtract(New,Ins),
-    ForKeys(del, Del),
-    ForKeys(ins, Ins),
-    ForKeys(set, Common),
+    ForKeys(delete, Del),
+    ForKeys(insert, Ins),
+    ForKeys(update, Common),
     ok.
 
 
