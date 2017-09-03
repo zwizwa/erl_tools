@@ -1,7 +1,7 @@
 -module(expect).
 -export([run/2, run/3, cmd/1, update/1, update/2,
          %% Old format
-         load/1, save/2,
+         load/1, save/2, save/3,
          %% New format
          parse_trace_file/1]).
 
@@ -28,16 +28,19 @@ load(FileName) ->
         {ok, Bin} = file:read_file(FileName),
         Str = binary_to_list(Bin),
         {ok, Tokens, _} = erl_scan:string(Str),  %% Str contains trailing '.'
-        {ok, Tests = #{type := expect}} = erl_parse:parse_term(Tokens),
+        {ok, Tests = #{type := _ }} = erl_parse:parse_term(Tokens),
         maps:remove(type, Tests)
     catch
         _:_ -> #{}
     end.
 
 save(FileName, New) ->
+    save(FileName, New, expect).
+save(FileName, New, FileTypeTag) ->
     IOList = 
         ["%% -*- erlang -*-\n",
-         "#{ type => expect",
+         "#{ type => ",
+         io_lib:format("~p",[FileTypeTag]),
          [io_lib:format(",~n   ~p~n   => ~p", [Spec,Result]) 
           || {Spec,Result} <- maps:to_list(New)],
          "\n}.\n"],
