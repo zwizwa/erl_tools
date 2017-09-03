@@ -50,7 +50,9 @@ update(Tests) ->
       fun(Expr, _) -> catch cmd(Expr) end,
       Tests).
 
-cmd({Mod,Fun,Args}) ->
+cmd({Fun,Args}) when is_function(Fun) ->
+    apply(Fun,Args);
+cmd({Mod,Fun,Args}) when is_atom(Mod) and is_atom(Fun) ->
     apply(Mod,Fun,Args);
 cmd(Str) -> 
     {ok,Toks,_} = erl_scan:string(Str),
