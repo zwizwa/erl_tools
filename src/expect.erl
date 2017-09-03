@@ -47,10 +47,19 @@ save(FileName, New) ->
 
 update(Tests) ->
     update(Tests, fun cmd/1).
-update(Tests, Eval) ->
+update(Tests, Eval) when is_function(Eval) ->
     maps:map(
       fun(Expr, _) -> catch Eval(Expr) end,
-      Tests).
+      Tests);
+update(Tests, Functions) when is_map(Functions) ->
+    update(
+      Tests,
+      fun({Fun,Args}) ->
+              log:info("~p~n",[{Fun,Functions}]),
+              apply(maps:get(Fun,Functions),Args)
+      end).
+                          
+    
 
 
 %% FIXME: specify abstract "apply" function in test specs, but do not save it to file
