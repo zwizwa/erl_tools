@@ -1,5 +1,9 @@
 -module(expect).
--export([run/2, run/3, cmd/1, parse_trace_file/1]).
+-export([run/2, run/3, cmd/1, update/1,
+         %% Old format
+         load/1, save/2,
+         %% New format
+         parse_trace_file/1]).
 
 %% Inspired by: https://blog.janestreet.com/testing-with-expectations/
 %% Main idea:
@@ -20,11 +24,15 @@ run(InFile, OutFile, Additional) when is_map(Additional) ->
        || Key <- maps:keys(Additional)]).
 
 load(FileName) ->
-    {ok, Bin} = file:read_file(FileName),
-    Str = binary_to_list(Bin),
-    {ok, Tokens, _} = erl_scan:string(Str),  %% Str contains trailing '.'
-    {ok, Tests = #{type := expect}} = erl_parse:parse_term(Tokens),
-    maps:remove(type, Tests).
+    try
+        {ok, Bin} = file:read_file(FileName),
+        Str = binary_to_list(Bin),
+        {ok, Tokens, _} = erl_scan:string(Str),  %% Str contains trailing '.'
+        {ok, Tests = #{type := expect}} = erl_parse:parse_term(Tokens),
+        maps:remove(type, Tests)
+    catch
+        _:_ -> #{}
+    end.
 
 save(FileName, New) ->
     IOList = 
