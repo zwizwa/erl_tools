@@ -1,5 +1,5 @@
 -module(expect).
--export([run/2, run/3, cmd/1, update/1,
+-export([run/2, run/3, cmd/1, update/1, update/2,
          %% Old format
          load/1, save/2,
          %% New format
@@ -46,12 +46,15 @@ save(FileName, New) ->
     
 
 update(Tests) ->
+    update(Tests, fun cmd/1).
+update(Tests, Eval) ->
     maps:map(
-      fun(Expr, _) -> catch cmd(Expr) end,
+      fun(Expr, _) -> catch Eval(Expr) end,
       Tests).
 
-cmd({Fun,Args}) when is_function(Fun) ->
-    apply(Fun,Args);
+
+%% FIXME: specify abstract "apply" function in test specs, but do not save it to file
+
 cmd({Mod,Fun,Args}) when is_atom(Mod) and is_atom(Fun) ->
     apply(Mod,Fun,Args);
 cmd(Str) -> 
