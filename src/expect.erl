@@ -119,11 +119,30 @@ load_form(FileName) ->
     {ok, Form} = erl_parse:parse_form(Toks),
     unpack(Form).
 
-save_form(FileName, Form) ->
-    Str = erl_prettypr:format(pack(Form)),
+%% Some ad-hoc formatting.  Can't figure out how to have
+%% erl_prettypr:format display strings and binaries in a readable way.
+save_form(FileName, {FunName, Pairs}) ->
     ok = file:write_file(
            FileName,
-           ["%% -*- erlang -*-\n", Str]).
+           ["%% -*- erlang -*-\n",
+            atom_to_list(FunName),"() ->\n[\n",
+            lists:join(
+              ",\n",
+              [["{ ",
+                ["%" || _ <- lists:seq(1,78)],
+                "\n",
+                erl_prettypr:format(Form),
+                "\n, %% =>\n",
+                io_lib:format("~p",[Val]),
+                "\n}\n"]
+               || {Form,Val} <- Pairs]),
+            "]\n"]).
+
+%% save_form(FileName, Form) ->
+%%     Str = erl_prettypr:format(pack(Form)),
+%%     ok = file:write_file(
+%%            FileName,
+%%            ["%% -*- erlang -*-\n", Str]).
       
 %% Full file.    
 unpack(
@@ -137,14 +156,14 @@ unpack_list({nil,_}) -> [];
 unpack_list({cons,_,{tuple,_,[Expr,Term]},Tail}) ->
     [{Expr,erl_parse:normalise(Term)} | unpack_list(Tail)].
 
-pack({FunName,List}) ->
-    {function,0,FunName,0,
-     [{clause,0,[],[],
-       [pack_list(List)]}]}.
-pack_list([]) -> {nil,0};
-pack_list([{Expr,Term}|Tail]) -> 
-    {cons,0,{tuple,0,[Expr,erl_parse:abstract(Term)]},
-     pack_list(Tail)}.
+%% pack({FunName,List}) ->
+%%     {function,0,FunName,0,
+%%      [{clause,0,[],[],
+%%        [pack_list(List)]}]}.
+%% pack_list([]) -> {nil,0};
+%% pack_list([{Expr,Term}|Tail]) -> 
+%%     {cons,0,{tuple,0,[Expr,erl_parse:abstract(Term)]},
+%%      pack_list(Tail)}.
                  
                  
     
@@ -179,7 +198,6 @@ print_diff(FileName, Diff) ->
       Diff).
 
 update_form(FileIn, TestResults) ->
-    log:info("update_form: ~p~n",[FileIn]),
     update_form(FileIn, FileIn ++ ".new", TestResults).
 
 
