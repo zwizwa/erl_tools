@@ -25,7 +25,7 @@
          decode_tv/2, encode_ktv/2, decode_ktv/2,
          
          %% Misc tools
-         atom/1, int/1, rotate_finite/1, skip_finite/1
+         atom/1, int/1, rotate_finite/1, skip_finite/1, si_power/1
          
          
         ]).
@@ -188,6 +188,17 @@ type_spec(Type) ->
         %%         {ok, Alist} -> {finite, Alist};
         %%         error -> {Obj(encoder), Obj(decoder)}
         %%     end;
+        si_prefix -> 
+            {finite,
+             [{<<"n">>,-3},
+              {<<"u">>,-2},
+              {<<"m">>,-1},
+              {<<"">>,0},
+              {<<"k">>,1},
+              {<<"M">>,2},
+              {<<"G">>,3}
+             ]};
+
         {finite, _} = Spec -> Spec;
         binary  -> {fun id/1,   fun id/1};
         button    -> {fun id/1,   fun id/1}; %% see web.erl input/1 button type
@@ -378,3 +389,10 @@ decode_ktv(TypeMod, [BinKey | BinTV]) ->
     {decode_key(BinKey),
      decode_tv(TypeMod, BinTV)}.
 
+%% Pick a power of 1000 that fits in the si_prefix range to give 1,2,3
+%% digit mantissas.
+si_power(Float) ->
+    Grid = trunc(math:log10(Float)/3 + 3),
+    max(0, min(6, Grid)) - 3.
+    
+    
