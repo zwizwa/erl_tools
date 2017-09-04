@@ -4,6 +4,7 @@
          load/1, save/2, save/3,
          %% New format
          load_form/1, update_form/3, update_form/2, save_form/2,
+         print_diff/2,
          %% Used for custom trace tests
          parse_trace_file/1]).
 
@@ -152,12 +153,30 @@ pack_list([{Expr,Term}|Tail]) ->
 update_form(FileIn,
             FileOut,
             TestResults) ->
-    {Name,Old}  = load_form(FileIn),
-    {Forms,_}   = lists:unzip(Old),
+    {Name,Old} = load_form(FileIn),
+    {Forms,_} = lists:unzip(Old),
     {NewVals,_} = lists:unzip(TestResults),
     New = lists:zip(Forms,NewVals),
     save_form(FileOut, {Name,New}),
-    ok.
+    %% Return diff.
+    lists:append(
+      lists:map(
+        fun({_,{Old,Old}}) -> [];
+           (Different) -> [Different] end,
+        lists:zip(Forms, TestResults))).
+
+print_diff(FileName, Diff) ->
+    lists:foreach(
+      fun({Form,{Old,New}}) ->
+              io:format(
+                "~s:~p: ~s~n- ~p~n+ ~p~n",
+                [FileName,
+                 erl_syntax:get_pos(Form),
+                 erl_prettypr:format(Form),
+                 Old,
+                 New])
+      end,
+      Diff).
 
 update_form(FileIn, TestResults) ->
     log:info("update_form: ~p~n",[FileIn]),
