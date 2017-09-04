@@ -3,6 +3,8 @@
          %% Old format
          load/1, save/2, save/3,
          %% New format
+         load_form/1, update_form/3, update_form/2, save_form/2,
+         %% Used for custom trace tests
          parse_trace_file/1]).
 
 %% Inspired by: https://blog.janestreet.com/testing-with-expectations/
@@ -98,3 +100,68 @@ eval(AbsStx) ->
      
 
 
+%% Experiment: trying a .hrl file
+
+%% - file is included in an -ifdef(TEST) section, this will:
+%%   - allow it to be compiled during test
+%%   - keep it out of the main build
+%%
+
+
+%% Syntax: single thunk, containing a single clause, containing a
+%% single Term which is an assoc list from expressions to terms.
+load_form(FileName) ->
+    {ok, Bin} = file:read_file(FileName),
+    Str = tools:format("~s",[Bin]),
+    {ok,Toks,_} = erl_scan:string(Str),
+
+    {ok, Form} = erl_parse:parse_form(Toks),
+    unpack(Form).
+
+save_form(FileName, Form) ->
+    Str = erl_prettypr:format(pack(Form)),
+    ok = file:write_file(
+           FileName,
+           ["%% -*- erlang -*-\n", Str]).
+      
+%% Full file.    
+unpack(
+  {function,_,FunName,0,
+   [{clause,_,[],[],
+     [Term]}]}) ->
+    {FunName, unpack_list(Term)}.
+%% Unpack the assoc list, parsing the second element in the pair but
+%% leaving the first intact.
+unpack_list({nil,_}) -> [];
+unpack_list({cons,_,{tuple,_,[Expr,Term]},Tail}) ->
+    [{Expr,erl_parse:normalise(Term)} | unpack_list(Tail)].
+
+pack({FunName,List}) ->
+    {function,0,FunName,0,
+     [{clause,0,[],[],
+       [pack_list(List)]}]}.
+pack_list([]) -> {nil,0};
+pack_list([{Expr,Term}|Tail]) -> 
+    {cons,0,{tuple,0,[Expr,erl_parse:abstract(Term)]},
+     pack_list(Tail)}.
+                 
+                 
+    
+%% Check an evaluated form with the previous values, and write it
+%% back.
+update_form(FileIn,
+            FileOut,
+            TestResults) ->
+    {Name,Old}  = load_form(FileIn),
+    {Forms,_}   = lists:unzip(Old),
+    {NewVals,_} = lists:unzip(TestResults),
+    New = lists:zip(Forms,NewVals),
+    save_form(FileOut, {Name,New}),
+    ok.
+
+update_form(FileIn, TestResults) ->
+    log:info("update_form: ~p~n",[FileIn]),
+    update_form(FileIn, FileIn ++ ".new", TestResults).
+
+
+%% expect:check_form("/home/tom/src/scope_display:expect_tests().
