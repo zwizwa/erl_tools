@@ -118,40 +118,6 @@ function create_element(spec) {
     return el;
 }
 
-// arr contains waveform data
-// tx contains transform: tx.scale, tx.offset, tx.inc
-// FIXME: not well supported
-// function path_set_waveform(path, arr, tx) {
-//     var d_point;
-//     var psl = path.pathSegList;
-//     psl.clear();
-//     tools.each(arr, function(y, x) {
-//         var point = ((y * tx.scale) + tx.offset);
-//         if (null == d_point) {
-//             d_point = point;
-//             var m = path.createSVGPathSegMovetoAbs(-tx.inc, d_point);
-//             psl.appendItem(m)
-//         }
-//         var l = path.createSVGPathSegLinetoRel(tx.inc, point - d_point);
-//         psl.appendItem(l);
-//         d_point = point;
-//     });
-// }
-
-function path_set_waveform(path, arr, tx) {
-    var d_point, path_d;
-    tools.each(arr, function(y, x) {
-            // console.log(x,y);
-            var point = ((y * tx.scale) + tx.offset);
-            if (null == d_point) {
-                d_point = point;
-                path_d = 'M-1,' + d_point;
-            }
-            path_d += 'l1,' + (point - d_point);
-            d_point = point;
-        });
-    path.setAttribute('d',path_d);
-}
 
 
 
@@ -249,7 +215,6 @@ module.exports = {
     // Not a behavior, just some associated tools exposed.
     tools: {
         form_data: form_data,
-        path_set_waveform: path_set_waveform
     }
 
 }

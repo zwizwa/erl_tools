@@ -848,6 +848,7 @@ updated_modules(FileName) ->
 expect_test() -> expect:run_form(?FILE ++ ".expect", fun tools_expect/0).
 -endif.
 
+%% Keep these here.  They don't pretty-print well as expect tests.
 -ifdef(TEST).
 hex_test_() ->
     [?_assert(hex16(16#0123) =:= "0123"),
