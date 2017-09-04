@@ -136,7 +136,7 @@ save_form(FileName, {FunName, Pairs}) ->
                 io_lib:format("~p",[Val]),
                 "\n}\n"]
                || {Form,Val} <- Pairs]),
-            "]\n"]).
+            "].\n"]).
 
 %% save_form(FileName, Form) ->
 %%     Str = erl_prettypr:format(pack(Form)),
