@@ -4,7 +4,7 @@
          load/1, save/2, save/3,
          %% New format
          load_form/1, update_form/3, update_form/2, save_form/2,
-         print_diff/2,
+         print_diff/2, diff_form/3,
          %% Used for custom trace tests
          parse_trace_file/1]).
 
@@ -171,18 +171,31 @@ unpack_list({cons,_,{tuple,_,[Expr,Term]},Tail}) ->
 %% back.
 update_form(FileIn,
             FileOut,
-            TestResults) ->
-    {Name,Old} = load_form(FileIn),
-    {Forms,_} = lists:unzip(Old),
-    {NewVals,_} = lists:unzip(TestResults),
-    New = lists:zip(Forms,NewVals),
-    save_form(FileOut, {Name,New}),
+            TestPairs) ->
+    {Name, Old} = load_form(FileIn),
+    {Forms, OldVals} = lists:unzip(Old),
+    {Tests,_} = lists:unzip(TestPairs),
+    NewVals = lists:map(fun run_test/1, Tests),
+    New = lists:zip(Forms, NewVals),
+    save_form(FileOut, {Name, New}),
+    {Forms,NewVals,OldVals}.
+
+%% One optional level of deferral to keep errors local.
+run_test(F) when is_function(F) -> catch F().
+    
+    
+
+diff_form(Forms, OldVals, NewVals) ->
     %% Return diff.
     lists:append(
       lists:map(
-        fun({_,{Old,Old}}) -> [];
-           (Different) -> [Different] end,
-        lists:zip(Forms, TestResults))).
+        fun({_,{OldVal,NewVal}}=Test) ->
+                case NewVal of
+                    OldVal -> [];
+                    _ -> [Test]
+                end
+        end,
+        lists:zip(Forms, lists:zip(OldVals, NewVals)))).
 
 print_diff(FileName, Diff) ->
     lists:foreach(
