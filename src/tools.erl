@@ -67,16 +67,6 @@
 %% License: http://creativecommons.org/publicdomain/zero/1.0
 
 
--ifdef(TEST).
-hex_test_() ->
-    [?_assert(hex16(16#0123) =:= "0123"),
-     ?_assert(hex8 (16#01)   =:= "01"),
-     ?_assert(hex4 (16#01)   =:= "1"),
-     ?_assert(unhex("012345")  =:= [16#01, 16#23, 16#45]),
-     ?_assert(hex([16#01, 16#23, 16#45]) =:= "012345"),
-     ?_assert(hex_u32(16#01234567) =:= "67452301")
-    ].
--endif.
 
 
 unhex([]) -> [];
@@ -850,3 +840,21 @@ updated_modules(FileName) ->
     Mods = [binary_to_atom(BinMod, utf8) || BinMod <- BinMods],
     info("updated_modules = ~p~n", [Mods]),
     Mods.
+
+
+
+-ifdef(TEST).
+-include("tools.erl.expect").
+expect_test() -> expect:run_form(?FILE ++ ".expect", fun tools_expect/0).
+-endif.
+
+-ifdef(TEST).
+hex_test_() ->
+    [?_assert(hex16(16#0123) =:= "0123"),
+     ?_assert(hex8 (16#01)   =:= "01"),
+     ?_assert(hex4 (16#01)   =:= "1"),
+     ?_assert(unhex("012345")  =:= [16#01, 16#23, 16#45]),
+     ?_assert(hex([16#01, 16#23, 16#45]) =:= "012345"),
+     ?_assert(hex_u32(16#01234567) =:= "67452301")
+    ].
+-endif.

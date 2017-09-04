@@ -4,7 +4,7 @@
          load/1, save/2, save/3,
          %% New format
          load_form/1, update_form/3, update_form/2, save_form/2,
-         print_diff/2, diff_form/3,
+         print_diff/2, diff_form/3, run_form/2,
          %% Used for custom trace tests
          parse_trace_file/1]).
 
@@ -175,13 +175,18 @@ update_form(FileIn,
     {Name, Old} = load_form(FileIn),
     {Forms, OldVals} = lists:unzip(Old),
     {Tests,_} = lists:unzip(TestPairs),
-    NewVals = lists:map(fun run_test/1, Tests),
+    NewVals = [catch Test() || Test <- Tests],
     New = lists:zip(Forms, NewVals),
     save_form(FileOut, {Name, New}),
     {Forms,NewVals,OldVals}.
 
-%% One optional level of deferral to keep errors local.
-run_test(F) when is_function(F) -> catch F().
+
+run_form(FileName, TestThunk) ->
+    {Forms,NewVals,OldVals} = update_form(FileName, TestThunk()),
+    Diff = expect:diff_form(Forms, NewVals, OldVals),
+    expect:print_diff(FileName, Diff),
+    Diff = [].
+
     
     
 
