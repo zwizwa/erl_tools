@@ -5,16 +5,23 @@ serv_expect() ->
 fun () ->
 	Report = self(),
 	Worker = batch_processor(fun (List) ->
-					 Report ! {processed, List}
+					 Report ! {processed, List},
+					 timer:sleep(45)
 				 end),
-	[Worker ! Msg || Msg <- [first, batch]],
-	timer:sleep(10),
-	[Worker ! Msg || Msg <- [second, batch]],
-	timer:sleep(10),
+	lists:foreach(fun (Msg) -> Worker ! Msg, timer:sleep(10)
+		      end,
+		      "abcdefghijklmnopqrstuvwxyz"),
+	timer:sleep(100),
 	exit(Worker, normal),
 	flush()
 end
 , %% =>
-[{processed,[first,batch]},{processed,[second,batch]}]
+[{processed,"a"},
+ {processed,"bcde"},
+ {processed,"fghi"},
+ {processed,"jklm"},
+ {processed,"nopq"},
+ {processed,"rstu"},
+ {processed,"vwxyz"}]
 }
 ].
