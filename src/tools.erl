@@ -8,6 +8,7 @@
          p_rem/2, p_div_rem/2, p_div/2,
          n_rem/2, n_div_rem/2, n_div/2,
          round_up/2, round_down/2,
+         snap_to_grid/3,
          not_false/1,
          mid/2, mid/3,
          csv_read/1,
@@ -260,6 +261,10 @@ n_div(X,Y) -> {Q,_} = n_div_rem(X,Y), Q.
 round_up  (El,Chunk) -> Chunk * n_div(El, Chunk).
 round_down(El,Chunk) -> Chunk * p_div(El, Chunk).
 
+snap_to_grid(Value, Offset, Step) ->
+    Units = (Value - Offset) / Step,
+    N = round(Units),
+    Offset + N * Step.
 
 %% Midpoint, picking smallest if neighbours.
 mid(A,B) -> (A + B) div 2.
