@@ -15,6 +15,8 @@
          enter/1,
          %% Rate limiting
          throttle/2,
+         %% queue flush + synchronous call based batch processing
+         batch_processor/1, flush/0, receive_batch/0,
 
          %% Private, needed for reloading.
          bc_handle/2,
@@ -22,6 +24,7 @@
          periodic_loop/3
 
         ]).
+
 -define(IF(C,A,B), (case (C) of true -> (A); false -> (B) end)).
 
 %% To the extent possible under law, Tom Schouten has waived all
@@ -214,3 +217,35 @@ throttle_wait(Delay, Thunk, Ref, Last) ->
         New ->
             throttle_wait(Delay, Thunk, Ref, New)
     end.
+
+
+
+%% Throttling mechanism based on a message flush and a batch
+%% processing function.  To stop, the Process method can call exit
+%% based on some stop message.
+batch_processor(Process) ->
+    spawn_link(fun() -> batch_loop(Process) end).
+batch_loop(Process) ->
+    Process(receive_batch()),
+    batch_loop(Process).
+
+%% Wait and flush
+receive_batch() -> 
+    flush_loop([receive Msg -> Msg end]).
+flush() ->
+    flush_loop([]).
+flush_loop(Batch) ->
+    receive Msg -> flush_loop([Msg|Batch])
+    after 0 -> lists:reverse(Batch)
+    end.
+                               
+
+             
+                 
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-include("serv.erl.expect").
+expect_test() -> expect:run_form(?FILE ++ ".expect", fun serv_expect/0).
+-endif.
+

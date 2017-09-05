@@ -1,0 +1,20 @@
+%% -*- erlang -*-
+serv_expect() ->
+[
+{ %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+fun () ->
+	Report = self(),
+	Worker = batch_processor(fun (List) ->
+					 Report ! {processed, List}
+				 end),
+	[Worker ! Msg || Msg <- [first, batch]],
+	timer:sleep(10),
+	[Worker ! Msg || Msg <- [second, batch]],
+	timer:sleep(10),
+	exit(Worker, normal),
+	flush()
+end
+, %% =>
+[{processed,[first,batch]},{processed,[second,batch]}]
+}
+].
