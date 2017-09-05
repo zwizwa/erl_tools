@@ -133,7 +133,7 @@ save_form(FileName, {FunName, Pairs}) ->
                 "\n",
                 erl_prettypr:format(Form),
                 "\n, %% =>\n",
-                io_lib:format("~p",[Val]),
+                io_lib:format("~70p",[Val]),
                 "\n}\n"]
                || {Form,Val} <- Pairs]),
             "].\n"]).
