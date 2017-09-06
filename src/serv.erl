@@ -13,8 +13,6 @@
          %% Several spawning methods
          start/1,
          enter/1,
-         %% Rate limiting
-         throttle/2,
          %% queue flush + synchronous call based batch processing
          batch_processor/2, flush/0, receive_batch/0,
 
@@ -193,30 +191,32 @@ periodic_loop(Ms, Body, State) ->
 
     
 
+%% FIXME: Left here as an example of how not to do it.  Use
+%% batch_processor/2 which has much cleaner semantics.
 
-%% Rate limiter.  Passes last message to Thunk.
-throttle(Delay, Thunk) ->
-    spawn_link(fun() -> throttle_idle(Delay, Thunk) end).
-throttle_idle(Delay, Thunk) ->
-    receive
-        First ->
-            Pid = self(),
-            Ref = make_ref(),
-            spawn_link(
-              fun() ->
-                      timer:sleep(Delay),
-                      Pid ! Ref
-              end),
-            throttle_wait(Delay, Thunk, Ref, First)
-    end.
-throttle_wait(Delay, Thunk, Ref, Last) ->
-    receive
-        Ref ->
-            Thunk(Last),
-            throttle_idle(Delay, Thunk);
-        New ->
-            throttle_wait(Delay, Thunk, Ref, New)
-    end.
+%% %% Rate limiter.  Passes last message to Thunk.
+%% throttle(Delay, Thunk) ->
+%%     spawn_link(fun() -> throttle_idle(Delay, Thunk) end).
+%% throttle_idle(Delay, Thunk) ->
+%%     receive
+%%         First ->
+%%             Pid = self(),
+%%             Ref = make_ref(),
+%%             spawn_link(
+%%               fun() ->
+%%                       timer:sleep(Delay),
+%%                       Pid ! Ref
+%%               end),
+%%             throttle_wait(Delay, Thunk, Ref, First)
+%%     end.
+%% throttle_wait(Delay, Thunk, Ref, Last) ->
+%%     receive
+%%         Ref ->
+%%             Thunk(Last),
+%%             throttle_idle(Delay, Thunk);
+%%         New ->
+%%             throttle_wait(Delay, Thunk, Ref, New)
+%%     end.
 
 
 
