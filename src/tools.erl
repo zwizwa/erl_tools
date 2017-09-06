@@ -30,6 +30,7 @@
          annotate_pid/1,
          maps_map_keys/2,
          map_find_list/2,
+         members/2,
          script_line/1,
          script_print/2,
          s2u_16/1,
@@ -51,6 +52,7 @@
          become/1,
          process_dictionary_get_value/2,
          reload_from_beam_list/1
+
         ]).
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -518,7 +520,17 @@ map_find_list(Keys,Map) ->
         end,
         Keys)).
               
-                       
+%% Convert member function to member list
+members(IsMember, ProbeList) when is_function(IsMember) ->
+    lists:foldl(
+      fun(El,List) ->
+              case IsMember(El) of
+                  true -> [El|List];
+                  false -> List
+              end
+      end, [], ProbeList).
+                      
+
     
 script_line(Cmd) ->
     Port = open_port({spawn, Cmd},
@@ -845,6 +857,8 @@ updated_modules(FileName) ->
     Mods = [binary_to_atom(BinMod, utf8) || BinMod <- BinMods],
     info("updated_modules = ~p~n", [Mods]),
     Mods.
+
+
 
 
 
