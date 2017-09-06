@@ -16,7 +16,7 @@
          %% Rate limiting
          throttle/2,
          %% queue flush + synchronous call based batch processing
-         batch_processor/1, flush/0, receive_batch/0,
+         batch_processor/2, flush/0, receive_batch/0,
 
          %% Private, needed for reloading.
          bc_handle/2,
@@ -223,11 +223,11 @@ throttle_wait(Delay, Thunk, Ref, Last) ->
 %% Throttling mechanism based on a message flush and a batch
 %% processing function.  To stop, the Process method can call exit
 %% based on some stop message.
-batch_processor(Process) ->
-    spawn_link(fun() -> batch_loop(Process) end).
-batch_loop(Process) ->
-    Process(receive_batch()),
-    batch_loop(Process).
+batch_processor(Process, State) ->
+    spawn_link(fun() -> batch_loop(Process, State) end).
+batch_loop(Process, State) ->
+    NewState = Process(receive_batch(), State),
+    batch_loop(Process, NewState).
 
 %% Wait and flush
 receive_batch() -> 

@@ -4,10 +4,11 @@ serv_expect() ->
 { %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 fun () ->
 	Report = self(),
-	Worker = batch_processor(fun (List) ->
+	Worker = batch_processor(fun (List, _) ->
 					 Report ! {processed, List},
 					 timer:sleep(45)
-				 end),
+				 end,
+				 #{}),
 	lists:foreach(fun (Msg) -> Worker ! Msg, timer:sleep(10)
 		      end,
 		      "abcdefghijklmnopqrstuvwxyz"),
