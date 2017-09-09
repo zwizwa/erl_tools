@@ -60,9 +60,9 @@ diff(ParentPath,SaveEdit,OldMap,NewMap) ->
 
 
 %% E.g. for JSON encoding.    
-as_map({del, P})    -> #{op => del, path => P};
-as_map({ins, P, V}) -> #{op => ins, path => P, val => V};
-as_map({set, P, V}) -> #{op => set, path => P, val => V}.
+as_map({delete, P})    -> #{op => delete, path => P};
+as_map({insert, P, V}) -> #{op => insert, path => P, val => V};
+as_map({update, P, V}) -> #{op => update, path => P, val => V}.
 
 
 
