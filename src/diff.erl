@@ -1,12 +1,9 @@
 -module(diff).
 -export([diff/2, diff/3, as_map/1]).
 
-%% Encode data structure differences as edit commands.  To simplify,
-%% use only maps.  Encode all other data in a separate, unchanging
-%% environment.  
-
-%% To keep the protocol simple, only maps are diffed.  Diffable lists
-%% should be represented as maps.
+%% Encode data structure differences as edit commands.  To keep the
+%% protocol simple, only maps are diffed as this gives a simple "paths
+%% as key lists" output.
 
 -type key()  :: atom().
 -type tree() :: leaf()  | #{ key() => tree() }.
@@ -76,9 +73,10 @@ as_map({set, P, V}) -> #{op => set, path => P, val => V}.
 
 %% The central idea here is the correspondence between a hierarchical
 %% structure (nested dictionaries) and a path list to value map.
+
 %% These are isomorphic representations, but they both have their
 %% advantages for code and data structuring.  Hierarchical structure
-%% maps better to code, while flat structuring maps better to data
-%% storage and communication, e.g. allowing for the easy difference
-%% encoding above.
+%% maps better to functional data processing code, while flat
+%% structuring maps better to data storage and communication,
+%% e.g. allowing for the easy difference encoding above.
 
