@@ -40,10 +40,6 @@ diff(ParentPath,SaveEdit,OldMap,NewMap) ->
                               OldVal -> nop;
                               _ when not(is_map(NewVal)) ->
                                   SaveEdit({update, Path, OldVal, NewVal});
-                              %% Use lists instead
-                              %%#{ diff := leaf } ->
-                              %%    SaveEdit({set, Path, 
-                              %%              maps:remove(diff, NewVal)});
                               _ ->
                                   %% Subtree
                                   diff(Path,SaveEdit,OldVal,NewVal)
