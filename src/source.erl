@@ -13,6 +13,7 @@
 %% to avoid re-evaluation.
 
 %% FIXME: change to tagged representation.
+%% FIXME: unify with source.erl?
 
 unpack(eof) -> eof;
 unpack({_,_}=Pair) -> Pair;
