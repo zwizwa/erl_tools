@@ -96,7 +96,7 @@ update_form(FileIn,
 
 run_form(FileName, TestThunk) ->
     {Forms,NewVals,OldVals} = update_form(FileName, TestThunk()),
-    Diff = expect:diff_form(Forms, NewVals, OldVals),
+    Diff = expect:diff_form(Forms, OldVals, NewVals),
     expect:print_diff(FileName, Diff),
     Diff = [].
 

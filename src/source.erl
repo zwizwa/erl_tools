@@ -6,6 +6,10 @@
 
 %% PURE SEQUENCES
 
+%%-type unpacked_source(El) :: eof | {El, source(El)}.
+%%-type source(El) :: fun(() -> unpacked_source(El)).
+
+
 %% External iterators, represented as eof or pair wrapped in thunk.
 %% Note: this only works for side-effect free code.
 
