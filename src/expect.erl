@@ -46,10 +46,25 @@ save_form(FileName, {FunName, Pairs}) ->
                 "\n",
                 erl_prettypr:format(Form),
                 "\n, %% =>\n",
-                io_lib:format("~70p",[Val]),
+                format_val(Val),
                 "\n}\n"]
                || {Form,Val} <- Pairs]),
             "].\n"]).
+
+%% Value needs to be parsable, e.g. Can't have #Fun<...>.
+%% See type_base.erl for similar code.
+format_val(Val) ->
+    ValFmt = tools:format_binary("~70p",[Val]),
+    try
+        Val = type_base:decode({pterm, ValFmt}),
+        ValFmt
+    catch 
+        _:_ -> 
+            [[["%% ", Line, "\n"] || Line <- re:split(ValFmt,"\n")],
+             "not_printable"]
+    end.
+
+
 
 %% save_form(FileName, Form) ->
 %%     Str = erl_prettypr:format(pack(Form)),
