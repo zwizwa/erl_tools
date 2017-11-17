@@ -2,7 +2,8 @@
 -export([range/2,range/1,to_list/1,to_fold/1,map/2,filter/2
         ,unpack/1
         ,wind/2, wind_unpack/2
-        ,from_list/1]).
+        ,from_list/1
+        ,take/2]).
 
 %% PURE SEQUENCES
 
@@ -95,3 +96,10 @@ from_list(List) ->
 
 %% Note that it is possible to have from_fold/1 but since that is
 %% effectful, it seems best to implement that only in egen.erl
+take(N,Src) -> take(N,[],Src).
+take(0,Es,Src) -> {lists:reverse(Es),Src};
+take(N,Es,Src) -> 
+    case unpack(Src) of
+        eof -> take(0,Es,eof);
+        {E, NextSrc} -> take(N-1,[E|Es],NextSrc)
+    end.
