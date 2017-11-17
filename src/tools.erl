@@ -861,11 +861,15 @@ updated_modules(FileName) ->
 
 
 
-
 -ifdef(TEST).
--include("tools.erl.expect").
-expect_test() -> expect:run_form(?FILE ++ ".expect", fun tools_expect/0).
+-include("tools.expect").
+expect_test() ->
+    expect:run_form(
+      filename:dirname(?FILE)++"/tools.expect",
+      fun tools_expect/0).
 -endif.
+
+
 
 %% Keep these here.  They don't pretty-print well as expect tests.
 -ifdef(TEST).

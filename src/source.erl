@@ -3,26 +3,28 @@
         ,unpack/1
         ,wind/2, wind_unpack/2
         ,from_list/1
-        ,take/2]).
+        ,take/2
+        ,append/1]).
 
-%% PURE SEQUENCES
+%% PURE/ITEMPOTENT SEQUENCES
 
-%%-type unpacked_source(El) :: eof | {El, source(El)}.
-%%-type source(El) :: fun(() -> unpacked_source(El)).
+%% Delayed sequences with eof.
+-export_types([source/1, unpacked_source/1]).
+-type unpacked_source(El) :: eof | {El, source(El)}.
+-type source(El) :: unpacked_source(El) | fun(() -> source(El)).
 
-
-%% External iterators, represented as eof or pair wrapped in thunk.
-%% Note: this only works for side-effect free code.
-
-%% Representation can either be unpacked or not.  This is a small hack
-%% to avoid re-evaluation.
-
-%% FIXME: change to tagged representation.
-%% FIXME: unify with source.erl?
+%% Note that there might be more than one thunk wrapper -- this is
+%% done to ease implementation of some primitives.  The thunks might
+%% be evaluated multiple times, so they either need to be pure, or
+%% their effects need to be idempotent.  See remark at the bottom.
 
 unpack(eof) -> eof;
 unpack({_,_}=Pair) -> Pair;
-unpack(Thunk) when is_function(Thunk) -> Thunk().
+unpack(Thunk) when is_function(Thunk) -> 
+    unpack(Thunk()).
+
+%% FIXME: use tagging to make types more explicit?
+%% unpack({source, Src}) -> unpack(Src); ??
 
 range(N) -> range(0,N).
 range(E,N) when E < N -> fun() -> {E, range(E+1,N)} end;
@@ -103,3 +105,40 @@ take(N,Es,Src) ->
         eof -> take(0,Es,eof);
         {E, NextSrc} -> take(N-1,[E|Es],NextSrc)
     end.
+
+
+
+%% Append multiple sources.
+
+%% TODO: append + unpack multiple thunks.
+
+append([]) -> eof;
+append([Src]) -> Src;
+append([Src|Srcs]) ->
+    fun() ->
+            case unpack(Src) of
+                eof -> append(Srcs);
+                {E,Src1} -> {E,append([Src1|Srcs])}
+            end
+    end.
+                 
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-include("source.expect").
+expect_test() ->
+    expect:run_form(
+      filename:dirname(?FILE)++"/source.expect",
+      fun source_expect/0).
+-endif.
+
+
+
+%% Note: once-only evaluation cannot easily be implemented in Erlang
+%% in the way that delay/force would be implemented in e.g. Scheme,
+%% because of Erlang's purity.
+%%
+%% It might be possible to use processes to store the state that is
+%% necessary to perform once-only evaluation, however that would still
+%% need garbage collection for those processes, for which I do not see
+%% a solution.

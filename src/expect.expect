@@ -13,7 +13,7 @@ fun () ->
 	fun () -> ok end
 end
 , %% =>
-%% #Fun<expect.5.115071076>
+%% #Fun<expect.5.121007745>
 not_printable
 }
 ].

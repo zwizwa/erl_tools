@@ -16,10 +16,12 @@
 %% See tools.erl for another example
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
--include("expect.erl.expect"). 
-expect_test() -> expect:run_form(?FILE ++ ".expect", fun expect_expect/0). %%
+-include("expect.expect").
+expect_test() ->
+    expect:run_form(
+      filename:dirname(?FILE)++"/expect.expect",
+      fun expect_expect/0).
 -endif.
-
 
 
 %% Syntax: single thunk, containing a single clause, containing a
