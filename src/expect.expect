@@ -6,14 +6,4 @@ fun () -> 1 + 2 end
 , %% =>
 3
 }
-,
-{ %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-fun () ->
-	_ = "Illustrate non-representable terms.",
-	fun () -> ok end
-end
-, %% =>
-%% #Fun<expect.5.121007745>
-not_printable
-}
 ].
