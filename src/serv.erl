@@ -39,6 +39,15 @@
 %% - send a reload message to serv processes after reloading serv
 
 
+%% FIXME: remove this stub.
+
+%% It doesn't work for remote Pids.  Any server process that stores
+%% Pids should use monitors to get notified of death in case explicit
+%% unsubscribe is not used.
+pid_alive(_Pid) ->
+    %% is_process_alive(Pid)
+    true.
+
 %% Set of Pids, with garbage collection on message send.
 pids_new() ->
     sets:new().
@@ -49,7 +58,7 @@ pids_del(Pid, Pids) when is_pid(Pid) ->
 pids_foreach(Fun, Pids) ->
     sets:fold(
       fun(Pid, Ps) ->
-              case is_process_alive(Pid) of
+              case pid_alive(Pid) of
                   true  -> Fun(Pid), Ps;
                   false -> sets:del_element(Pid, Ps)
               end
@@ -90,14 +99,14 @@ hub_init() ->
     [].
 hub_cleanup(Hub) ->
     lists:filter(
-      fun({_,Pid}) -> is_process_alive(Pid) end, Hub).
+      fun({_,Pid}) -> pid_alive(Pid) end, Hub).
 hub_handle({add, Pred, Pid}, Hub) ->
     [{Pred, Pid} | Hub];
 hub_handle({send, Msg}, Hub) ->
     ?IF(lists:foldl(
           fun({Pred, Pid}, Alive) ->
                   ?IF(Pred(Msg), Pid ! Msg, ignore),
-                  is_process_alive(Pid) and Alive
+                  pid_alive(Pid) and Alive
           end, true, Hub),
         Hub,
         %% Process doesn't allocate in happy path.  Update structure
