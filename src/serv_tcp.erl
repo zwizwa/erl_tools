@@ -87,8 +87,10 @@ handle_({'EXIT', FromPid, Reason}, {#{handle := Handle}=_Env, Pids, State}) ->
                 normal ->
                     ignore;
                 _ ->
-                    tools:info("linked exit(~p,~p), shutting down~n",
-                               [FromPid, Reason]),
+                    %% Since child will have a full error message,
+                    %% this doesn't need one.
+                    %% tools:info("linked exit(~p,~p), shutting down~n", [FromPid, Reason]),
+                    tools:info("linked exit(~p), shutting down~n", [FromPid]),
                     self() ! shutdown
             end,
             {Pids, State}
