@@ -110,6 +110,7 @@ float(Bytes) ->
 hex_data(HexBytes) ->
     tools:unhex(binary_to_list(HexBytes)).
 
+-spec strunk(string()) -> string().
 strunk([])    -> [];
 strunk([0|_]) -> [];
 strunk([H|T]) -> [H|strunk(T)].
