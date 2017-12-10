@@ -24,7 +24,7 @@
         ]).
 
 -define(IF(C,A,B), (case (C) of true -> (A); false -> (B) end)).
-
+-export_types([start_spec/0]).
 %% To the extent possible under law, Tom Schouten has waived all
 %% copyright and related or neighboring rights to serv.erl
 %% Code:    http://zwizwa.be/git/erl_tools
@@ -59,8 +59,8 @@ pids_foreach(Fun, Pids) ->
     sets:fold(
       fun(Pid, Ps) ->
               case pid_alive(Pid) of
-                  true  -> Fun(Pid), Ps;
-                  false -> sets:del_element(Pid, Ps)
+                  %%false -> sets:del_element(Pid, Ps);
+                  true  -> Fun(Pid), Ps
               end
       end,
       Pids, Pids).
@@ -159,6 +159,15 @@ up(Name, Spawner) ->
             Pid
     end.
 %% Generic starter, also for non-serv processes.
+-type start_spec() ::
+        {handler, fun(() -> _), fun((_,_)->_)} |
+        {periodic, integer(), fun(() -> _)} |
+        {periodic, integer(), fun(() -> _), fun((_) -> _)} |
+        {body, fun(() -> _)} |
+        {spawner, fun(() -> pid())}.
+
+-spec start(start_spec()) -> pid().
+
 start({handler, Init, Handle}) ->
     start({spawner, fun() -> spawn_handler(Init, Handle) end});
 start({periodic, Ms, Thunk}) ->

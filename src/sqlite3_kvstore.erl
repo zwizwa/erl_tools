@@ -8,6 +8,11 @@
          ]).
 
 
+-spec sql(fun(() -> pid()),
+          binary(),
+          [{'blob',binary()} | 
+           {'text',binary()}]) -> [[binary()]].
+
 sql(DB,Q,Bs) -> sqlite3:sql(DB,Q,Bs).
 transaction(DB,F) -> sqlite3:transaction(DB,F).
     
@@ -17,6 +22,10 @@ transaction(DB,F) -> sqlite3:transaction(DB,F).
 %% closure size on client side.  As a penalty, query strings are
 %% recomputed, but it is still possible to cache them by storing the
 %% result of the function lookup.
+
+-type table_spec() :: {table, atom(), fun(() -> pid()), atom()}.
+-spec table_op(table_spec(), _) -> _.
+
 table_op({table,TypeMod,DB,Table}, find) ->
     QRead = tools:format_binary(
               "select type,val from ~p where var = ?", [Table]),
@@ -75,13 +84,13 @@ table_op({table,_,DB,Table}, remove) ->
     QRemove = tools:format_binary("delete from ~p where var = ?", [Table]),
     fun(Key) ->
             BinKey = type_base:encode_key(Key),
-            sql(DB, QRemove, [BinKey]), ok
+            sql(DB, QRemove, [{'text',BinKey}]), ok
     end.
 
 
 %% Sharing
 
-table_op(_, to_map, ToList) ->
+table_op({table,_,_,_}, to_map, ToList) ->
     fun() ->
             maps:from_list(ToList())
     end;
@@ -98,7 +107,7 @@ table_op({table,_,DB,_}, put_list, Put) ->
                 {error, Error} -> throw({put_list,Error})
             end
     end;
-table_op(_, put_map, PutList) ->
+table_op({table,_,_,_}, put_map, PutList) ->
     fun(Map) -> PutList(maps:to_list(Map)) end.
 
 
