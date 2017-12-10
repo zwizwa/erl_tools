@@ -39,14 +39,6 @@
 %% - send a reload message to serv processes after reloading serv
 
 
-%% FIXME: remove this stub.
-
-%% It doesn't work for remote Pids.  Any server process that stores
-%% Pids should use monitors to get notified of death in case explicit
-%% unsubscribe is not used.
-pid_alive(_Pid) ->
-    %% is_process_alive(Pid)
-    true.
 
 %% Set of Pids, with garbage collection on message send.
 pids_new() ->
@@ -57,12 +49,7 @@ pids_del(Pid, Pids) when is_pid(Pid) ->
     sets:del_element(Pid, Pids).
 pids_foreach(Fun, Pids) ->
     sets:fold(
-      fun(Pid, Ps) ->
-              case pid_alive(Pid) of
-                  %%false -> sets:del_element(Pid, Ps);
-                  true  -> Fun(Pid), Ps
-              end
-      end,
+      fun(Pid, Ps) -> Fun(Pid), Ps end,
       Pids, Pids).
 pids_send(Msg, Pids) ->
     pids_foreach(fun(Pid) -> Pid ! Msg end, Pids).
@@ -95,31 +82,34 @@ bc_handle(Msg, Pids) ->
 
 
 %% Hub with predicates.
+-type hub_filter() :: fun((_) -> boolean()).
+-type hub_state() :: [{hub_filter(), pid()}].
+-spec hub_handle(_, hub_state()) -> hub_state().
+
+-spec hub_add(atom() | pid(), pid()) -> ok.
+-spec hub_add(atom() | pid(), hub_filter(), pid()) -> ok.
+-spec hub_send(atom() | pid(), _) -> ok.
+
 hub_init() ->
     [].
-hub_cleanup(Hub) ->
-    lists:filter(
-      fun({_,Pid}) -> pid_alive(Pid) end, Hub).
+
 hub_handle({add, Pred, Pid}, Hub) ->
     [{Pred, Pid} | Hub];
 hub_handle({send, Msg}, Hub) ->
-    ?IF(lists:foldl(
-          fun({Pred, Pid}, Alive) ->
-                  ?IF(Pred(Msg), Pid ! Msg, ignore),
-                  pid_alive(Pid) and Alive
-          end, true, Hub),
-        Hub,
-        %% Process doesn't allocate in happy path.  Update structure
-        %% only when one or more processes have died.
-        hub_cleanup(Hub)).
+    lists:foreach(
+      fun({Pred, Pid}) -> ?IF(Pred(Msg), Pid ! Msg, ignore) end,
+      Hub).
+
 hub_start() ->
     start({handler, fun hub_init/0, fun serv:hub_handle/2}).
-hub_add(HubPid, Pred, Pid) ->
-    HubPid ! {add, Pred, Pid}.
-hub_add(HubPid, Pid) ->
-    HubPid ! {add, fun(_)->true end, Pid}.
-hub_send(HubPid, Msg) ->
-    HubPid ! {send, Msg}.
+
+hub_add(Hub, Pred, Pid) ->
+    Hub ! {add, Pred, Pid}, ok.
+hub_add(Hub, Pid) ->
+    hub_add(Hub, fun(_)->true end, Pid).
+hub_send(Hub, Msg) ->
+    Hub ! {send, Msg},
+    ok.
 
 
 %% Print everything

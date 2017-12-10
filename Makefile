@@ -9,7 +9,7 @@ test: $(REBAR)
 	$(REBAR) eunit
 
 clean: $(REBAR)
-	$(REBAR) clean --all ; rm -rf _build
+	$(REBAR) clean --all ; rm -rf _build typer.hrl
 
 # Cross compilation testing
 cross.%:
@@ -32,3 +32,7 @@ accept: eunit
 	git diff src/*.erl.expect
 
 
+# FIXME: clean this up
+# It reuses the PLT file created by "rebar3 dialyzer"
+typer.hrl:
+	typer --plt `find _build/default -name  '*_plt'` -r -pz _build/default `find src/*.erl` >typer.hrl
