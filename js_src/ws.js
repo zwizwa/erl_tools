@@ -1,4 +1,5 @@
 var ws = new Object();
+var config = { timeout: 5000 };
 var last_evt;
 
 // Use dependency injection for Bert
@@ -36,6 +37,9 @@ function start(args, method_call) {
         },
         reload: function(msg) {
             window.location.reload();
+        },
+        set_config: function(msg) {
+            config[msg.key] = msg.value;
         },
         ping: function(msg) {
             return 'pong';
@@ -117,11 +121,12 @@ function start(args, method_call) {
         console.log(evt);
     }
     ws.onclose = function() {
-        console.log("ws.onclose");
+        console.log("ws.onclose:");
         //document.body.style.background = 'grey';
+        console.log("reload after", config.timeout);
         setTimeout(function(){
             window.location.reload();
-        }, 5000); // fixme: this should be more than worst case load time of any page.
+        }, config.timeout);
     };
     return ws;
 }
