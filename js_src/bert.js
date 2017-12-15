@@ -162,7 +162,8 @@ Bert.prototype = {
     decode_list: function (s) {
         var arr  = this.decode_array(s, 4);
         var tail = this.decode_inner(s);
-        if (tail == null) { return arr; }
+        // See decode_nil
+        if (Array.isArray(tail) && (0 == tail.length)) { return arr; }
         else { return { type: 'improper-list', arr: arr, tail: tail } }
     },
     decode_bytelist: function (s) {
@@ -178,7 +179,7 @@ Bert.prototype = {
         return this.utf8_decoder.decode(s.pop_slice(count));
     },
     decode_nil: function (s) {
-        return null;
+        return new Array();
     },
     decode_map: function(s) {
         var size = s.int_be(4);
