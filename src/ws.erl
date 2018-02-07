@@ -229,9 +229,10 @@ call_wait_exml(Ws, ID, Method, Els) ->
 
 %% Format message and send it over websocket to browser.  See ws.js
 info_text(Ws, Text, Opts) ->      
-    call(Ws, live_log, append_text,
-                [iolist_to_binary(Text), Opts]).
-
+    Bin = iolist_to_binary(Text),
+    List = binary_to_list(Bin),
+    UTF8 = unicode:characters_to_binary(List,latin1,utf8),
+    call(Ws, live_log, append_text, [UTF8, Opts]).
 
 info(Ws, Fmt, Args) ->
     info(Ws, Fmt, Args, #{}).
