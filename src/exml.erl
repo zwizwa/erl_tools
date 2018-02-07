@@ -49,8 +49,11 @@ exml({Tag,Attrs,Children}) ->
 %% As an export we only provide one routione: convert a list of
 %% elements to a binary.
 -spec to_binary([exml_el()]) -> binary().
-to_binary(Es) -> iolist_to_binary([exml(E) || E <- Es]).
-
+to_binary(Es) ->
+    Bin = iolist_to_binary([exml(E) || E <- Es]),
+    List = binary_to_list(Bin),
+    UTF8 = unicode:characters_to_binary(List,latin1,utf8),
+    UTF8.
 
 %% Special input types.
 
