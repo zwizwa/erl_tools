@@ -47,7 +47,7 @@
 
 
          
--export_type([iterspec/0, update/1, chunk/0, sink/0]).
+-export_type([iterspec/0, update/1, chunk/0, sink/0, fold2/2]).
 -type update(State) :: fun((any(), State) -> State).
 -type chunk() :: {data, any()} | eof.
 -type sink() :: fun((chunk()) -> any()).
@@ -55,7 +55,9 @@
                   | {foldr, update(State), State}
                   | {sink, sink()}
                   | list.
-
+%% Generic fold, represented as curried function.
+-type fold2(Element, State) :: fun((update(Element,State), State) -> State).
+-type update(Element, State) :: fun((Element,State) -> State).
 
 
 
@@ -76,13 +78,14 @@ empty() ->
 
 
 %% A fold representing a sequence is of type 
-%% :: ( (E,S) -> S, S ) -> S
+-spec range(pos_integer()) -> fold2(integer(),_).
 range(N) -> fun(F,S) -> fold_range(F,S,N) end.
 
 
 
 %% Map over a sequence represented as a fold, returning a new fold
 %% representing a sequence.
+-spec map(fun((A) -> B), fold2(A,S)) -> fold2(B,S).
 map(MapFun, SF) ->
     fun(FoldFun, Init) ->
             SF(fun(El,Accu) -> FoldFun(MapFun(El),Accu) end,
@@ -90,6 +93,7 @@ map(MapFun, SF) ->
     end.
 
 %% Makes code more readable, not depending on representation.
+-spec fold(update(E,S),S,fold2(E,S)) -> S.
 fold(F,I,SF) -> SF(F,I).
 
 %% Convenience.

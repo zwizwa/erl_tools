@@ -23,12 +23,21 @@
 %% it doesn't punish the construction of processes with complicated
 %% state.  Keep it small!
 
+-export_type([handle/1]).
+
+
 init() -> #{}.
 
 %% Allow replies to be disabled to implement casts. for set, replace, update.
 reply(no_reply, _) -> ok;
 reply(Pid, Val) -> Pid ! {self(), obj_reply, Val}.
-    
+
+-type rpc_message(M) :: dump | {replace, M} | {merge, M} | {remove, _} | {find, _} | {set, _, _} | {update, _, fun((_) -> _)}.
+-type handle_message(M) :: shutdown | {pid(), rpc_message(M)}.
+
+%% Curious... Can the spec use the handle/1 type?
+-type handle(M) :: fun((handle_message(M),M) -> M).
+-spec handle(handle_message(M), M) -> M.
 
 handle({Pid, dump}, Map)           -> reply(Pid, Map), Map;
 handle({Pid, {replace, M}}, _)     -> reply(Pid, ok), M;
