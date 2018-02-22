@@ -187,7 +187,7 @@ encode_id(ID) -> type_base:encode({pterm,ID}).
 
 %% A-synchronous messages send -- do not wait for reply.  See call.js
 %% Some types are sent using Binary ERlang Term format.
-call(Ws, ID, Method, Arg) -> Ws ! call_msg(ID,Method,Arg).
+call(Ws, ID, Method, Arg) -> Ws ! call_msg(ID,Method,Arg), ok.
 
 %% Pass continuation to implement synchronous call.  Other side will
 %% use cont as a ws_action.

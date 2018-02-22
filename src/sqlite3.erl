@@ -128,11 +128,11 @@ sql(DB, SQL, Bindings) when
 
 %% Transactions
 begin_transaction(DB) ->
-    sql(DB, <<"begin transaction">>,[]).
+    [] = sql(DB, <<"begin transaction">>, []).
 end_transaction(DB) ->
-    sql(DB, <<"end transaction">>,[]).
+    [] = sql(DB, <<"end transaction">>, []).
 rollback_transaction(DB) ->
-    sql(DB, <<"rollback transaction">>,[]).
+    [] = sql(DB, <<"rollback transaction">>, []).
     
 transaction(DB, Fun) ->
     begin_transaction(DB),

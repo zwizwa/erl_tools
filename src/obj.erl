@@ -30,7 +30,7 @@ init() -> #{}.
 
 %% Allow replies to be disabled to implement casts. for set, replace, update.
 reply(no_reply, _) -> ok;
-reply(Pid, Val) -> Pid ! {self(), obj_reply, Val}.
+reply(Pid, Val) -> Pid ! {self(), obj_reply, Val}, ok.
 
 -type rpc_message(M) :: dump | {replace, M} | {merge, M} | {remove, _} | {find, _} | {set, _, _} | {update, _, fun((_) -> _)}.
 -type handle_message(M) :: shutdown | {pid(), rpc_message(M)}.
@@ -39,13 +39,13 @@ reply(Pid, Val) -> Pid ! {self(), obj_reply, Val}.
 -type handle(M) :: fun((handle_message(M),M) -> M).
 -spec handle(handle_message(M), M) -> M.
 
-handle({Pid, dump}, Map)           -> reply(Pid, Map), Map;
-handle({Pid, {replace, M}}, _)     -> reply(Pid, ok), M;
-handle({Pid, {merge, M1}}, M0)     -> reply(Pid, ok), maps:merge(M0,M1);
-handle({Pid, {remove, K}}, Map)    -> Map1 = maps:remove(K, Map), reply(Pid, ok), Map1;
-handle({Pid, {find, K}}, Map)      -> reply(Pid, maps:find(K, Map)), Map;
+handle({Pid, dump}, Map)           -> ok=reply(Pid, Map), Map;
+handle({Pid, {replace, M}}, _)     -> ok=reply(Pid, ok), M;
+handle({Pid, {merge, M1}}, M0)     -> ok=reply(Pid, ok), maps:merge(M0,M1);
+handle({Pid, {remove, K}}, Map)    -> Map1 = maps:remove(K, Map), ok=reply(Pid, ok), Map1;
+handle({Pid, {find, K}}, Map)      -> ok=reply(Pid, maps:find(K, Map)), Map;
 handle({Pid, {set, K, V}}, Map)    -> reply(Pid, ok), maps:put(K, V, Map);
-handle({Pid, {update, K, F}}, Map) -> V = F(maps:get(K, Map)), reply(Pid, V), maps:put(K, V, Map);
+handle({Pid, {update, K, F}}, Map) -> V = F(maps:get(K, Map)), ok=reply(Pid, V), maps:put(K, V, Map);
 handle(shutdown, _)                -> exit(shutdown);
 
 handle(Msg, State) ->

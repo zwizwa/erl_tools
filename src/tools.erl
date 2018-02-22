@@ -850,8 +850,8 @@ reload_from_beam_list(Filename) ->
     %% Keep database open during reload.  
     %% Killing it seems to cause all kinds of sync problems.
     %% DB = db:db(), unlink(DB), exit(DB, kill), 
-    [reload(M) || M <- updated_modules(Filename)],
-    ok.
+    lists:foreach(fun reload/1, updated_modules(Filename)).
+
 updated_modules(FileName) ->
     {ok, Data} = file:read_file(FileName),
     BinMods = binary:split(Data, [<<"\n">>], [global,trim_all]),

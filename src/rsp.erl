@@ -110,7 +110,7 @@ hex_csv(Code, Args, Payload) ->
 %% Core for assemble/1, and recv/1
 
 %% This is a hack, relies on correct TCP packet borders which seems to
-%% works in practice but will break if borders are not respected.
+%% work in practice but will break if borders are not respected.
 gather(Data, Accu) ->
     NextAccu = Accu++tools:as_list(Data),
     case delim(NextAccu) of
@@ -130,7 +130,12 @@ singleshot(Env) ->
     singleshot(Env, "").
 
 loop({In,Out}=Env) ->
-    singleshot({In,fun(Msg) -> Out(Msg), loop(Env) end}).
+    singleshot(
+      {In,
+       fun(Msg) -> 
+               {_,_} = Out(Msg),
+               loop(Env)
+       end}).
 
 
 %% Process body for separate assembler task.

@@ -64,7 +64,7 @@ table_op({table,TypeMod,DB,Table}, put) ->
                "insert or replace into ~p (var,type,val) values (?,?,?)", [Table]),
     fun(K,TV) ->
             BinKTV = type_base:encode_ktv(TypeMod, {K,TV}),
-            sql(DB, QPut, BinKTV),
+            [] = sql(DB, QPut, BinKTV),
             TV %% For chaining
     end;
 
@@ -78,13 +78,13 @@ table_op(Spec, put_map) ->
 
 table_op({table,_,DB,Table}, clear) ->
     QClear = tools:format_binary("delete from ~p", [Table]),
-    fun() -> sql(DB, QClear, []), ok end;
+    fun() -> [] = sql(DB, QClear, []), ok end;
 
 table_op({table,_,DB,Table}, remove) ->
     QRemove = tools:format_binary("delete from ~p where var = ?", [Table]),
     fun(Key) ->
             BinKey = type_base:encode_key(Key),
-            sql(DB, QRemove, [{'text',BinKey}]), ok
+            [] = sql(DB, QRemove, [{'text',BinKey}]), ok
     end.
 
 
@@ -148,11 +148,11 @@ existing_table(Spec) ->
                    
 %% Ad-hoc key value stores.
 table_init(DB,Table) when is_atom(Table) ->
-    sql(DB,
-        tools:format_binary(
-          "create table if not exists ~p (var, type, val, primary key (var))",
-          [Table]),
-       []).
+    [] = sql(DB,
+             tools:format_binary(
+               "create table if not exists ~p (var, type, val, primary key (var))",
+               [Table]),
+             []).
 
 table_delete(DB, Table) when is_atom(Table) ->
     sql(DB,

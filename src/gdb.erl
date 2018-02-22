@@ -48,19 +48,18 @@ upload(TargetHost, Gdb, TargetPort, Elf, Sink) ->
     P = open(Gdb, TargetHost, TargetPort, Elf, Sink),
     Rv = cmd_sink(P, "load", Sink),
     _Rv = cmd_sink(P, "compare-sections", Sink),
-    send(P, "quit"),
+    ok = send(P, "quit"),
     Rv.
 
 %% Send command, send results to sink, and wait for (gdb) prompt.
 cmd_sink(Port, Cmd, Sink) ->
-    send(Port, Cmd),
+    ok = send(Port, Cmd),
     sync(Port, Sink),
     ok.
 
 send(Port, Cmd) ->
     %%tools:info("send: ~s~n", [Cmd]),
-    Port ! {self(), {command, Cmd++"\n"}},
-    ok.
+    Port ! {self(), {command, Cmd++"\n"}}, ok.
 
 sync(Port,Sink) ->
     receive
