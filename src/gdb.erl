@@ -59,7 +59,8 @@ cmd_sink(Port, Cmd, Sink) ->
 
 send(Port, Cmd) ->
     %%tools:info("send: ~s~n", [Cmd]),
-    Port ! {self(), {command, Cmd++"\n"}}.
+    Port ! {self(), {command, Cmd++"\n"}},
+    ok.
 
 sync(Port,Sink) ->
     receive

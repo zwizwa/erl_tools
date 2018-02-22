@@ -116,7 +116,7 @@ decode({Type, Bin}) when is_binary(Bin) -> (decoder(Type))(Bin).
 valid({Type,Val}=TV) ->    
     {ok,Val} == decode({Type, encode(TV)}).
 
--spec stop(name(),_,_) -> _.
+-spec stop(name(),_,_) -> no_return().
 stop(Type, Val, {Fmt, List}) ->
     throw({type,{Type, Val, fb(Fmt,List)}});
 stop(Type, Val, Msg) ->

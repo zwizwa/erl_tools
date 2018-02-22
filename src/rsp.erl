@@ -165,7 +165,7 @@ watch(Dev, Sock) ->
 
 
 
-
+-spec update(_,_) -> no_return().
 update(_,_) -> exit(rsp_update_stub).
     
 

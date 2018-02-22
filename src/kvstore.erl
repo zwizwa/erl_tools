@@ -30,6 +30,7 @@ get_or_make(KVStore, Key, Make) ->
         {ok, RV} -> RV;
         _ -> Make()
     end.
+-spec not_found(_) -> fun(() -> no_return()).
 not_found(Key) ->
     fun() -> throw({error,{not_found,Key}}) end.
 get(KVStore, Key) ->
