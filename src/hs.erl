@@ -12,14 +12,27 @@ parse(Str) ->
 
 %% x({attribute,_,type,{Name,T,_Vars}}) -> {Name,type(T)};
 x(Str) ->
-    {attribute,Line,type,{Name,T,Vs}} = parse(Str),
+    Top = parse(Str),
+    typedef(Top).
+%% Unions are only allowed as "data" definitions
+%% FIXME: if this is done indirectly by referencing user types, the constructors can be properly named.
+typedef({attribute,Line,type,{Name,{type,_,union,Ts},Vs}}) ->
+    iolist_to_binary(["data ", type({type,Line,Name,Vs})," = ", 
+                      lists:join(
+                        " | ",
+                        [[io_lib:format("~s~p",[t(Name),N]),
+                          " ", "(", type(T), ")"] 
+                         || {N,T} <- tools:enumerate(Ts)])]);
+typedef({attribute,Line,type,{Name,T,Vs}}) ->
     iolist_to_binary(["type ", type({type,Line,Name,Vs})," = ", type(T)]).
 
 %% Erlang syntax structure is good enough for direct translation.
+type({type,_,'union',_}=T) -> throw({only_toplevel_union,T});
 type({type,_,'fun',[A,R]}) -> [type(A)," -> ",type(R)];
 type({type,_,product,[A]}) -> type(A);  %% No single-element tuple in Haskell
-type({type,_,product,As}) -> ["(",lists:join(",",[type(A) || A <- As]),")"];
-type({type,_,T,Vs}) -> [t(T), [[" ", v(V)] || {var,_,V} <- Vs]];
+type({type,_,product,As}) -> ["(",lists:join(", ",[type(A) || A <- As]),")"];
+type({type,_,T,Ts}) -> [t(T), "(", lists:join(" ", [type(T0) || T0 <- Ts]), ")"];
+type({var,_,Var}) -> v(Var);
 type({user_type,Line,T,Vs}) -> type({type, Line, T, Vs}). %% Same
 
 %% Base type conversion.
