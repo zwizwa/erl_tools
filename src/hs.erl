@@ -17,27 +17,36 @@ parse(Str) ->
 x(Str) ->
     Top = parse(Str),
     iolist_to_binary(typedef(Top)).
-%% Unions are only allowed as "data" definitions
-%% FIXME: if this is done indirectly by referencing user types, the constructors can be properly named.
+
+
+
+%% {atom(),_} is interpreted as a constructor for a new data type.
+
+%% Unions take constructor names from tags.
 typedef({attribute,Line,type,{Name,{type,_,union,Ts},Vs}}) ->
     ["data ", type({type,Line,Name,Vs})," = ", 
-     lists:join(
-       " | ",
-       [[cons_name(Name,N,T),
-         " ", "(", type(T), ")"] 
-        || {N,T} <- tools:enumerate(Ts)])];
-typedef({attribute,Line,type,{Name,T,Vs}}) ->
-    ["type ", type({type,Line,Name,Vs})," = ", type(T)].
+     lists:join(" | ", [alternative(T) || T <- Ts])];
+%% Special case for single-constructor types.
+typedef({attribute,Line,type,{Name,Alt={type,_,tuple,[{atom,_,_},_]},Vs}}) ->
+    ["data ", type({type,Line,Name,Vs})," = ", alternative(Alt)];
 
-cons_name(NamePrefix,N,T) ->
-    case T of
-        {user_type,_,Name,_} ->
-            type_name(Name);
-        _ ->
-            io_lib:format("~s~p",[type_name(NamePrefix),N])
-    end.
+%% Other forms are treated as aliases.  Unions are not allowed inside type nesting.
+typedef({attribute,Line,type,{Name,T,Vs}}) ->
+    ["type ", type({type,Line,Name,Vs})," = ", type(T)];
+
+%% Funcion
+typedef({attribute,_,spec,{{Fname,_Nargs},[FunType]}}) ->
+    [atom_to_list(Fname), " :: ", type(FunType)].
+
+
+
+     
+alternative({type,_,tuple,[{atom,_,Cons},T]}) ->
+    [type_name(Cons), " (", type(T), ")"].
+    
 
 %% Erlang syntax structure is good enough for direct translation.
+%% FIXME: tuple
 type({type,_,'union',_}=T) -> throw({only_toplevel_union,T});
 type({type,_,'fun',[A,R]}) -> [type(A)," -> ",type(R)];
 type({type,_,product,[A]}) -> type(A);  %% No single-element tuple in Haskell
