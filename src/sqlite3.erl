@@ -124,21 +124,21 @@ sql(DB, SQL, Bindings) when
 
 
 
+%% FIXME: It is currently possible to race transactions, which is
+%% likely where the "cannot start.." error comes from.  Redesign it
+%% such that this is no longer possible.  I.e. create a second level
+%% of sql access to serialize transactions.
 
-
-%% Transactions
-begin_transaction(DB) ->
-    [] = sql(DB, <<"begin transaction">>, []).
-end_transaction(DB) ->
-    [] = sql(DB, <<"end transaction">>, []).
-rollback_transaction(DB) ->
-    [] = sql(DB, <<"rollback transaction">>, []).
-    
+%% Transactions always go through this functions.
+%% Do not expose begin, end, rollback separately.
+%% The idea is that is function will not leave the DB in an inconsistent state.
 transaction(DB, Fun) ->
-    begin_transaction(DB),
     try 
+        %% Can fail with: <<"cannot start a transaction within a transaction">>
+        %% so place it inside of the try block.
+        [] = sql(DB, <<"begin transaction">>, []),
         Rv = Fun(),
-        end_transaction(DB),
+        [] = sql(DB, <<"end transaction">>, []),
         {ok, Rv}
     catch
         C:E ->
@@ -146,7 +146,7 @@ transaction(DB, Fun) ->
             %% likely a bug elsewhere.
             Err0 = {C,E,erlang:get_stacktrace()},
             try
-                rollback_transaction(DB),
+                [] = sql(DB, <<"rollback transaction">>, []),
                 {error, {rollback_ok, Err0}}
             catch 
                 %% Why does this happen?
