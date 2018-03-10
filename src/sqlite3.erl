@@ -10,7 +10,7 @@
          port_open/1, port_close/1, port_query/3,
 
          %% SERVER
-         db/3, sql/3, transaction/2,
+         db/3, sql/3, sql/2, transaction/2,
 
          %% Internal, for reloads
          db_handle/2
@@ -85,43 +85,63 @@ db(Atom, DbFile, DbInit) ->
              end,
              fun sqlite3:db_handle/2}).
 
-db_handle({Pid, {query, Query}}, #{db := DB} = State) ->
-    Pid ! {self(), obj_reply, 
-           sink:gen_to_list(
-             fun(Sink) -> sqlite3:port_query(DB, Query, Sink) end)},
+
+%% Base routine performs multiple queries.
+%% This allows serializing transactions.
+db_handle({Pid, {queries, Queries}}, #{db := DB} = State) ->
+    Results =
+        [sink:gen_to_list(
+           fun(Sink) -> sqlite3:port_query(DB, Query, Sink) end)
+         || Query <- Queries],
+    Pid ! {self(), obj_reply, Results},
     State;
+
+%% db_handle({Pid, {query, Query}}, #{db := DB} = State) ->
+%%     Pid ! {self(), obj_reply, 
+%%            sink:gen_to_list(
+%%              fun(Sink) -> sqlite3:port_query(DB, Query, Sink) end)},
+%%     State;
 db_handle(Msg,State) ->
     obj:handle(Msg,State).
 
 
 -type binding() :: {text,binary()} | {blob,binary()}.
 -type query() :: {binary(),[binding()]}.
--spec query(pid(),query()) -> [[binary()] | {sqlite3_errmsg,binary()}].
-query(DbPid, Query) ->
-    obj:call(DbPid, {query, Query}).
+%% -spec query(pid(),query()) -> [[binary()] | {sqlite3_errmsg,binary()}].
+%%query(DbPid, Query) ->
+%%    obj:call(DbPid, {query, Query}).
+-spec queries(pid(),[query()]) -> [[[binary()] | {sqlite3_errmsg,binary()}]].
+queries(DbPid, Queries) ->
+    obj:call(DbPid, {queries, Queries}).
+    
+
 
 %% Thunk allows for lazy DB connections.
 -type db() :: fun(() -> pid()).
-%% Shortcut for raw SQL query
--spec sql(db(), binary(), [binding()]) -> [[binary()]].  %% FIXME: or exception
-sql(DB, SQL, Bindings) when
-      is_binary(SQL) and
-      is_list(Bindings) ->
 
+%% Lazy retrieval of DB connection + raise errors in caller's thread.
+-spec sql(db(), [{binary(), [binding()]}]) -> [[binary()]].  %% FIXME: or exception
+sql(DB, Queries) ->
 
-    %% log:info("query: ~p~n",[{DB,SQL,Bindings}]),
-    Rows = query(DB(), {SQL,Bindings}),
-
+    Tables = queries(DB(), Queries),
     %% If reply contains errors we throw them into the caller's
     %% process.  Normal results are [[binary()]].
     lists:foreach(
-      fun({sqlite3_errmsg,_}=E) -> throw({sqlite3,E,{DB,SQL,Bindings}});
-         (_) -> ok
+      fun({{SQL,Bindings},Rows}) ->
+              lists:foreach(
+                fun({sqlite3_errmsg,_}=E) -> throw({sqlite3,E,{DB,SQL,Bindings}});
+                   (_) -> ok
+                end,
+                Rows)
       end,
-      Rows),
-    %% log:info("query done~n"),
+      lists:zip(Queries, Tables)),
+    Tables.
+    
+%% FIXME: single query. remove?
+sql(DB,SQL,Bindings) ->
+    [Rows] = sql(DB,[{SQL,Bindings}]),
     Rows.
-
+    
 
 
 %% FIXME: It is currently possible to race transactions, which is
