@@ -10,7 +10,7 @@
          port_open/1, port_close/1, port_query/3,
 
          %% SERVER
-         db/3, sql/3, sql/2, transaction/2,
+         db/3, sql/2, sql_transaction/2,
 
          %% Internal, for reloads
          db_handle/2
@@ -138,9 +138,9 @@ sql(DB, Queries) ->
     Tables.
     
 %% FIXME: single query. remove?
-sql(DB,SQL,Bindings) ->
-    [Rows] = sql(DB,[{SQL,Bindings}]),
-    Rows.
+%%sql(DB,SQL,Bindings) ->
+%%    [Rows] = sql(DB,[{SQL,Bindings}]),
+%%    Rows.
     
 
 
@@ -152,13 +152,17 @@ sql(DB,SQL,Bindings) ->
 %% Transactions always go through this functions.
 %% Do not expose begin, end, rollback separately.
 %% The idea is that is function will not leave the DB in an inconsistent state.
-transaction(DB, Fun) ->
+
+sql_transaction(DB, Queries) ->
     try 
         %% Can fail with: <<"cannot start a transaction within a transaction">>
         %% so place it inside of the try block.
-        [] = sql(DB, <<"begin transaction">>, []),
-        Rv = Fun(),
-        [] = sql(DB, <<"end transaction">>, []),
+        Transaction =
+            lists:append(
+              [{<<"begin transaction">>, []}],
+              Queries,
+              [{<<"end transaction">>, []}]),
+        Rv = sql(DB, Transaction),
         {ok, Rv}
     catch
         C:E ->
@@ -166,7 +170,7 @@ transaction(DB, Fun) ->
             %% likely a bug elsewhere.
             Err0 = {C,E,erlang:get_stacktrace()},
             try
-                [] = sql(DB, <<"rollback transaction">>, []),
+                [] = sql(DB, [{<<"rollback transaction">>, []}]),
                 {error, {rollback_ok, Err0}}
             catch 
                 %% Why does this happen?
