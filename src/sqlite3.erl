@@ -159,9 +159,9 @@ sql_transaction(DB, Queries) ->
         %% so place it inside of the try block.
         Transaction =
             lists:append(
-              [{<<"begin transaction">>, []}],
-              Queries,
-              [{<<"end transaction">>, []}]),
+              [[{<<"begin transaction">>, []}],
+               Queries,
+               [{<<"end transaction">>, []}]]),
         Rv = sql(DB, Transaction),
         {ok, Rv}
     catch
