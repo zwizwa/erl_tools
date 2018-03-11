@@ -14,7 +14,7 @@
            {'text',binary()}]) -> [[binary()]].
 
 sql(DB,Q,Bs) -> [Rows] = sqlite3:sql(DB,[{Q,Bs}]), Rows.
-sql_transaction(DB,Qs) -> sqlite3:transaction(DB,Qs).
+sql_transaction(DB,Qs) -> sqlite3:sql_transaction(DB,Qs).
     
     
 
@@ -103,7 +103,10 @@ table_op({table,_,_,_}, to_map, ToList) ->
     end;
 table_op({table,_,DB,_}, put_list, MakeQPut) ->
     fun(List) ->
-            Queries = lists:map(MakeQPut, List),
+            Queries =
+                lists:map(
+                  fun({K,V}) -> MakeQPut(K,V) end,
+                  List),
             case sql_transaction(DB, Queries) of
                 {ok, _} -> ok;
                 {error, Error} -> throw({put_list,Error})

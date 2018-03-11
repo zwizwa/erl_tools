@@ -75,15 +75,17 @@ port_sync(Port, Sink) ->
 
 db(Atom, DbFile, DbInit) ->
     ParentPid = self(),
-    serv:up(Atom,
-            {handler,
-             fun() -> 
-                     DB = self(),
-                     unlink(ParentPid),
-                     spawn(fun() -> DbInit(DB) end),
-                     #{ db => sqlite3:port_open(DbFile()) }
-             end,
-             fun sqlite3:db_handle/2}).
+    Pid = 
+        serv:up(Atom,
+                {handler,
+                 fun() -> 
+                         DB = self(),
+                         unlink(ParentPid),
+                         spawn(fun() -> DbInit(DB) end),
+                         #{ db => sqlite3:port_open(DbFile()) }
+                 end,
+                 fun sqlite3:db_handle/2}),
+    #{ pid => Pid, timeout => 5000 }.
 
 
 %% Base routine performs multiple queries.
