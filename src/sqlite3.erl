@@ -110,20 +110,22 @@ db_handle(Msg,State) ->
 %% -spec query(pid(),query()) -> [[binary()] | {sqlite3_errmsg,binary()}].
 %%query(DbPid, Query) ->
 %%    obj:call(DbPid, {query, Query}).
--spec queries(pid(),[query()]) -> [[[binary()] | {sqlite3_errmsg,binary()}]].
-queries(DbPid, Queries) ->
-    obj:call(DbPid, {queries, Queries}).
+-spec queries(pid(),[query()],infinity | integer()) -> [[[binary()] | {sqlite3_errmsg,binary()}]].
+queries(DbPid, Queries, Timeout) ->
+    obj:call(DbPid, {queries, Queries}, Timeout).
     
 
 
 %% Thunk allows for lazy DB connections.
--type db() :: fun(() -> pid()).
+%% -type timeout() :: infinity | integer().
+-type db() :: fun(() -> #{ 'pid' => pid(), 'timeout' => timeout()}).
 
 %% Lazy retrieval of DB connection + raise errors in caller's thread.
 -spec sql(db(), [{binary(), [binding()]}]) -> [[binary()]].  %% FIXME: or exception
 sql(DB, Queries) ->
+    #{pid := Pid, timeout := Timeout} = DB(),
 
-    Tables = queries(DB(), Queries),
+    Tables = queries(Pid, Queries, Timeout),
     %% If reply contains errors we throw them into the caller's
     %% process.  Normal results are [[binary()]].
     lists:foreach(
