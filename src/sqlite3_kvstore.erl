@@ -13,8 +13,8 @@
           [{'blob',binary()} | 
            {'text',binary()}]) -> [[binary()]].
 
-sql(DB,Q,Bs) -> sqlite3:sql(DB,Q,Bs).
-transaction(DB,F) -> sqlite3:transaction(DB,F).
+sql(DB,Q,Bs) -> [Rows] = sqlite3:sql(DB,[{Q,Bs}]), Rows.
+sql_transaction(DB,Qs) -> sqlite3:transaction(DB,Qs).
     
     
 
@@ -59,18 +59,25 @@ table_op({table,_TypeMod,DB,Table}, keys) ->
              || [BinKey] <- sql(DB, QKeys, [])]
     end;
 
-table_op({table,TypeMod,DB,Table}, put) ->
+table_op({table,TypeMod,_,Table}, qput) ->
     QPut = tools:format_binary(
                "insert or replace into ~p (var,type,val) values (?,?,?)", [Table]),
     fun(K,TV) ->
             BinKTV = type_base:encode_ktv(TypeMod, {K,TV}),
+            {QPut, BinKTV}
+    end;
+
+table_op({table,_,DB,_}=Spec, put) ->
+    fun(K,TV) ->
+            MakeQPut = table_op(Spec, qput),
+            {QPut, BinKTV} = MakeQPut(K, TV),
             [] = sql(DB, QPut, BinKTV),
             TV %% For chaining
     end;
 
 table_op(Spec, put_list) ->
-    Put = table_op(Spec, put),
-    table_op(Spec, put_list, Put);
+    MakeQPut = table_op(Spec, qput),
+    table_op(Spec, put_list, MakeQPut);
 
 table_op(Spec, put_map) ->
     PutList = table_op(Spec, put_list),
@@ -94,16 +101,11 @@ table_op({table,_,_,_}, to_map, ToList) ->
     fun() ->
             maps:from_list(ToList())
     end;
-table_op({table,_,DB,_}, put_list, Put) ->
+table_op({table,_,DB,_}, put_list, MakeQPut) ->
     fun(List) ->
-            case transaction(
-                   DB,
-                   fun() ->
-                           lists:foreach(
-                             fun({Key,TypeVal}) -> Put(Key, TypeVal) end, 
-                             List), ok
-                   end) of
-                {ok, RV} -> RV;
+            Queries = lists:map(MakeQPut, List),
+            case sql_transaction(DB, Queries) of
+                {ok, _} -> ok;
                 {error, Error} -> throw({put_list,Error})
             end
     end;
@@ -128,7 +130,8 @@ existing_table(Spec) ->
     ToMap     = table_op(Spec, to_map, ToList),
     Keys      = table_op(Spec, keys),
     Put       = table_op(Spec, put),
-    PutList   = table_op(Spec, put_list, Put),
+    MakeQPut  = table_op(Spec, qput),
+    PutList   = table_op(Spec, put_list, MakeQPut),
     PutMap    = table_op(Spec, put_map, PutList),
     Clear     = table_op(Spec, clear),
     Remove    = table_op(Spec, remove),
