@@ -3,10 +3,14 @@ hs_expect() ->
 [
 { %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 fun () ->
-        Str = "-type t() :: fun((integer()) -> integer()).",
-        parse(Str)
+	Str = "-type t() :: fun((integer()) -> integer()).",
+	parse(Str)
 end
 , %% =>
-ok
+{attribute,1,type,
+           {t,{type,1,'fun',
+                    [{type,1,product,[{type,1,integer,[]}]},
+                     {type,1,integer,[]}]},
+              []}}
 }
 ].

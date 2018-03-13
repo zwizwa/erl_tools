@@ -41,7 +41,7 @@ save_form(FileName, {FunName, Pairs}) ->
            FileName,
            ["%% -*- erlang -*-\n",
             atom_to_list(FunName),"() ->\n[\n",
-            lists:join(
+            join(
               ",\n",
               [["{ ",
                 ["%" || _ <- lists:seq(1,78)],
@@ -52,6 +52,13 @@ save_form(FileName, {FunName, Pairs}) ->
                 "\n}\n"]
                || {Form,Val} <- Pairs]),
             "].\n"]).
+
+%% Compat with older version.
+%% join(Lists,Sep) -> lists:join(Lists,Sep).
+join(_, []) -> [];
+join(Sep, [First | Els]) -> [First, [[Sep,El] || El <- Els]]. 
+    
+    
 
 %% Value needs to be parsable, e.g. Can't have #Fun<...>.
 %% See type_base.erl for similar code.
