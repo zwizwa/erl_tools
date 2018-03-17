@@ -14,15 +14,11 @@ fun () ->
 		      "abcdefghijklmnopqrstuvwxyz"),
 	timer:sleep(100),
 	exit(Worker, normal),
-	flush()
+        _ = "Removed because not deterministic.",
+	_ = flush(),
+        ok
 end
 , %% =>
-[{processed,"a"},
- {processed,"bcde"},
- {processed,"fghi"},
- {processed,"jklm"},
- {processed,"nopq"},
- {processed,"rstu"},
- {processed,"vwxyz"}]
+ok
 }
 ].
