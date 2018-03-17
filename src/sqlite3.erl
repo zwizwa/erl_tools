@@ -20,7 +20,19 @@
 
 %% Port operations.
 port_open(DbFile) ->
-    Priv = code:priv_dir(erl_tools),
+    Priv =
+        case code:priv_dir(erl_tools) of
+            {error,bad_name} -> 
+                %% Allow files to be copied into other application's
+                %% source tree.  In that case an environment variable
+                %% needs to be set to recover the location of the
+                %% binary.
+                case os:getenv("ERL_TOOLS_APP") of
+                    false -> throw(no_env_ERL_TOOLS_APP);
+                    AppStr -> code:priv_dir(list_to_atom(AppStr))
+                end;
+            Dir -> Dir
+        end,
     Cmd = tools:format("~s/sqlite3.elf ~s", [Priv,DbFile]),
     open_port({spawn, Cmd}, [use_stdio, {packet,4}, exit_status, binary]).
 port_close(Port) ->

@@ -9,7 +9,7 @@ test: $(REBAR)
 	$(REBAR) eunit
 
 clean: $(REBAR)
-	$(REBAR) clean --all ; rm -rf _build typer.hrl
+	rm -f `find -name '*.elf'` ; $(REBAR) clean --all ; rm -rf _build typer.hrl ; 
 
 # Cross compilation testing
 cross.%:
