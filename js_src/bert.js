@@ -207,9 +207,10 @@ Bert.prototype = {
         return cons.apply(null, arr.slice(1));
     },
 
+    // All push_ functions only use .push() on the object.  So rep
+    // could be something else.  This doesn't try to be smart: just
+    // encode JavaScript objects.  Leave smarts to the other side.
     encode: function (obj) {
-        // All push_ functions only use "push()" on the object.
-        // So rep could be something else.
         a = new Array();
         a.push(this.BERT_START);
         this.push_inner(a, obj);
@@ -219,32 +220,32 @@ Bert.prototype = {
         var type = typeof(obj);
         this["push_" + type].call(this, a, obj);
     },
-    push_string: function (a, obj) {
+    push_string: function (a, str) {
         a.push(this.BINARY);
-        this.push_int(a, obj.length, 4);
-        for (var i=0; i<obj.length; i++) {
-            a.push(obj.charCodeAt(i));
+        this.push_int(a, str.length, 4);
+        this.push_chars(a, str);
+    },
+    push_atom: function (a, str) {
+        a.push(this.ATOM);
+        this.push_int(a, str.length, 2);
+        this.push_chars(a, str);
+    },
+    push_chars: function (a, str) {
+        for (var i=0; i<str.length; i++) {
+            a.push(str.charCodeAt(i));
         }
     },
     push_int: function (a, val, length) {
         while(length > 0) {
-            a.push(val & 255);
-            val = val >> 8;
             length--;
+            var shifted = val >> (8 * length);
+            a.push(shifted & 255);
         }
     },
-    // encode_bytelist: function (obj) {
-    //     return this.STRING +
-    //         this.int_to_bytes(obj.value.length, 2) +
-    //         obj.value;
-    // },
-    // encode_boolean: function (obj) {
-    //     if (obj) {
-    //         return this.encode_tup(_bert, _true);
-    //     } else {
-    //         return this.encode_tup(_bert, _false);
-    //     }
-    // },
+    push_boolean: function(a, val) {
+        if (val) this.push_atom(a, "true");
+        else     this.push_atom(a, "false");
+    },
     push_number: function (a, obj) {
         var remainder = (obj % 1 != 0);
         if (remainder) {
@@ -268,69 +269,31 @@ Bert.prototype = {
         a.push(this.INTEGER);
         this.push_int(a, obj|0, 4);
     },
-    // encode_float: function (obj) {
-    //     var s = obj.toExponential();
-    //     while (s.length < 31)
-    //         s += this.ZERO;
-    //     return this.FLOAT + s;
-    // },
-    // encode_object: function (obj) {
-    //   if (obj == null)
-    //      return this.encode_null(obj);
-    //   if (obj.type == 'atom')
-    //      return this.encode_atom(obj);
-    //   if (obj.type == 'tuple')
-    //      return this.encode_tuple(obj);
-    //   if (obj.type == 'bytelist')
-    //      return this.encode_bytelist(obj);
-    //   if (obj.constructor.toString().indexOf("Array") >= 0)
-    //      return this.encode_list(obj);
-    //   return this.encode_dictionary(obj);
-    // },
-    // encode_atom: function (obj) {
-    //     return this.ATOM +
-    //         this.int_to_bytes(obj.value.length, 2) +
-    //         obj.value;
-    // },
-    // encode_binary: function (obj) {
-    //     return this.BINARY +
-    //         this.int_to_bytes(obj.value.length, 4) +
-    //         obj.value;
-    // },
-    // enncode_tup: function () {
-    //     return this.encode_tuple(this.tup(arguments));
-    // },
-    // encode_list: function (obj) {
-    //     var s = this.LIST + this.int_to_bytes(obj.length, 4);
-    //     for (var i=0; i < obj.length; i++) {
-    //         s += this.encode_inner(obj[i]);
-    //     }
-    //     s += this.NIL;
-    //     return s;
-    // },
-    // encode_dictionary: function (obj) {
-    //     var array = new Array();
-    //     for (var key in obj)
-    //         array.push(this.tuple(key, obj[key]));
-    //     return this.encode_tup(_bert, _dict, array);
-    // },
-    // encode_null: function (obj) {
-    //     return this.encode_tup(_bert, _nil);
-    // },
-    
-    int_to_bytes: function (int, length) {
-        var negative = (int < 0),
-            data = "",
-            orig = int;
-        if (negative) { int = ~int; }
-        for (var i=0; i < length; i++) {
-            var remainder = int % 256;
-            if (negative) { remainder = 255 - remainder };
-            data = String.fromCharCode(remainder) + data;
-            int = Math.floor(int / 256);
+    push_object: function (a, obj) {
+      if (obj == null) {
+          this.push_atom(a, "null");
+      } else if (Array.isArray(obj)) {
+          this.push_array(a, obj);
+      } else {
+          var arr = new Array();
+          for (key in obj) { arr.push([key,obj[key]]); }
+          this.push_tagged(a, "object", arr);
+      }
+    },
+    // tuples are only used for tagging
+    push_tagged: function (a, tag, obj) {
+        a.push(this.SMALL_TUPLE);
+        this.push_int(a, 2, 1);
+        this.push_atom(a, tag);
+        this.push_object(a, obj);
+    },
+    push_array: function (a, obj) {
+        a.push(this.LIST);
+        this.push_int(a, obj.length, 4);
+        for (var i=0; i<obj.length; i++) {
+            this.push_inner(a, obj[i]);
         }
-        if (int > 0) throw new Error("Argument out of range: " + orig);
-        return data;
+        a.push(this.NIL);
     }
 }
 
