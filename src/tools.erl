@@ -863,10 +863,10 @@ updated_modules(FileName) ->
 
 
 -ifdef(TEST).
--include("tools.expect").
+-include("../test/tools.expect").
 expect_test() ->
     expect:run_form(
-      filename:dirname(?FILE)++"/tools.expect",
+      filename:dirname(?FILE)++"/../test/tools.expect",
       fun tools_expect/0).
 -endif.
 

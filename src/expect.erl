@@ -16,10 +16,10 @@
 %% See tools.erl for another example
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
--include("expect.expect").
+-include("../test/expect.expect").
 expect_test() ->
     expect:run_form(
-      filename:dirname(?FILE)++"/expect.expect",
+      filename:dirname(?FILE)++"/../test/expect.expect",
       fun expect_expect/0).
 -endif.
 

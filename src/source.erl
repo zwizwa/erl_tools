@@ -125,10 +125,10 @@ append([Src|Srcs]) ->
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
--include("source.expect").
+-include("../test/source.expect").
 expect_test() ->
     expect:run_form(
-      filename:dirname(?FILE)++"/source.expect",
+      filename:dirname(?FILE)++"/../test/source.expect",
       fun source_expect/0).
 -endif.
 

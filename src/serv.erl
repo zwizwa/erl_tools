@@ -253,10 +253,10 @@ flush_loop(Batch) ->
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
--include("serv.expect").
+-include("../test/serv.expect").
 expect_test() ->
     expect:run_form(
-      filename:dirname(?FILE)++"/serv.expect",
+      filename:dirname(?FILE)++"/../test/serv.expect",
       fun serv_expect/0).
 -endif.
 

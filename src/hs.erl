@@ -72,10 +72,10 @@ var_name(Var) ->
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
--include("hs.expect").
+-include("../test/hs.expect").
 expect_test() ->
     expect:run_form(
-      filename:dirname(?FILE)++"/hs.expect",
+      filename:dirname(?FILE)++"/../test/hs.expect",
       fun hs_expect/0).
 -endif.
 

@@ -206,6 +206,99 @@ Bert.prototype = {
         if (!cons) throw new Error("No such type: " + arr[0]);
         return cons.apply(null, arr.slice(1));
     },
+
+    encode: function (obj) {
+        return this.BERT_START + this.encode_inner(obj);
+    },
+    encode_inner: function(obj) {
+        var type = typeof(obj);
+        return this["encode_" + type].call(this, obj);
+    }
+    // encode_string: function (obj) {
+    //     return this.BINARY +
+    //         this.int_to_bytes(obj.length, 4) +
+    //         obj;
+    // },
+    // encode_bytelist: function (obj) {
+    //     return this.STRING +
+    //         this.int_to_bytes(obj.value.length, 2) +
+    //         obj.value;
+    // },
+    // encode_boolean: function (obj) {
+    //     if (obj) {
+    //         return this.encode_tup(_bert, _true);
+    //     } else {
+    //         return this.encode_tup(_bert, _false);
+    //     }
+    // },
+    // encode_number: function (obj) {
+    //     var remainder = (obj % 1 != 0);
+    //     if (remainder)
+    //         return this.encode_float(obj);
+    //     // small int...
+    //     if (obj >= 0 && obj < 256)
+    //         return this.SMALL_INTEGER + this.int_to_bytes(obj, 1);
+    //     // 4 byte int...
+    //     if (obj >= -134217728 && obj <= 134217727)
+    //         return this.INTEGER + this.int_to_bytes(obj, 4);
+    //     // bignum...
+    //     var s = this.bignum_to_bytes(obj);
+    //     if (s.length < 256) {
+    //         return this.SMALL_BIG + this.int_to_bytes(s.length - 1, 1) + s;
+    //     } else {
+    //         return this.LARGE_BIG + this.int_to_bytes(s.length - 1, 4) + s;
+    //     }
+    // },
+    // encode_float: function (obj) {
+    //     var s = obj.toExponential();
+    //     while (s.length < 31)
+    //         s += this.ZERO;
+    //     return this.FLOAT + s;
+    // },
+    // encode_object: function (obj) {
+    //   if (obj == null)
+    //      return this.encode_null(obj);
+    //   if (obj.type == 'atom')
+    //      return this.encode_atom(obj);
+    //   if (obj.type == 'tuple')
+    //      return this.encode_tuple(obj);
+    //   if (obj.type == 'bytelist')
+    //      return this.encode_bytelist(obj);
+    //   if (obj.constructor.toString().indexOf("Array") >= 0)
+    //      return this.encode_list(obj);
+    //   return this.encode_dictionary(obj);
+    // },
+    // encode_atom: function (obj) {
+    //     return this.ATOM +
+    //         this.int_to_bytes(obj.value.length, 2) +
+    //         obj.value;
+    // },
+    // encode_binary: function (obj) {
+    //     return this.BINARY +
+    //         this.int_to_bytes(obj.value.length, 4) +
+    //         obj.value;
+    // },
+    // enncode_tup: function () {
+    //     return this.encode_tuple(this.tup(arguments));
+    // },
+    // encode_list: function (obj) {
+    //     var s = this.LIST + this.int_to_bytes(obj.length, 4);
+    //     for (var i=0; i < obj.length; i++) {
+    //         s += this.encode_inner(obj[i]);
+    //     }
+    //     s += this.NIL;
+    //     return s;
+    // },
+    // encode_dictionary: function (obj) {
+    //     var array = new Array();
+    //     for (var key in obj)
+    //         array.push(this.tuple(key, obj[key]));
+    //     return this.encode_tup(_bert, _dict, array);
+    // },
+    // encode_null: function (obj) {
+    //     return this.encode_tup(_bert, _nil);
+    // }
+
 }
 
 
