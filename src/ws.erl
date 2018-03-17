@@ -73,9 +73,34 @@ websocket_handle({ping,_}, Req, State) ->
     {ok, Req, State};
 websocket_handle({pong,_}, Req, State) -> 
     {ok, Req, State};
+websocket_handle({binary,Bin}, Req, State) -> 
+    Term = binary_to_term(Bin),
+    EJSon = unbert(Term),
+    log:info("via bert: ~p -> ~p~n",[Term,EJSon]),
+    {ok, Req, State};
 websocket_handle(Msg, Req, State) ->
     log:info("ws:websocket_handle ignore: ~p~n",[Msg]),
     {ok, Req, State}.
+
+
+%% Erlang binary terms are only used to encode standard JavaScript
+%% objects.  We use it as an alternative to JSON, to avoid a JSON
+%% parser.
+unbert([H|T]) -> [unbert(H) | unbert(T)];
+unbert({object,Bindings}) ->
+    maps:from_list(
+      lists:map(
+        fun([K,V]) -> 
+                {binary_to_atom(K,utf8),
+                 unbert(V)}
+        end,
+        Bindings));
+unbert(Val) -> Val.
+
+      
+    
+
+    
 
 
 %% Messages sent to the websocket process.

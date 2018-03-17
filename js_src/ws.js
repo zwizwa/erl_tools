@@ -131,6 +131,10 @@ function start(args, method_call) {
     return ws;
 }
 
+function send_bert(msg) {
+    ws.send(new Uint8Array(bert.encode(msg)));
+}
+
 function send(msg) {
     ws.send(JSON.stringify(msg));
 }
@@ -171,5 +175,6 @@ function send_event(action, event) {
 // API
 exports.start = start;
 exports.send  = send;
+exports.send_bert  = send_bert;
 exports.send_input = send_input;
 exports.send_event = send_event;
