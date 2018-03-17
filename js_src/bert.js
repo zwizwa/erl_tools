@@ -220,27 +220,11 @@ Bert.prototype = {
         var type = typeof(obj);
         this["push_" + type].call(this, a, obj);
     },
+    // JavaScript types, called by push_inner
     push_string: function (a, str) {
         a.push(this.BINARY);
         this.push_int(a, str.length, 4);
         this.push_chars(a, str);
-    },
-    push_atom: function (a, str) {
-        a.push(this.ATOM);
-        this.push_int(a, str.length, 2);
-        this.push_chars(a, str);
-    },
-    push_chars: function (a, str) {
-        for (var i=0; i<str.length; i++) {
-            a.push(str.charCodeAt(i));
-        }
-    },
-    push_int: function (a, val, length) {
-        while(length > 0) {
-            length--;
-            var shifted = val >> (8 * length);
-            a.push(shifted & 255);
-        }
     },
     push_boolean: function(a, val) {
         if (val) this.push_atom(a, "true");
@@ -249,7 +233,9 @@ Bert.prototype = {
     push_number: function (a, obj) {
         var remainder = (obj % 1 != 0);
         if (remainder) {
-            this.push_float(a, obj);
+            // floats not supported
+            a.push(this.INTEGER);
+            this.push_int(a, obj|0, 4);
         }
         else if (obj >= 0 && obj < 256) {
             a.push(this.SMALL_INTEGER);
@@ -263,11 +249,6 @@ Bert.prototype = {
             // bignums not supported
             this.push_float(a, obj);
         }
-    },
-    push_float: function (a, obj) {
-        // floats not supported
-        a.push(this.INTEGER);
-        this.push_int(a, obj|0, 4);
     },
     push_object: function (a, obj) {
         // special objects
@@ -293,6 +274,24 @@ Bert.prototype = {
                 this.push_atom(a, key);
                 this.push_inner(a, obj[key]);
             }
+        }
+    },
+    // protocol subcomponents
+    push_atom: function (a, str) {
+        a.push(this.ATOM);
+        this.push_int(a, str.length, 2);
+        this.push_chars(a, str);
+    },
+    push_chars: function (a, str) {
+        for (var i=0; i<str.length; i++) {
+            a.push(str.charCodeAt(i));
+        }
+    },
+    push_int: function (a, val, length) {
+        while(length > 0) {
+            length--;
+            var shifted = val >> (8 * length);
+            a.push(shifted & 255);
         }
     }
 }

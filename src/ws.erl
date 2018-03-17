@@ -69,33 +69,21 @@ websocket_handle({text, Json}, Req, State) ->
     EJson = json:decode(Json),
     NextState = handle_ejson(EJson, State),  %% Async only
     {ok, Req, NextState};
+websocket_handle({binary, Bin}, Req, State) -> 
+    %% Binary messages (Uint8Array) are interpreted as binary erlang
+    %% terms containing EJson messages.  The main reason for this is
+    %% to avoid a JSON parser.
+    EJson = binary_to_term(Bin),
+    log:info("via bert: ~p~n",[EJson]),
+    NextState = handle_ejson(EJson, State),  %% Async only
+    {ok, Req, NextState};
 websocket_handle({ping,_}, Req, State) -> 
     {ok, Req, State};
 websocket_handle({pong,_}, Req, State) -> 
     {ok, Req, State};
-websocket_handle({binary,Bin}, Req, State) -> 
-    %% Binary messages (Uint8Array) are interpreted as erlang terms
-    %% containing EJson messages.  The main reason for this is to
-    %% avoid a JSON parser.  Generating ETF (Bert) is simple.
-    try
-        EJson = binary_to_term(Bin),
-        log:info("via bert: ~p~n",[EJson]),
-        NextState = handle_ejson(EJson, State),  %% Async only
-        {ok, Req, NextState}
-    catch
-        _:_ -> 
-            log:info("bad bert: ~p~n", [Bin]),
-            {ok, Req, State}
-    end;
-
 websocket_handle(Msg, Req, State) ->
     log:info("ws:websocket_handle ignore: ~p~n",[Msg]),
     {ok, Req, State}.
-
-
-
-      
-    
 
     
 
