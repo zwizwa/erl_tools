@@ -208,17 +208,31 @@ Bert.prototype = {
     },
 
     encode: function (obj) {
-        return this.BERT_START + this.encode_inner(obj);
+        // All push_ functions only use "push()" on the object.
+        // So rep could be something else.
+        a = new Array();
+        a.push(this.BERT_START);
+        this.push_inner(a, obj);
+        return a;
     },
-    encode_inner: function(obj) {
+    push_inner: function (a, obj) {
         var type = typeof(obj);
-        return this["encode_" + type].call(this, obj);
-    }
-    // encode_string: function (obj) {
-    //     return this.BINARY +
-    //         this.int_to_bytes(obj.length, 4) +
-    //         obj;
-    // },
+        this["push_" + type].call(this, a, obj);
+    },
+    push_string: function (a, obj) {
+        a.push(this.BINARY);
+        this.push_int(a, obj.length, 4);
+        for (var i=0; i<obj.length; i++) {
+            a.push(obj.charCodeAt(i));
+        }
+    },
+    push_int: function (a, val, length) {
+        while(length > 0) {
+            a.push(val & 255);
+            val = val >> 8;
+            length--;
+        }
+    },
     // encode_bytelist: function (obj) {
     //     return this.STRING +
     //         this.int_to_bytes(obj.value.length, 2) +
@@ -231,24 +245,29 @@ Bert.prototype = {
     //         return this.encode_tup(_bert, _false);
     //     }
     // },
-    // encode_number: function (obj) {
-    //     var remainder = (obj % 1 != 0);
-    //     if (remainder)
-    //         return this.encode_float(obj);
-    //     // small int...
-    //     if (obj >= 0 && obj < 256)
-    //         return this.SMALL_INTEGER + this.int_to_bytes(obj, 1);
-    //     // 4 byte int...
-    //     if (obj >= -134217728 && obj <= 134217727)
-    //         return this.INTEGER + this.int_to_bytes(obj, 4);
-    //     // bignum...
-    //     var s = this.bignum_to_bytes(obj);
-    //     if (s.length < 256) {
-    //         return this.SMALL_BIG + this.int_to_bytes(s.length - 1, 1) + s;
-    //     } else {
-    //         return this.LARGE_BIG + this.int_to_bytes(s.length - 1, 4) + s;
-    //     }
-    // },
+    push_number: function (a, obj) {
+        var remainder = (obj % 1 != 0);
+        if (remainder) {
+            this.push_float(a, obj);
+        }
+        else if (obj >= 0 && obj < 256) {
+            a.push(this.SMALL_INTEGER);
+            this.push_int(a, obj, 1);
+        }
+        else if (obj >= -134217728 && obj <= 134217727) {
+            a.push(this.INTEGER);
+            this.push_int(a, obj, 4);
+        }
+        else {
+            // bignums not supported
+            this.push_float(a, obj);
+        }
+    },
+    push_float: function (a, obj) {
+        // floats not supported
+        a.push(this.INTEGER);
+        this.push_int(a, obj|0, 4);
+    },
     // encode_float: function (obj) {
     //     var s = obj.toExponential();
     //     while (s.length < 31)
@@ -297,8 +316,22 @@ Bert.prototype = {
     // },
     // encode_null: function (obj) {
     //     return this.encode_tup(_bert, _nil);
-    // }
-
+    // },
+    
+    int_to_bytes: function (int, length) {
+        var negative = (int < 0),
+            data = "",
+            orig = int;
+        if (negative) { int = ~int; }
+        for (var i=0; i < length; i++) {
+            var remainder = int % 256;
+            if (negative) { remainder = 255 - remainder };
+            data = String.fromCharCode(remainder) + data;
+            int = Math.floor(int / 256);
+        }
+        if (int > 0) throw new Error("Argument out of range: " + orig);
+        return data;
+    }
 }
 
 
