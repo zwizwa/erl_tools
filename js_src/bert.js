@@ -270,30 +270,30 @@ Bert.prototype = {
         this.push_int(a, obj|0, 4);
     },
     push_object: function (a, obj) {
-      if (obj == null) {
-          this.push_atom(a, "null");
-      } else if (Array.isArray(obj)) {
-          this.push_array(a, obj);
-      } else {
-          var arr = new Array();
-          for (key in obj) { arr.push([key,obj[key]]); }
-          this.push_tagged(a, "object", arr);
-      }
-    },
-    // tuples are only used for tagging
-    push_tagged: function (a, tag, obj) {
-        a.push(this.SMALL_TUPLE);
-        this.push_int(a, 2, 1);
-        this.push_atom(a, tag);
-        this.push_object(a, obj);
-    },
-    push_array: function (a, obj) {
-        a.push(this.LIST);
-        this.push_int(a, obj.length, 4);
-        for (var i=0; i<obj.length; i++) {
-            this.push_inner(a, obj[i]);
+        // special objects
+        if (obj == null) {
+            this.push_atom(a, "null");
+        } 
+        // array as list
+        else if (Array.isArray(obj)) {
+            a.push(this.LIST);
+            this.push_int(a, obj.length, 4);
+            for (var i=0; i<obj.length; i++) {
+                this.push_inner(a, obj[i]);
+            }
+            a.push(this.NIL);
         }
-        a.push(this.NIL);
+        // object as map with atom keys
+        else {
+            var l = 0;
+            for (var key in obj) { l++; }
+            a.push(this.MAP);
+            this.push_int(a, l, 4);
+            for (var key in obj) {
+                this.push_atom(a, key);
+                this.push_inner(a, obj[key]);
+            }
+        }
     }
 }
 

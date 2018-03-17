@@ -74,28 +74,25 @@ websocket_handle({ping,_}, Req, State) ->
 websocket_handle({pong,_}, Req, State) -> 
     {ok, Req, State};
 websocket_handle({binary,Bin}, Req, State) -> 
-    Term = binary_to_term(Bin),
-    EJSon = unbert(Term),
-    log:info("via bert: ~p -> ~p~n",[Term,EJSon]),
-    {ok, Req, State};
+    %% Binary messages (Uint8Array) are interpreted as erlang terms
+    %% containing EJson messages.  The main reason for this is to
+    %% avoid a JSON parser.  Generating ETF (Bert) is simple.
+    try
+        EJson = binary_to_term(Bin),
+        log:info("via bert: ~p~n",[EJson]),
+        NextState = handle_ejson(EJson, State),  %% Async only
+        {ok, Req, NextState}
+    catch
+        _:_ -> 
+            log:info("bad bert: ~p~n", [Bin]),
+            {ok, Req, State}
+    end;
+
 websocket_handle(Msg, Req, State) ->
     log:info("ws:websocket_handle ignore: ~p~n",[Msg]),
     {ok, Req, State}.
 
 
-%% Erlang binary terms are only used to encode standard JavaScript
-%% objects.  We use it as an alternative to JSON, to avoid a JSON
-%% parser.
-unbert([H|T]) -> [unbert(H) | unbert(T)];
-unbert({object,Bindings}) ->
-    maps:from_list(
-      lists:map(
-        fun([K,V]) -> 
-                {binary_to_atom(K,utf8),
-                 unbert(V)}
-        end,
-        Bindings));
-unbert(Val) -> Val.
 
       
     
