@@ -16,6 +16,16 @@
          db_handle/2
         ]).
 
+-export_type([binding/0]).
+
+-type binding() :: {text,binary()} | {blob,binary()}.
+-type query() :: {binary(),[binding()]}.
+
+%% Queries return values, or raise exceptions.
+-type result_cell()  :: binary().
+-type result_row()   :: [result_cell()].
+-type result_table() :: [result_row()].
+
 %% PORT
 
 %% Port operations.
@@ -119,8 +129,6 @@ db_handle(Msg,State) ->
     obj:handle(Msg,State).
 
 
--type binding() :: {text,binary()} | {blob,binary()}.
--type query() :: {binary(),[binding()]}.
 %% -spec query(pid(),query()) -> [[binary()] | {sqlite3_errmsg,binary()}].
 %%query(DbPid, Query) ->
 %%    obj:call(DbPid, {query, Query}).
@@ -135,7 +143,7 @@ queries(DbPid, Queries, Timeout) ->
 -type db() :: fun(() -> #{ 'pid' => pid(), 'timeout' => timeout()}).
 
 %% Lazy retrieval of DB connection + raise errors in caller's thread.
--spec sql(db(), [{binary(), [binding()]}]) -> [[binary()]].  %% FIXME: or exception
+-spec sql(db(), [{binary(), [binding()]}]) -> [result_table()].
 sql(DB, Queries) ->
     #{pid := Pid, timeout := Timeout} = DB(),
 
@@ -152,11 +160,6 @@ sql(DB, Queries) ->
       end,
       lists:zip(Queries, Tables)),
     Tables.
-    
-%% FIXME: single query. remove?
-%%sql(DB,SQL,Bindings) ->
-%%    [Rows] = sql(DB,[{SQL,Bindings}]),
-%%    Rows.
     
 
 

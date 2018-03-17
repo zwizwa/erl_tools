@@ -205,7 +205,7 @@ wait_reply() ->
 
 %% E.g to avoid repaints when sending gui updates.
 call_sequence(Ws, Messages) ->
-    Ws ! fmt_sequence(Messages).
+    Ws ! fmt_sequence(Messages), ok.
 
 fmt_sequence(Messages) ->
     #{ type => bundle,
@@ -215,7 +215,7 @@ fmt_sequence(Messages) ->
                    lists:flatten(Messages)] }.
 
 call_sequence_bert(Ws, Messages) ->
-    Ws ! {bert, fmt_sequence(Messages)}.
+    Ws ! {bert, fmt_sequence(Messages)}, ok.
 
 %% Convenient shorthand for routines that expect innerHTML, which
 %% needs to be encoded as binary.
