@@ -1,5 +1,7 @@
 ## FIXME: remove this from distribution.
 
+.PHONY: all test clean dialyzer eunit accept
+
 REBAR = ~/devtools/rebar3/rebar3
 
 all: $(REBAR)
