@@ -51,7 +51,8 @@
          re_dispatch/2,
          become/1,
          process_dictionary_get_value/2,
-         reload_from_beam_list/1
+         reload_from_beam_list/1,
+         transpose/1
 
         ]).
 -ifdef(TEST).
@@ -291,6 +292,10 @@ binary_join([A,B|T], S) -> [A,S|binary_join([B|T], S)];
 binary_join(E, _) -> E.
 
 
+
+transpose([[]|_]) -> [];
+transpose(M) ->
+  [lists:map(fun hd/1, M) | transpose(lists:map(fun tl/1, M))].
     
     
 enumerate([],_) -> [];
