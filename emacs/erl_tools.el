@@ -6,12 +6,10 @@
   (let* ((path (buffer-file-name))
          (dir (file-name-directory path))
          (file (file-name-nondirectory path))
-         (new (concat file ".notify_emacs"))
-         (cmd (concat "make -C " dir " " new)))
-    (save-excursion
-      (save-buffer)
-      ;; Makefile will call erl-tools-expect-notify
-      (compile cmd))))
+         (new (concat file ".emacs_notify"))
+         (cmd (concat "EMACS_NOTIFY=erl-tools-expect-revert make -C " dir " " new)))
+    (save-buffer)
+    (compile cmd)))
 
 ;; Called from Makefile
 (defun erl-tools-expect-revert (file)
@@ -21,14 +19,15 @@
 ;; Example of Makefile to place next to .expect files.
 ;; ---------------------------------------------------
 ;;
-;; # Assume the test basename is the same as the module basename.
+;; # Assume the test basename is the same as the module basename,
+;; # and that expect tests are part of the eunit test.
 ;; %.expect.new: %.expect ../src/%.erl
 ;; 	cd .. ; ./rebar3/rebar3 eunit --module=$* ; exit 0
 ;;
 ;; # Copy over the original and notify.
-;; %.expect.notify_emacs: %.expect.new
+;; %.expect.emacs_notify: %.expect.new
 ;; 	cp -a $< $*.expect
-;; 	emacsclient -e "(erl-tools-expect-revert \"$*.expect\")"
+;; 	emacsclient -e "($$EMACS_NOTIFY \"$*.expect\")"
 
 
 
