@@ -27,12 +27,15 @@ expect_test() ->
 %% Syntax: single thunk, containing a single clause, containing a
 %% single Term which is an assoc list from expressions to terms.
 load_form(FileName) ->
-    {ok, Bin} = file:read_file(FileName),
-    Str = tools:format("~s",[Bin]),
-    {ok,Toks,_} = erl_scan:string(Str),
-
-    {ok, Form} = erl_parse:parse_form(Toks),
-    unpack(Form).
+    case file:read_file(FileName) of
+        {ok, Bin} ->
+            Str = tools:format("~s",[Bin]),
+            {ok, Toks, _} = erl_scan:string(Str),
+            {ok, Form} = erl_parse:parse_form(Toks),
+            unpack(Form);
+        Error ->
+            throw({expect_load_form, FileName, Error})
+    end.
 
 %% Some ad-hoc formatting.  Can't figure out how to have
 %% erl_prettypr:format display strings and binaries in a readable way.

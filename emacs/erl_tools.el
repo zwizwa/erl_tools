@@ -8,7 +8,8 @@
          (file (file-name-nondirectory path))
          (new (concat file ".emacs_notify"))
          (cmd (concat "EMACS_NOTIFY=erl-tools-expect-revert make -C " dir " " new)))
-    (save-buffer)
+    ;;(save-buffer)
+    (save-some-buffers t)
     (compile cmd)))
 
 ;; Called from Makefile

@@ -1,5 +1,5 @@
 -module(reflection).
--export([module_has_export/2, module_source/1, load_erl/3]).
+-export([module_has_export/2, module_source/1, load_erl/3, run_erl/1, run_beam/3]).
 
 %% The point of the code below is to have "immediate" code
 %% distribution on edit.  It creates a fast path, reusing the rebar3
@@ -49,5 +49,31 @@ load_erl(Prefix,Source,Nodes) ->
 
 
 
-%% Combine expect tests with reflection.  The idea is to edit the file
-%% in emacs, and have it reload the buffer from the output.
+
+
+
+
+%% Run misc .erl files on build host instance.
+scan(IOList) ->
+    Str = binary_to_list(
+            iolist_to_binary(IOList)),
+    {ok, Toks, _} = erl_scan:string(Str),
+    %% io:format("~p~n",[{IOList,Str,Toks}]),
+    Toks.
+parse(Toks) ->
+    {ok, Form} = erl_parse:parse_form(Toks),
+    %% io:format("~p~n",[Form]),
+    Form.
+run_erl(ErlFile) ->
+    io:format("~p~n",[ErlFile]),  
+    {ok, ScriptBin} = file:read_file(ErlFile),
+    {ok, Module, BeamCode} = compile:forms(parse(scan(ScriptBin))),
+    code:load_binary(Module, ErlFile, BeamCode),
+    apply(Module,run,[]).
+
+run_beam(StrModule, ErlFile, BeamFile) ->
+    io:format("~p~n",[BeamFile]),  
+    {ok, BeamCode} = file:read_file(BeamFile),
+    Module = list_to_atom(StrModule),
+    code:load_binary(Module, ErlFile, BeamCode),
+    apply(Module,run,[]).
