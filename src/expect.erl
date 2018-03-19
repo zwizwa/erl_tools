@@ -36,22 +36,32 @@ load_form(FileName) ->
 
 %% Some ad-hoc formatting.  Can't figure out how to have
 %% erl_prettypr:format display strings and binaries in a readable way.
-save_form(FileName, {FunName, Pairs}) ->
+save_form(FileName, {FunName, Triplets}) ->
     ok = file:write_file(
            FileName,
            ["%% -*- erlang -*-\n",
             atom_to_list(FunName),"() ->\n[\n",
-            join(
-              ",\n",
-              [["{ ",
-                ["%" || _ <- lists:seq(1,78)],
-                "\n",
-                erl_prettypr:format(Form),
-                "\n, %% =>\n",
-                format_val(Val),
-                "\n}\n"]
-               || {Form,Val} <- Pairs]),
+            join(",\n", [format_test(T) || T <- Triplets]),
             "].\n"]).
+
+format_test({Form,OldVal,NewVal}) ->
+    Inner = 
+        case OldVal == NewVal of
+            true ->
+                [", %% =>\n", format_val(NewVal)];
+            false ->
+                [", %% expected =>\n", format_val(OldVal), "\n",
+                 ", %% found =>\n",    format_val(NewVal)]
+        end,
+    ["{ ",
+     ["%" || _ <- lists:seq(1,78)],
+     "\n",
+     erl_prettypr:format(Form),
+     "\n",
+     Inner,
+     "\n}\n"].
+    
+
 
 %% Compat with older version.
 %% join(Lists,Sep) -> lists:join(Lists,Sep).
@@ -88,9 +98,11 @@ unpack(
      [Term]}]}) ->
     {FunName, unpack_list(Term)}.
 %% Unpack the assoc list, parsing the second element in the pair but
-%% leaving the first intact.
+%% leaving the first intact.  Third and subsequent tuple elements are
+%% ignored.  The third element is used to store error messages in case
+%% a test fails.
 unpack_list({nil,_}) -> [];
-unpack_list({cons,_,{tuple,_,[Expr,Term]},Tail}) ->
+unpack_list({cons,_,{tuple,_,[Expr,Term|_]},Tail}) ->
     [{Expr,erl_parse:normalise(Term)} | unpack_list(Tail)].
 
 %% pack({FunName,List}) ->
@@ -108,12 +120,16 @@ unpack_list({cons,_,{tuple,_,[Expr,Term]},Tail}) ->
 %% back.
 update_form(FileIn,
             FileOut,
-            TestPairs) ->
+            TestPairsOrTriplets) ->
     {Name, Old} = load_form(FileIn),
     {Forms, OldVals} = lists:unzip(Old),
-    {Tests,_} = lists:unzip(TestPairs),
-    NewVals = [catch Test() || Test <- Tests],
-    New = lists:zip(Forms, NewVals),
+    Thunks = 
+        lists:map(
+          fun({Thunk,_,_}) -> Thunk;
+             ({Thunk,_}) -> Thunk end,
+          TestPairsOrTriplets),
+    NewVals = [catch Thunk() || Thunk <- Thunks],
+    New = lists:zip3(Forms, OldVals, NewVals),
     save_form(FileOut, {Name, New}),
     {Forms,NewVals,OldVals}.
 
@@ -122,8 +138,11 @@ run_form(FileName, TestThunk) ->
     {Forms,NewVals,OldVals} = update_form(FileName, TestThunk()),
     Diff = expect:diff_form(Forms, OldVals, NewVals),
     expect:print_diff(FileName, Diff),
-    Diff = [].
-
+    case Diff of
+        [] -> ok;
+        _ -> throw({expect_failed,
+                    filename:basename(FileName)})
+    end.
     
     
 

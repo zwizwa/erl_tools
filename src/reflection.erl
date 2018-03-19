@@ -47,3 +47,7 @@ load_erl(Prefix,Source,Nodes) ->
       end,
       Nodes).
 
+
+
+%% Combine expect tests with reflection.  The idea is to edit the file
+%% in emacs, and have it reload the buffer from the output.
