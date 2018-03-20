@@ -52,8 +52,8 @@
          become/1,
          process_dictionary_get_value/2,
          reload_from_beam_list/1,
-         transpose/1
-
+         transpose/1,
+         clean_filename/1
         ]).
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -863,6 +863,15 @@ updated_modules(FileName) ->
     Mods = [binary_to_atom(BinMod, utf8) || BinMod <- BinMods],
     info("updated_modules = ~p~n", [Mods]),
     Mods.
+
+
+clean_filename(Filename) ->
+    lists:foldl(
+      fun(Pattern, Name) -> re:replace(Name, Pattern, "_", [global]) end,
+      Filename,
+      %% FIXME: There are probably more invalid characters.
+      %% There should be a library routine for this...
+      ["\s", "/", "\\"]).
 
 
 
