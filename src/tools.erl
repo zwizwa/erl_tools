@@ -867,11 +867,13 @@ updated_modules(FileName) ->
 
 clean_filename(Filename) ->
     lists:foldl(
-      fun(Pattern, Name) -> re:replace(Name, Pattern, "_", [global]) end,
+      fun(Pattern, Name) ->
+              re:replace(Name, Pattern, "_", [global])
+      end,
       Filename,
       %% FIXME: There are probably more invalid characters.
       %% There should be a library routine for this...
-      ["\s", "/", "\\"]).
+      ["\s", "/", "\\\\"]).
 
 
 
