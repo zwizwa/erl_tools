@@ -48,9 +48,11 @@ pids_add(Pid, Pids) when is_pid(Pid) ->
 pids_del(Pid, Pids) when is_pid(Pid) ->
     sets:del_element(Pid, Pids).
 pids_foreach(Fun, Pids) ->
-    sets:fold(
-      fun(Pid, Ps) -> Fun(Pid), Ps end,
-      Pids, Pids).
+    _ = sets:fold(
+          fun(Pid, Ps) -> Fun(Pid), Ps end,
+          Pids, Pids),
+    ok.
+    
 pids_send(Msg, Pids) ->
     pids_foreach(fun(Pid) -> Pid ! Msg end, Pids).
 
@@ -59,26 +61,33 @@ bc_start() ->
     spawn_handler(
       fun() -> 
               process_flag(trap_exit, true),
-              pids_new()
+              #{pids => pids_new()}
       end,
       fun serv:bc_handle/2).
 
-bc_handle({subscribe, Pid}, Pids) when is_pid(Pid) -> 
+bc_handle({subscribe, Pid}, #{pids := Pids}=State) when is_pid(Pid) -> 
     link(Pid),
-    pids_add(Pid,Pids);
-bc_handle({subscribe, Atom}, Pids) when is_atom(Atom) -> 
-    bc_handle({subscribe, whereis(Atom)}, Pids);
+    maps:put(pids, pids_add(Pid, Pids), State);
+bc_handle({subscribe, Atom}, State) when is_atom(Atom) -> 
+    bc_handle({subscribe, whereis(Atom)}, State);
 
-bc_handle({unsubscribe, Pid}, Pids) -> pids_del(Pid,Pids);
-bc_handle({foreach,     Msg}, Pids) -> pids_foreach(Msg,Pids);
-bc_handle({broadcast,   Msg}, Pids) -> pids_send(Msg,Pids);
+bc_handle({unsubscribe, Pid}, #{pids := Pids}=State) -> maps:put(pids, pids_del(Pid, Pids), State);
+bc_handle({foreach,     Fun}, #{pids := Pids}=State) -> pids_foreach(Fun, Pids), State;
+bc_handle({broadcast,   Msg}, #{pids := Pids}=State) -> pids_send(Msg,Pids), State;
 
-bc_handle({'EXIT', Pid, _}, Pids) ->
-    pids_del(Pid,Pids);
+bc_handle({'EXIT', Pid, _}, #{pids := Pids}=State) ->
+    maps:put(pids, pids_del(Pid,Pids), State);
 
-bc_handle(Msg, Pids) ->
-    tools:info("WARNING: bc_handle: ~p~n",[{Msg,Pids}]),
-    Pids.
+bc_handle(Msg, State) ->
+    try
+        obj:handle(Msg, State)
+    catch
+        C:E ->
+            tools:info("WARNING: bc_handle: ~p~n",[{Msg,State,{C,E}}]),
+            State
+    end.
+
+        
 
 
 %% Hub with predicates.

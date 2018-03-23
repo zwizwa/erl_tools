@@ -27,9 +27,11 @@
          %% Tools
          encode_id/1,
          timestamp/1,
+         ws_pids/1,
 
          %% Query values as produced by ws.js
          form_list/2
+         
 ]).
 
 
@@ -57,12 +59,21 @@ terminate(_Reason, _Req, _State) ->
 
 websocket_init(_TransportName, Req, _Opts) ->
     {Agent,_} = cowboy_req:header(<<"user-agent">>,Req),
-    %% It's useful to have these registered.
+    {Peer, _} = cowboy_req:peer(Req),
+
+    %% Register the connection centrally.
+    ws_bc() ! {subscribe, self()},
+
+    %% It's also useful to have these registered as a global name, but
+    %% this should only be used for debugging.
     %% log:set_info_name({ws,self()}),
     tools:register_suffix(ws, self()),
-    log:info("ws: init ~p~n",[Agent]),
+    log:info("ws: init ~p~n",[{Agent,Peer}]),
 
-    {ok, Req, #{terminate => fun(_) -> ok end}}.
+    {ok, Req,
+     #{terminate => fun(_) -> ok end,
+       agent => Agent,
+       peer => Peer}}.
 
 websocket_handle({text, Json}, Req, State) ->
     %% Interpret all incoming messages as JSON.
@@ -378,3 +389,13 @@ form_list(Types, EJson) ->
 %% FIXME: move spa_edit.erl input parser code here.
 
     
+ws_bc() ->
+    %% Start if not started, but make sure it is not linked.
+    BC = serv:up(ws_bc, {spawner, fun serv:bc_start/0}),
+    unlink(BC),
+    BC.
+
+%% Debug only.  Use bc interface for other things.
+ws_pids() ->
+    #{ pids := Pids } = obj:dump(ws_bc()),
+    sets:to_list(Pids).
