@@ -27,10 +27,13 @@
          %% Tools
          encode_id/1,
          timestamp/1,
-         ws_pids/1,
+         reload_all/0,
 
          %% Query values as produced by ws.js
-         form_list/2
+         form_list/2,
+
+         %% Debug
+         ws_pids/0
          
 ]).
 
@@ -399,3 +402,7 @@ ws_bc() ->
 ws_pids() ->
     #{ pids := Pids } = obj:dump(ws_bc()),
     sets:to_list(Pids).
+
+%% Ask all websockets to reload
+reload_all() ->
+    _ = ws_bc() ! {broadcast, #{ type => reload }}, ok.
