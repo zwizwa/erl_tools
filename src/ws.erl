@@ -28,12 +28,10 @@
          encode_id/1,
          timestamp/1,
          reload_all/0,
+         pids/0,
 
          %% Query values as produced by ws.js
-         form_list/2,
-
-         %% Debug
-         ws_pids/0
+         form_list/2
          
 ]).
 
@@ -398,8 +396,11 @@ ws_bc() ->
     unlink(BC),
     BC.
 
-%% Debug only.  Use bc interface for other things.
-ws_pids() ->
+%% Note that this is only a snapshot.  Pids can be invalid, and new
+%% connections might have appeared by the time the Pids are used.  In
+%% general it i safer to use uni-directional messages using the
+%% broadcaster combined with some ad-hoc continuation passing.
+pids() ->
     #{ pids := Pids } = obj:dump(ws_bc()),
     sets:to_list(Pids).
 
