@@ -237,11 +237,14 @@ cell(Key,InitEl) ->
 
 %% Embed JSON in web page
 json(ID,Data) ->
-    {ok, JSON} = json:encode(Data),
-    {script,[{type,"application/json"},
-             {id,encode_key(ID)}],
-     [[JSON]]}.
-
+    case json:encode(Data) of
+        {ok, JSON} ->
+            {script,[{type,"application/json"},
+                     {id,encode_key(ID)}],
+             [[JSON]]};
+        {error, json_not_supported=E} ->
+            throw({error, {E, Data}})
+    end.
 
 
 

@@ -109,12 +109,20 @@ websocket_info({Pid,_}=Msg, Req, State) when is_pid(Pid) ->
 websocket_info({text, _}=Raw, Req, State)   -> {reply, Raw, Req, State};
 websocket_info({binary, _}=Raw, Req, State) -> {reply, Raw, Req, State};
 websocket_info({bert, Term}, Req, State)    -> {reply, {binary, term_to_binary(Term)}, Req, State};
-
+ 
 %% Maps are interpreted as encoded JSON messages to be sent to the
 %% websocket.  FIXME: change protocol to wrap this?
+%% websocket.  The idea is to present the JavaScript code with
+%% something that would come out of a JSON parser, i.e. a native
+%% JavaScript object.  Whether we actually use JSON depends on whether
+%% the environment supports a JSON encoder.  If not, use BERT.
 websocket_info(Map, Req, State) when is_map(Map)-> 
-    {ok, JSON} = json:encode(Map),
-    {reply, {text, JSON}, Req, State};
+    case json:encode(Map) of
+        {ok, JSON} ->
+            {reply, {text, JSON}, Req, State};
+        {error, json_not_supported} ->
+            websocket_info({bert, Map}, Req, State)
+    end;
 
 %% Anything else gets sent to the delegate handler.
 websocket_info(Msg, Req, #{handle := Handle}=State) -> 
