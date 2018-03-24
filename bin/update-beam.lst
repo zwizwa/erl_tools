@@ -7,7 +7,7 @@
 
 
 TOP=$1
-STAMP=$2
+STAMP=$(readlink -f $2)
 
 # If there's no stamp file, include all files.  Else only updated ones.
 [ -f $STAMP ] && FIND_ARGS="-newer $STAMP"
