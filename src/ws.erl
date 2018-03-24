@@ -78,7 +78,7 @@ websocket_init(_TransportName, Req, _Opts) ->
 
 websocket_handle({text, Json}, Req, State) ->
     %% Interpret all incoming messages as JSON.
-    EJson = json:decode(Json),
+    {ok, EJson} = json:decode(Json),
     NextState = handle_ejson(EJson, State),  %% Async only
     {ok, Req, NextState};
 websocket_handle({binary, Bin}, Req, State) -> 
@@ -113,7 +113,8 @@ websocket_info({bert, Term}, Req, State)    -> {reply, {binary, term_to_binary(T
 %% Maps are interpreted as encoded JSON messages to be sent to the
 %% websocket.  FIXME: change protocol to wrap this?
 websocket_info(Map, Req, State) when is_map(Map)-> 
-    {reply, {text, json:encode(Map)}, Req, State};
+    {ok, JSON} = json:encode(Map),
+    {reply, {text, JSON}, Req, State};
 
 %% Anything else gets sent to the delegate handler.
 websocket_info(Msg, Req, #{handle := Handle}=State) -> 

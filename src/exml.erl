@@ -237,9 +237,10 @@ cell(Key,InitEl) ->
 
 %% Embed JSON in web page
 json(ID,Data) ->
+    {ok, JSON} = json:encode(Data),
     {script,[{type,"application/json"},
              {id,encode_key(ID)}],
-     [[json:encode(Data)]]}.
+     [[JSON]]}.
 
 
 
