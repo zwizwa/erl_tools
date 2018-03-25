@@ -3,16 +3,23 @@
 # export ERL_TOOLS_EXTRA_TARGETS=sqlite3.host.elf
 
 # To support multi-platform builds, we use GCC's -dumpmachine output
-# as a directory name.
+# as a directory name under which to store the target binary.  We then
+# link the binary into the source's priv/ dir EVERY TIME such that the
+# release tool can follow that symlink to create the tarball.  Note
+# that this means release builds cannot be run in parallell for
+# different architectures!
+
 ERL_TOOLS_BUILD_DIR=$(REBAR_BUILD_DIR)/erl_tools
 ERL_TOOLS_BIN_DIR=$(ERL_TOOLS_BUILD_DIR)/$(shell $(CC) -dumpmachine)
 
-TARGETS := $(ERL_TOOLS_BIN_DIR)/sqlite3.elf $(ERL_TOOLS_EXTRA_TARGETS)
+SQLITE3_ELF = $(ERL_TOOLS_BIN_DIR)/sqlite3.elf
+TARGETS := $(SQLITE3_ELF) $(ERL_TOOLS_EXTRA_TARGETS)
 
 .PHONY: all
 all: $(TARGETS) #$(patsubst %,../priv/%,$(TARGETS))
 	set >$(ERL_TOOLS_BUILD_DIR)/env.log
 	@echo Building in $(REBAR_BUILD_DIR)
+	(cd ../priv ; ln -sf $(SQLITE3_ELF) .) # re-create 'current target' link for release tool
 
 .PHONY: clean
 clean:
@@ -36,10 +43,9 @@ LIB_O := bert.o
 #	[ -h ../priv
 
 $(ERL_TOOLS_BIN_DIR)/%.elf: %.o $(LIB_O)
-	mkdir -p $(ERL_TOOLS_BIN_DIR)/bin
+	mkdir -p $(ERL_TOOLS_BIN_DIR)
 	. ./default.env ; $(CC) $(LDFLAGS) -o $@ $< $(LIB_O) -lsqlite3
 	file $@
-	(cd ../priv ; ln -sf $@ .) # preserve previous semantics
 
 
 
