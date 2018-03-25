@@ -13,10 +13,10 @@ ERL_TOOLS_BUILD_DIR=$(REBAR_BUILD_DIR)/erl_tools
 ERL_TOOLS_BIN_DIR=$(ERL_TOOLS_BUILD_DIR)/$(shell $(CC) -dumpmachine)
 
 SQLITE3_ELF = $(ERL_TOOLS_BIN_DIR)/sqlite3.elf
-TARGETS := $(SQLITE3_ELF) $(ERL_TOOLS_EXTRA_TARGETS)
+TARGETS := $(SQLITE3_ELF)
 
 .PHONY: all
-all: $(TARGETS) #$(patsubst %,../priv/%,$(TARGETS))
+all: $(TARGETS) $(patsubst %,../priv/%,$(ERL_TOOLS_EXTRA_TARGETS))
 	set >$(ERL_TOOLS_BUILD_DIR)/env.log
 	@echo Building in $(REBAR_BUILD_DIR)
 	(cd ../priv ; ln -sf $(SQLITE3_ELF) .) # re-create 'current target' link for release tool
@@ -34,14 +34,6 @@ LIB_O := bert.o
 %.o: %.c
 	. ./default.env ; $(CC) $(CFLAGS) -I../include -Wall -c $< -o $@ $(DEFS)
 
-# Rebar makes_build/default/lib/erl_tools/priv a symlink to the source
-# tree.  Binaries are supposed to go there so that doesn't make any
-# sense.  Patch it here, so multi-platform releases don't step on each
-# other's toes.
-#.PHONY: patch_priv
-#patch_priv:
-#	[ -h ../priv
-
 $(ERL_TOOLS_BIN_DIR)/%.elf: %.o $(LIB_O)
 	mkdir -p $(ERL_TOOLS_BIN_DIR)
 	. ./default.env ; $(CC) $(LDFLAGS) -o $@ $< $(LIB_O) -lsqlite3
@@ -58,7 +50,7 @@ host/%.o: %.c
 	mkdir -p host
 	$(HOST_CC) $(HOST_CFLAGS) -I../include -Wall -c $< -o $@ $(DEFS)
 ../priv/host/%.elf: host/%.o $(HOST_LIB_O)
-	[ ! -z "$(HOST_CC)" ]
+	[ ! -z "$(HOST_CC)" ]	
 	mkdir -p ../priv/host
 	$(HOST_CC) $(HOST_LDFLAGS) -o $@ $< $(HOST_LIB_O) -lsqlite3
 	file $@
