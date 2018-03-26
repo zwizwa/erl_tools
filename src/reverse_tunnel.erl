@@ -1,5 +1,5 @@
 -module(reverse_tunnel).
--export([start/2,singleshot/3]).
+-export([start/2,info/1,forward_handle/2]).
 
 %% Create a reverse TCP tunnel.
 
@@ -47,10 +47,12 @@ start(Incoming, PortRange) ->
                           %% up a corresponding single-shot listening
                           %% socket.
                           Tunnel = self(),
+                          %% For info/1
+                          HavePort = fun(ListenPort) -> obj:set(Tunnel, listen_port, ListenPort) end,
                           OnError = fun() -> Tunnel ! close end,
                           SingleShot = 
                               singleshot(
-                                PortRange, OnError,
+                                PortRange, HavePort, OnError,
                                 {handler,
                                  fun(LocalSock) ->
                                          link(Registry),
@@ -60,13 +62,13 @@ start(Incoming, PortRange) ->
                                             buffer => [],
                                             other => {connected, Tunnel} }
                                  end,
-                                 fun forward_handle/2}),
+                                 fun reverse_tunnel:forward_handle/2}),
 
                           #{ sock => TunnelSock,
                              buffer => [],
                              other => {waiting, SingleShot} }
                   end,
-                  fun forward_handle/2},
+                  fun reverse_tunnel:forward_handle/2},
                  %% Handle other incoming messages
                  fun ({'EXIT',_Pid,_Reason}=Msg, State) ->
                          log:info("~p~n",[Msg]),
@@ -104,14 +106,18 @@ fw_handle({tcp_closed,_}, #{ other := {connected, Other} }) when is_pid(Other) -
     Other ! close,
     exit(self(), normal);
 
-fw_handle(close, #{ sock := Sock}=State) ->
+fw_handle(close, #{ sock := Sock}) ->
     gen_tcp:close(Sock),
-    State;
+    exit(self(), normal);
 
 fw_handle({set_connected, Other}, State) ->
     %% Once other end is there, dump the buffer (e.g. SSH banner).
     State1 = maps:put(other, {connected, Other}, State),
-    flush(State1).
+    flush(State1);
+
+fw_handle(Msg, State) ->
+    obj:handle(Msg, State).
+
 
 queue(Data, #{ buffer := Buffer } = State) ->
     State1 = maps:put(buffer, [Data|Buffer], State),
@@ -145,7 +151,10 @@ until_ok(Fun, {Start, Endx}) ->
             end
     end.
                
-singleshot(PortRange, OnError, {handler, Init, Handle}) ->
+singleshot(PortRange,
+           HavePort,
+           OnError,
+           {handler, Init, Handle}) ->
     serv:start(
       {body,
        fun() ->
@@ -158,31 +167,46 @@ singleshot(PortRange, OnError, {handler, Init, Handle}) ->
                       end, 
                       PortRange) of
                    {error, none_ok} ->
-                       info("singleshot: no free ports: ~p~n", [PortRange]),
+                       info("no free ports: ~p~n", [PortRange]),
                        OnError();
                    {ok, {ListenPort, ListenSock}} = OK ->
-                       info("singleshot listening: ~p~n", [ListenPort]),
+                       info("listening: ~p~n", [ListenPort]),
+                       HavePort(ListenPort),
                        serv:start(
                          {handler,
                           fun() ->
                                   case gen_tcp:accept(ListenSock) of
                                       {error, Reason}  ->
-                                          info("singleshot accept error: ~p~n", [{ListenPort,Reason}]),
+                                          info("accept error: ~p~n", [{ListenPort,Reason}]),
                                           exit(Reason);
                                       {ok, ConnSock} -> 
                                           %% Need to wait until socket is accepted
                                           Listener ! close,
-                                          info("singleshot accepted: ~p~n", [{ListenPort,ConnSock}]),
+                                          info("accepted: ~p~n", [{ListenPort,ConnSock}]),
                                           Init(ConnSock)
                                   end
                           end,
                           Handle}),
                        receive close -> ok end,
-                       info("singleshot closing listener: ~p~n", [ListenPort]),
+                       info("closing listener: ~p~n", [ListenPort]),
                        gen_tcp:close(ListenSock),
                        OK
                end
        end}).
 
 
+info(Server) ->
+    Here = self(),
+    Ref = make_ref(),
+    Server ! {apply, fun(Pids) -> Here ! {Ref, Pids} end},
+    receive
+        {Ref, Pids} ->
+            [begin
+                 {obj:get(P, listen_port),        %% Where we need to connect
+                  inet:peername(obj:get(P, sock)),%% Incoming tunnel connection
+                  obj:get(P, buffer)}             %% Banner
+             end || P <- Pids]
+    end.
+
+    
 
