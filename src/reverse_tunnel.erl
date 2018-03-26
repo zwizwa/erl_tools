@@ -33,25 +33,28 @@ start(Incoming, PortPool) ->
                           %% Once an incoming tunnel is set up, we set
                           %% up a corresponding single-shot listening
                           %% socket.
-                          Registry ! {start_singleshot, self()},
+                          Tunnel = self(),
+                          OnError = fun() -> Tunnel ! close end,
+                          SingleShot = 
+                              singleshot(
+                                PortPool, OnError,
+                                {handler,
+                                 fun(LocalSock) ->
+                                         link(Registry),
+                                         %% Once that is set up, both are connected.
+                                         Tunnel ! {set_other, self()},
+                                         #{ sock => LocalSock,
+                                            other => Tunnel }
+                                 end,
+                                 fun forward_handle/2}),
+
                           #{ sock => TunnelSock,
-                             other => not_yet_connected }
+                             other => {waiting, SingleShot} }
                   end,
                   fun forward_handle/2},
-                 %% Handle other incoming messages: FIXME
-                 fun ({start_singleshot, Tunnel}, State) ->
-                         OnError = fun() -> Tunnel ! close end,
-                         singleshot(
-                           PortPool, OnError,
-                           {handler,
-                            fun(LocalSock) ->
-                                    link(Registry),
-                                    %% Once that is set up, both are connected.
-                                    Tunnel ! {set_other, self()},
-                                    #{ sock => LocalSock,
-                                       other => Tunnel }
-                            end,
-                            fun forward_handle/2}),
+                 %% Handle other incoming messages
+                 fun ({'EXIT',_Pid,_Reason}=Msg, State) ->
+                         log:info("~p~n",[Msg]),
                          State;
                      (Msg, State) ->
                          obj:handle(Msg,State) 
@@ -67,15 +70,18 @@ start(Incoming, PortPool) ->
 
 
 %% Forwarder, same for both ends.
-forward_handle(Msg,State) ->
+forward_handle(Msg, State) ->
     log:info("~p~n", [Msg]),
     fw_handle(Msg, State).
-fw_handle({tcp, _, Data}, #{ other := Other }=State) ->
+fw_handle({tcp, _, Data}, #{ other := Other } = State) ->
     Other ! {send, Data},
     State;
-fw_handle({tcp_closed,_}, #{ other := Other }=State) ->
+fw_handle({tcp_closed,_}, #{ other := {waiting, SingleShot} }) ->
+    SingleShot ! close,
+    exit(self(), normal);
+fw_handle({tcp_closed,_}, #{ other := Other }) when is_pid(Other) ->
     Other ! close,
-    State;
+    exit(self(), normal);
 fw_handle({send, Data}, #{ sock := Sock}=State) ->
     gen_tcp:send(Sock, Data),
     State;
@@ -84,6 +90,8 @@ fw_handle(close, #{ sock := Sock}=State) ->
     State;
 fw_handle({set_other, Other}, State) ->
     maps:put(other, Other, State).
+
+
 
     
 
@@ -94,8 +102,8 @@ until_ok(_, []) -> {error, none_ok};
 until_ok(Fun, [E|Es]) -> 
     case Fun(E) of
         {ok,Rv} -> {ok,{E,Rv}};
-        Error ->
-            log:info("until_ok: ~p~n", [{E,Error}]),
+        _Error ->
+            log:info("until_ok: ~p~n", [{E,_Error}]),
             until_ok(Fun,Es)
     end.
                
@@ -107,12 +115,12 @@ singleshot(PortPool, OnError, {handler, Init, Handle}) ->
                case until_ok(
                       fun(ListenPort) ->
                               RV = gen_tcp:listen(ListenPort, ?OPTS),
-                              info("listen: ~p~n", [{ListenPort,RV}]),
+                              %% info("listen: ~p~n", [{ListenPort,RV}]),
                               RV
                       end, 
                       PortPool) of
-                   {error, Reason} ->
-                       info("singleshot listen error: port ~p: ~p~n", [PortPool,Reason]),
+                   {error, none_ok} ->
+                       info("singleshot: no free ports: ~p~n", [PortPool]),
                        OnError();
                    {ok, {ListenPort, ListenSock}} = OK ->
                        info("singleshot listening: ~p~n", [ListenPort]),
