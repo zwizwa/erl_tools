@@ -1,6 +1,22 @@
 -module(reverse_tunnel).
 -export([start/2,singleshot/3]).
 
+%% Create a reverse TCP tunnel.
+
+
+%% Implements the equivalent of
+%%
+%% SERVER: /etc/inetd.conf:
+%% # Reverse ssh tunnel.
+%% 22001 stream tcp nowait nobody /usr/bin/socat /usr/bin/socat - tcp-listen:22002,reuseaddr
+%%
+%% CLIENT: socat tcp-connect:localhost:22 tcp-connect:$SERVER_IP:22001
+%%
+%% The exposed client port is then available on the host:
+%% ssh -p 22002 localhost
+
+%% We do something similar, but support multple connections.
+
 %% The point is to:
 %% - Provide the machinery to produce 2 sockets
 %% - Set them up so they forward to each other
@@ -9,18 +25,15 @@
 %% The key element here is a single shot connection, which is easier
 %% to write a custom routine for as opposed to useing serv_tcp.
 
-%% Implements the equivalent of /etc/inetd.conf:
-%% # Reverse ssh tunnel.
-%% 22001 stream tcp nowait nobody /usr/bin/socat /usr/bin/socat - tcp-listen:22002,reuseaddr
-%%
-%% But using a port pool for multiple connections.
+%% This code was surprisingly hard to get right.
+
 
 info(F,A) -> log:info(F,A).
 
 -define(OPTS,[binary, {packet, 0}, {active, true}, {reuseaddr, true}]).
 
 %% Main server
-start(Incoming, PortPool) ->
+start(Incoming, PortRange) ->
     serv:start(
       {handler,
        fun() ->
@@ -37,15 +50,15 @@ start(Incoming, PortPool) ->
                           OnError = fun() -> Tunnel ! close end,
                           SingleShot = 
                               singleshot(
-                                PortPool, OnError,
+                                PortRange, OnError,
                                 {handler,
                                  fun(LocalSock) ->
                                          link(Registry),
                                          %% Once that is set up, both are connected.
-                                         Tunnel ! {set_other, self()},
+                                         Tunnel ! {set_connected, self()},
                                          #{ sock => LocalSock,
                                             buffer => [],
-                                            other => Tunnel }
+                                            other => {connected, Tunnel} }
                                  end,
                                  fun forward_handle/2}),
 
@@ -62,7 +75,7 @@ start(Incoming, PortPool) ->
                          obj:handle(Msg,State) 
                  end,
                  %% State for messages.  Mostly for debugging.
-                 #{ port_pool => PortPool },
+                 #{ port_pool => PortRange },
                  %% Socket options
                  ?OPTS)
        end,
@@ -73,38 +86,40 @@ start(Incoming, PortPool) ->
 
 %% Forwarder, same code for both ends.
 forward_handle(Msg, State) ->
-    log:info("~p~n", [Msg]),
+    %% log:info("~p~n", [Msg]),
     fw_handle(Msg, State).
 
-%% While waiting.
-fw_handle({tcp, _, Data}, #{ other := {waiting, _} } = State) ->
-    queue(Data, State);
-fw_handle({tcp_closed,_}, #{ other := {waiting, SingleShot} }) ->
-    SingleShot ! close,
-    exit(self(), normal);
-
 fw_handle({tcp, _, Data}, State) ->
-    flush(queue(Data, State));
-
-fw_handle({tcp_closed,_}, #{ other := Other }) when is_pid(Other) ->
-    Other ! close,
-    exit(self(), normal);
+    queue(Data, State);
 
 fw_handle({send, Data}, #{ sock := Sock}=State) ->
     gen_tcp:send(Sock, Data),
     State;
 
+fw_handle({tcp_closed,_}, #{ other := {waiting, SingleShot} }) ->
+    SingleShot ! close,
+    exit(self(), normal);
+
+fw_handle({tcp_closed,_}, #{ other := {connected, Other} }) when is_pid(Other) ->
+    Other ! close,
+    exit(self(), normal);
+
 fw_handle(close, #{ sock := Sock}=State) ->
     gen_tcp:close(Sock),
     State;
 
-fw_handle({set_other, Other}, State) ->
+fw_handle({set_connected, Other}, State) ->
     %% Once other end is there, dump the buffer (e.g. SSH banner).
-    flush(maps:put(other, Other, State)).
+    State1 = maps:put(other, {connected, Other}, State),
+    flush(State1).
 
 queue(Data, #{ buffer := Buffer } = State) ->
-    maps:put(buffer, [Data|Buffer], State).
-flush(#{ buffer := Buffer, other := Other } = State) ->
+    State1 = maps:put(buffer, [Data|Buffer], State),
+    flush(State1).
+
+flush(#{ other := {waiting, _} } = State) ->
+    State;
+flush(#{ other := {connected, Other}, buffer := Buffer} = State) ->
     lists:foreach(
       fun(Data) -> Other ! {send, Data} end,
       lists:reverse(Buffer)),
@@ -116,17 +131,21 @@ flush(#{ buffer := Buffer, other := Other } = State) ->
 
     
 
-
-until_ok(_, []) -> {error, none_ok};
-until_ok(Fun, [E|Es]) -> 
-    case Fun(E) of
-        {ok,Rv} -> {ok,{E,Rv}};
-        _Error ->
-            log:info("until_ok: ~p~n", [{E,_Error}]),
-            until_ok(Fun,Es)
+%% Try Fun given a range.
+until_ok(Fun, {Start, Endx}) ->
+    case Start >= Endx of
+        true ->
+            {error, none_ok};
+        false ->
+            case Fun(Start) of
+                {ok, Rv} -> {ok, {Start, Rv}};
+                _Error ->
+                    %% log:info("until_ok: ~p~n", [{Start,_Error}]),
+                    until_ok(Fun, {Start+1,Endx})
+            end
     end.
                
-singleshot(PortPool, OnError, {handler, Init, Handle}) ->
+singleshot(PortRange, OnError, {handler, Init, Handle}) ->
     serv:start(
       {body,
        fun() ->
@@ -137,9 +156,9 @@ singleshot(PortPool, OnError, {handler, Init, Handle}) ->
                               %% info("listen: ~p~n", [{ListenPort,RV}]),
                               RV
                       end, 
-                      PortPool) of
+                      PortRange) of
                    {error, none_ok} ->
-                       info("singleshot: no free ports: ~p~n", [PortPool]),
+                       info("singleshot: no free ports: ~p~n", [PortRange]),
                        OnError();
                    {ok, {ListenPort, ListenSock}} = OK ->
                        info("singleshot listening: ~p~n", [ListenPort]),
