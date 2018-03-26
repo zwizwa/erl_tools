@@ -44,11 +44,13 @@ start(Incoming, PortPool) ->
                                          %% Once that is set up, both are connected.
                                          Tunnel ! {set_other, self()},
                                          #{ sock => LocalSock,
+                                            buffer => [],
                                             other => Tunnel }
                                  end,
                                  fun forward_handle/2}),
 
                           #{ sock => TunnelSock,
+                             buffer => [],
                              other => {waiting, SingleShot} }
                   end,
                   fun forward_handle/2},
@@ -69,31 +71,48 @@ start(Incoming, PortPool) ->
 
 
 
-%% Forwarder, same for both ends.
+%% Forwarder, same code for both ends.
 forward_handle(Msg, State) ->
     log:info("~p~n", [Msg]),
     fw_handle(Msg, State).
-fw_handle({tcp, _, Data}, #{ other := Other } = State) ->
-    Other ! {send, Data},
-    State;
+
+%% While waiting.
+fw_handle({tcp, _, Data}, #{ other := {waiting, _} } = State) ->
+    queue(Data, State);
 fw_handle({tcp_closed,_}, #{ other := {waiting, SingleShot} }) ->
     SingleShot ! close,
     exit(self(), normal);
+
+fw_handle({tcp, _, Data}, State) ->
+    flush(queue(Data, State));
+
 fw_handle({tcp_closed,_}, #{ other := Other }) when is_pid(Other) ->
     Other ! close,
     exit(self(), normal);
+
 fw_handle({send, Data}, #{ sock := Sock}=State) ->
     gen_tcp:send(Sock, Data),
     State;
+
 fw_handle(close, #{ sock := Sock}=State) ->
     gen_tcp:close(Sock),
     State;
+
 fw_handle({set_other, Other}, State) ->
-    maps:put(other, Other, State).
+    %% Once other end is there, dump the buffer (e.g. SSH banner).
+    flush(maps:put(other, Other, State)).
 
-
+queue(Data, #{ buffer := Buffer } = State) ->
+    maps:put(buffer, [Data|Buffer], State).
+flush(#{ buffer := Buffer, other := Other } = State) ->
+    lists:foreach(
+      fun(Data) -> Other ! {send, Data} end,
+      lists:reverse(Buffer)),
+    maps:put(buffer, [], State).
+    
 
     
+%% socat tcp-connect:localhost:22 tcp-connect:10.1.3.29:22000
 
     
 
