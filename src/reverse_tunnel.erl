@@ -1,5 +1,5 @@
 -module(reverse_tunnel).
--export([start/2,singleshot/2,test/1]).
+-export([start/2,singleshot/2]).
 
 %% The point is to:
 %% - Provide the machinery to produce 2 sockets
@@ -17,13 +17,13 @@
 
 info(F,A) -> log:info(F,A).
 
+-define(OPTS,[binary, {packet, 0}, {active, true}, {reuseaddr, true}]).
+
 %% Main server
 start(Incoming, {LocalListen,_} = _PortPool) ->
-
     serv:start(
       {handler,
        fun() ->
-               Opts = [binary, {packet, 0}, {active, true}, {reuseaddr, true}],
                serv_tcp:init(
                  [Incoming],
                  {handler,
@@ -51,7 +51,7 @@ start(Incoming, {LocalListen,_} = _PortPool) ->
                  fun obj:handle/2,
                  %% State for messages
                  #{},
-                 Opts)
+                 ?OPTS)
        end,
        %% Use default handler
        fun serv_tcp:handle/2}).
@@ -60,11 +60,17 @@ start(Incoming, {LocalListen,_} = _PortPool) ->
 forward_handle(Msg,State) ->
     log:info("~p~n", [Msg]),
     fw_handle(Msg, State).
-fw_handle({tcp, _, Data}=_M, #{ other := Other }=State) ->
+fw_handle({tcp, _, Data}, #{ other := Other }=State) ->
     Other ! {send, Data},
+    State;
+fw_handle({tcp_closed,_}, #{ other := Other }=State) ->
+    Other ! close,
     State;
 fw_handle({send, Data}, #{ sock := Sock}=State) ->
     gen_tcp:send(Sock, Data),
+    State;
+fw_handle(close, #{ sock := Sock}=State) ->
+    gen_tcp:close(Sock),
     State;
 fw_handle({set_other, Other}, State) ->
     maps:put(other, Other, State).
@@ -77,12 +83,11 @@ fw_handle({set_other, Other}, State) ->
 
                
 singleshot(ListenPort, {handler, Init, Handle}) ->
-    Opts = [binary, {packet, 0}, {active, true}, {reuseaddr, true}],
     serv:start(
       {body,
        fun() ->
                Listener = self(),
-               case gen_tcp:listen(ListenPort, Opts) of
+               case gen_tcp:listen(ListenPort, ?OPTS) of
                    {error, Reason} ->
                        info("singleshot listen error: port ~p: ~p~n", [ListenPort,Reason]),
                        exit(Reason);
@@ -112,20 +117,3 @@ singleshot(ListenPort, {handler, Init, Handle}) ->
 
 
 
-
-
-
-test(Port) ->
-    singleshot(
-      Port,
-      {handler,
-       fun(Sock) ->
-               info("sock: ~p~n",[Sock]),
-               #{ sock => Sock }
-       end,
-       fun(Msg,State) ->
-               info("msg: ~p~n",[Msg]),
-               State
-       end}).
-
-    
