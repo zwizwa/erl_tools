@@ -27,6 +27,7 @@
          %% Tools
          encode_id/1,
          timestamp/1,
+         reload/1,
          reload_all/0,
          pids/0,
 
@@ -416,3 +417,5 @@ pids() ->
 %% Ask all websockets to reload
 reload_all() ->
     _ = ws_bc() ! {broadcast, #{ type => reload }}, ok.
+reload(Ws) ->
+    Ws !  #{ type => reload }.
