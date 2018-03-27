@@ -95,7 +95,7 @@ fw_handle({tcp, _, Data}, State) ->
     queue(Data, State);
 
 fw_handle({send, Data}, #{ sock := Sock}=State) ->
-    gen_tcp:send(Sock, Data),
+    ok = gen_tcp:send(Sock, Data),
     State;
 
 fw_handle({tcp_closed,_}, #{ other := {waiting, SingleShot} }) ->

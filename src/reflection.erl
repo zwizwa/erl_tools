@@ -68,12 +68,12 @@ run_erl(ErlFile) ->
     io:format("~p~n",[ErlFile]),  
     {ok, ScriptBin} = file:read_file(ErlFile),
     {ok, Module, BeamCode} = compile:forms(parse(scan(ScriptBin))),
-    code:load_binary(Module, ErlFile, BeamCode),
+    _ = code:load_binary(Module, ErlFile, BeamCode),
     apply(Module,run,[]).
 
 run_beam(StrModule, ErlFile, BeamFile) ->
     io:format("~p~n",[BeamFile]),  
     {ok, BeamCode} = file:read_file(BeamFile),
     Module = list_to_atom(StrModule),
-    code:load_binary(Module, ErlFile, BeamCode),
+    _ = code:load_binary(Module, ErlFile, BeamCode),
     apply(Module,run,[]).
