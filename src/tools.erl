@@ -412,6 +412,17 @@ run_session(Cmd,Prompt) ->
             run_receive(Env, [])
     end.
 
+%% Empty prompt means to ignore all replies.  Log them to console.
+run_receive(Env=#{prompt := "", tag := Tag}, Stack) ->
+    receive
+        _Msg ->
+            log:info("~s: ~p~n",[Tag, _Msg]),
+            run_receive(Env, Stack)
+    after
+        0 -> 
+            {ok, ""}
+    end;
+
 run_receive(Env=#{port := Port, prompt := Prompt, tag := Tag}, Stack) ->
     receive
         {Port, {data, {eol, Prompt}}} ->
