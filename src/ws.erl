@@ -205,7 +205,7 @@ call_fmt(ID,Method,Arg) ->
     
 %% Some Arg types are sent using Binary ERlang Term format for more
 %% efficient encoding.
-call_msg(ID,Method,{s16_le,_}=Arg) -> {bert, call_fmt(ID,Method,Arg)};
+%% call_msg(ID,Method,{s16_le,_}=Arg) -> {bert, call_fmt(ID,Method,Arg)};
 %% Default is JSON.
 call_msg(ID,Method,Arg) -> call_fmt(ID,Method,Arg).
 
