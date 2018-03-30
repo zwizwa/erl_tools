@@ -109,7 +109,7 @@ function start(args, method_call) {
         else if (evt.data instanceof ArrayBuffer) {
             // BERT
             var msg = bert.decode(evt.data);
-            //console.log('bertmsg',msg);
+            // console.log('bertmsg',msg);
             handle(msg);
         }
         else {

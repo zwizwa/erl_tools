@@ -63,6 +63,7 @@ Stream.prototype = {
     pop_slice: function(size_field_size) {
         var size = this.int_be(size_field_size);
         var slice = this.buffer.slice(this.offset, this.offset + size);
+        // console.log('slice',slice);
         this.wind(size);
         return slice;
     },
@@ -167,7 +168,10 @@ Bert.prototype = {
         else { return { type: 'improper-list', arr: arr, tail: tail } }
     },
     decode_bytelist: function (s) {
-        return s.pop_slice(2);
+        // Note: sometimes Erlang decides to encode a list of integers
+        // as a string.  Return the same as if it were an array.
+        var buffer = s.pop_slice(2);
+        return new Int8Array(buffer);
     },
     decode_integer: function (s, count) {
         return s.int_be(count);
