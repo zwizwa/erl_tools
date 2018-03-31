@@ -116,7 +116,13 @@ forward_handle(Msg, State) ->
     %% log:info("~p~n", [Msg]),
     fw_handle(Msg, State).
 
-fw_handle({tcp, _, Data}, State) ->
+fw_handle({tcp, _, Data}, #{ other := Other } = State) ->
+    case Other of
+        {waiting, _} ->
+            log:info("banner: ~p~n", [Data]);
+        _ ->
+            ok
+    end,
     queue(Data, State);
 
 fw_handle({send, Data}, #{ sock := Sock}=State) ->
@@ -149,7 +155,6 @@ queue(Data, #{ buffer := Buffer } = State) ->
     flush(State1).
 
 flush(#{ other := {waiting, _}, buffer := _Buffer } = State) ->
-    log:info("buffer: ~p~n",[_Buffer]),
     State;
 flush(#{ other := {connected, Other}, buffer := Buffer} = State) ->
     lists:foreach(
