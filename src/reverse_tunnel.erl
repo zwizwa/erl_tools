@@ -70,6 +70,7 @@ forward_init(PortRange, TunnelSock, Registry) ->
     %% TunnelSock is an accepted incoming connection.  Create a new
     %% single-shot listening socket.
     Tunnel = self(),
+    log:info("incoming: ~p~n",[inet:peername(TunnelSock)]),
     SingleShot = 
         singleshot(
 
@@ -147,7 +148,8 @@ queue(Data, #{ buffer := Buffer } = State) ->
     State1 = maps:put(buffer, [Data|Buffer], State),
     flush(State1).
 
-flush(#{ other := {waiting, _} } = State) ->
+flush(#{ other := {waiting, _}, buffer := _Buffer } = State) ->
+    log:info("buffer: ~p~n",[_Buffer]),
     State;
 flush(#{ other := {connected, Other}, buffer := Buffer} = State) ->
     lists:foreach(
