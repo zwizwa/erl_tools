@@ -118,7 +118,7 @@ websocket_info({bert, Term}, Req, State)    -> {reply, {binary, term_to_binary(T
 %% JavaScript object.  Whether we actually use JSON depends on whether
 %% the environment supports a JSON encoder.  If not, use BERT.
 websocket_info(Map, Req, State) when is_map(Map)-> 
-    case json:encode(Map) of
+    case apply(json,encode,[Map]) of
         {ok, JSON} ->
             {reply, {text, JSON}, Req, State};
         {error, json_not_supported} ->
@@ -418,4 +418,4 @@ pids() ->
 reload_all() ->
     _ = ws_bc() ! {broadcast, #{ type => reload }}, ok.
 reload(Ws) ->
-    Ws !  #{ type => reload }.
+    Ws !  #{ type => reload }, ok.

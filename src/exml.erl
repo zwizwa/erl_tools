@@ -237,7 +237,7 @@ cell(Key,InitEl) ->
 
 %% Embed JSON in web page
 json(ID,Data) ->
-    case json:encode(Data) of
+    case apply(json,encode,[Data]) of
         {ok, JSON} ->
             {script,[{type,"application/json"},
                      {id,encode_key(ID)}],
