@@ -39,7 +39,7 @@ info(F,A) -> log:info(F,A).
 -define(OPTS,[binary, {packet, 0}, {active, true}, {reuseaddr, true}]).
 
 %% Main TCP server.  Clients will connect here to set up reverse tunnel.
-start(Incoming, PortRange) ->
+start(Incoming, {Start,Endx}=PortRange) ->
     serv:start(
       {handler,
        fun() ->
@@ -48,8 +48,8 @@ start(Incoming, PortRange) ->
                  [Incoming],
                  {handler,
                   fun(TunnelSock, _) ->
-                          _Count = obj:call(Registry, get_connection_id),
-                          PortSpec = PortRange,
+                          Count = obj:call(Registry, get_connection_id),
+                          PortSpec = #{ range => {Start,Endx-Start,Count} },
                           forward_init(PortSpec, TunnelSock, Registry)
                   end,
                   fun reverse_tunnel:forward_handle/2},
@@ -64,7 +64,7 @@ start(Incoming, PortRange) ->
                          obj:handle(Msg,State) 
                  end,
                  %% State for messages.  Mostly for debugging.
-                 #{ port_pool => PortRange,
+                 #{ port_range => PortRange,
                     connection_count => 0 },
                  %% Socket options
                  ?OPTS)
@@ -179,20 +179,24 @@ flush(#{ other := {connected, Other}, buffer := Buffer} = State) ->
 
 %% Try to open a listening socket from a specification of a port
 %% range.  If it fails, retry until the range is exhausted.
-listen(PortSpec) ->
-    {Start,Endx} = PortSpec,
-    %% Use modulo addressing
-    case Start >= Endx of
-        true ->
-            {error, none_ok};
-        false ->
-            case gen_tcp:listen(Start, ?OPTS) of
-                {ok, Rv} -> {ok, {Start, Rv}};
-                _Error ->
-                    %% log:info("until_ok: ~p~n", [{Start,_Error}]),
-                    listen({Start+1,Endx})
-            end
+
+
+%% For the main loop, just use a list.
+%% Translate spec to list here.
+listen(#{ range := {Start, WindowSize, Count} }) ->
+    listen(#{ ports =>
+                  [Start + tools:p_rem(N, WindowSize)
+                   || N <- lists:seq(Count, Count + WindowSize - 1)] });
+listen(#{ ports := []}) ->
+    {error, none_ok};
+listen(#{ ports := [Port|RemainingPorts] }) ->
+    case gen_tcp:listen(Port, ?OPTS) of
+        {ok, Rv} -> {ok, {Port, Rv}};
+        _Error ->
+            %% log:info("until_ok: ~p~n", [{Start,_Error}]),
+            listen(#{ ports => RemainingPorts })
     end.
+
 
 %% Listen, then stop listening once a connection is established.               
 singleshot(PortSpec,
