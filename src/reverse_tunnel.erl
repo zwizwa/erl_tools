@@ -47,17 +47,25 @@ start(Incoming, PortRange) ->
                serv_tcp:init(
                  [Incoming],
                  {handler,
-                  fun(TunnelSock, _) -> forward_init(PortRange, TunnelSock, Registry) end,
+                  fun(TunnelSock, _) ->
+                          _Count = obj:call(Registry, get_connection_id),
+                          PortSpec = PortRange,
+                          forward_init(PortSpec, TunnelSock, Registry)
+                  end,
                   fun reverse_tunnel:forward_handle/2},
                  %% Handle other incoming messages
                  fun ({'EXIT',_Pid,_Reason}=Msg, State) ->
                          log:info("~p~n",[Msg]),
                          State;
+                     ({Pid, get_connection_id}, State = #{connection_count := ID}) ->
+                         obj:reply(Pid, ID),
+                         maps:put(connection_count, 1 + ID, State);
                      (Msg, State) ->
                          obj:handle(Msg,State) 
                  end,
                  %% State for messages.  Mostly for debugging.
-                 #{ port_pool => PortRange },
+                 #{ port_pool => PortRange,
+                    connection_count => 0 },
                  %% Socket options
                  ?OPTS)
        end,
@@ -66,17 +74,18 @@ start(Incoming, PortRange) ->
 
 
 
-forward_init(PortRange, TunnelSock, Registry) ->
+forward_init(PortSpec, TunnelSock, Registry) ->
     %% TunnelSock is an accepted incoming connection.  Create a new
     %% single-shot listening socket.
     Tunnel = self(),
     log:info("incoming: ~p~n",[inet:peername(TunnelSock)]),
+
     SingleShot = 
         singleshot(
 
           %% The code that sets up the corresponding listener picks a
           %% port from the port range that is not busy.
-          PortRange,
+          PortSpec,
 
           %% Once the listening port is opened, this gets called so we
           %% can save the port number for later use by info/1.
@@ -168,23 +177,25 @@ flush(#{ other := {connected, Other}, buffer := Buffer} = State) ->
 
     
 
-%% Try Fun until {ok,_}, given an integer range.  This is used
-%% together with gen_tcp:listen/2 to find an available listening port.
-until_ok(Fun, {Start, Endx}) ->
+%% Try to open a listening socket from a specification of a port
+%% range.  If it fails, retry until the range is exhausted.
+listen(PortSpec) ->
+    {Start,Endx} = PortSpec,
+    %% Use modulo addressing
     case Start >= Endx of
         true ->
             {error, none_ok};
         false ->
-            case Fun(Start) of
+            case gen_tcp:listen(Start, ?OPTS) of
                 {ok, Rv} -> {ok, {Start, Rv}};
                 _Error ->
                     %% log:info("until_ok: ~p~n", [{Start,_Error}]),
-                    until_ok(Fun, {Start+1,Endx})
+                    listen({Start+1,Endx})
             end
     end.
 
 %% Listen, then stop listening once a connection is established.               
-singleshot(PortRange,
+singleshot(PortSpec,
            HavePort,
            OnError,
            {handler, Init, Handle}) ->
@@ -192,15 +203,9 @@ singleshot(PortRange,
       {body,
        fun() ->
                Listener = self(),
-               case until_ok(
-                      fun(ListenPort) ->
-                              RV = gen_tcp:listen(ListenPort, ?OPTS),
-                              %% info("listen: ~p~n", [{ListenPort,RV}]),
-                              RV
-                      end, 
-                      PortRange) of
+               case listen(PortSpec) of
                    {error, none_ok} ->
-                       info("no free ports: ~p~n", [PortRange]),
+                       info("no free ports: ~p~n", [PortSpec]),
                        OnError();
                    {ok, {ListenPort, ListenSock}} = OK ->
                        info("listening: ~p~n", [ListenPort]),
