@@ -107,7 +107,8 @@ hub_handle({add, Pred, Pid}, Hub) ->
 hub_handle({send, Msg}, Hub) ->
     lists:foreach(
       fun({Pred, Pid}) -> ?IF(Pred(Msg), Pid ! Msg, ignore) end,
-      Hub).
+      Hub),
+    Hub.
 
 hub_start() ->
     start({handler, fun hub_init/0, fun serv:hub_handle/2}).

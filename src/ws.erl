@@ -87,7 +87,7 @@ websocket_handle({binary, Bin}, Req, State) ->
     %% terms containing EJson messages.  The main reason for this is
     %% to avoid a JSON parser.
     EJson = binary_to_term(Bin),
-    log:info("via bert: ~p~n",[EJson]),
+    %% log:info("via bert: ~p~n",[EJson]),
     NextState = handle_ejson(EJson, State),  %% Async only
     {ok, Req, NextState};
 websocket_handle({ping,_}, Req, State) -> 
