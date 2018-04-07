@@ -22,9 +22,25 @@ function error(errmsg) {
 }
 
 
+// Incluses protocol config.
+function send_bert(msg) {
+    ws.send(new Uint8Array(bert.encode(msg)));
+}
+function send_json(msg) {
+    ws.send(JSON.stringify(msg));
+}
+var send_config = send_json;
+function send(msg) {
+    send_config(msg);
+}
+
 
 // Open websocket and pass in representation of server-side start code.
 // After that, handle messages coming in from websocket.
+function start_bert(args, method_call) {
+    send_config = send_bert;
+    start(args, method_call);
+}
 function start(args, method_call) {
 
     var handle;
@@ -131,13 +147,6 @@ function start(args, method_call) {
     return ws;
 }
 
-function send_bert(msg) {
-    ws.send(new Uint8Array(bert.encode(msg)));
-}
-
-function send(msg) {
-    ws.send(JSON.stringify(msg));
-}
 function send_datetime() {
     var date = new Date();
     var msg = {
@@ -173,8 +182,9 @@ function send_event(action, event) {
 
 
 // API
-exports.start = start;
-exports.send  = send;
-exports.send_bert  = send_bert;
+exports.start      = start;
+exports.start_bert = start_bert;
+
+exports.send       = send;
 exports.send_input = send_input;
 exports.send_event = send_event;
