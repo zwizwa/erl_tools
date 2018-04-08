@@ -16,6 +16,8 @@
          %% queue flush + synchronous call based batch processing
          batch_processor/2, flush/0, receive_batch/0,
 
+         retain/2,
+
          %% Private, needed for reloading.
          bc_handle/2,
          receive_loop/2,
@@ -258,6 +260,28 @@ flush_loop(Batch) ->
     end.
                                
 
+
+%% Retain data for a short while.  This can be used in SPA bootup to
+%% pass data between initial page generation and web socket startup,
+%% as those are normally only linked through the generated document.
+%% Basically, pass the data by reference instead of serializing it to
+%% a value.  A timeout is needed to discard the data after a while in
+%% case data is not claimed.
+retain(Data, Timeout) ->
+    DataPid = spawn_link(
+      fun() ->
+         receive {Pid, get} -> Pid ! {self(), Data}
+         after Timeout -> log:info("retain timeout~n") end
+      end),
+    retain_get(DataPid).
+%% Separate function to avoid the Data to pollute the closure.
+retain_get(DataPid) ->
+    fun() ->
+            %% Get retained data,
+            DataPid ! {self(), get},
+            receive {DataPid, Data} -> Data
+            after 3000 -> throw(retain_get_timeout) end
+    end.
              
                  
 
