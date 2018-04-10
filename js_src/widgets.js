@@ -132,6 +132,7 @@ module.exports = {
     // el :: <td /> or <div />, something to contain the value.
     cell: { 
         set: function(el, arg) {
+            // console.log("cell_set",arg);
             if (typeof(arg) == "string") {
                 el.innerHTML = arg;
             }
@@ -142,7 +143,7 @@ module.exports = {
         },
         // Note: Use create_element to create SVG elements.
         append: function(el, arg) {
-            // console.log(arg);
+            // console.log("cell_append",arg);
             if (typeof(arg) == "string") {
                 var tmp = document.createElement('div');
                 tmp.innerHTML = arg;

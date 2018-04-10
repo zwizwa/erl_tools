@@ -44,14 +44,18 @@ port_open(DbFile) ->
             Dir -> Dir
         end,
     Cmd = tools:format("~s/sqlite3.elf ~s", [Priv,DbFile]),
-    open_port({spawn, Cmd}, [use_stdio, {packet,4}, exit_status, binary]).
+    Port = open_port({spawn, Cmd}, [use_stdio, {packet,4}, exit_status, binary]),
+    log:info("port: ~p~n",[Port]),
+    Port.
 port_close(Port) ->
     Port ! {self(), {command, <<>>}},
     port_close_flush(Port).
 port_close_flush(Port) ->
     receive
-        {Port, {exit_status, 0}} -> ok;
-        {Port, {exit_status, _}=E} -> exit(E);
+        {Port, {exit_status, 0}} ->
+            ok;
+        {Port, {exit_status, _}=E} ->
+            exit(E);
         {Port, _} = _M -> 
             %% log:info("close_flush ~p~n",[_M]),
             port_close_flush(Port)
@@ -119,6 +123,10 @@ db_handle({Pid, {queries, Queries}}, #{db := DB} = State) ->
          || Query <- Queries],
     Pid ! {self(), obj_reply, Results},
     State;
+
+db_handle({Port, {exit_status, _}=E}, #{db := Port}) ->
+    log:info("ERROR: unexpected db port exit: ~p~n", [E]),
+    exit(E);
 
 %% db_handle({Pid, {query, Query}}, #{db := DB} = State) ->
 %%     Pid ! {self(), obj_reply, 
