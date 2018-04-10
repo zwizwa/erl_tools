@@ -138,11 +138,16 @@ function start(args, method_call) {
     }
     ws.onclose = function() {
         console.log("ws.onclose:");
-        //document.body.style.background = 'grey';
-        console.log("reload after", config.timeout);
-        setTimeout(function(){
-            window.location.reload();
-        }, config.timeout);
+
+        // document.body.style.background = 'grey';
+
+        // FIXME: Don't reload automatically.  It seems to interfere
+        // with too many things.  Have the user refresh manually.
+
+        //console.log("reload after", config.timeout);
+        //setTimeout(function(){
+        //    window.location.reload();
+        //}, config.timeout);
     };
     return ws;
 }
