@@ -1,7 +1,7 @@
 -module(serv).
 -export([
          %% Broadcaster
-         bc_start/0, 
+         bc_start/0,  bc_up/1,
          %% Hub with predicates
          hub_start/0, hub_handle/2, hub_add/3, hub_add/2, hub_send/2,
          %% Printer process
@@ -59,13 +59,15 @@ pids_send(Msg, Pids) ->
     pids_foreach(fun(Pid) -> Pid ! Msg end, Pids).
 
 %% Broadcaster. FIXME: use gen_event
-bc_start() ->
-    spawn_handler(
-      fun() -> 
-              process_flag(trap_exit, true),
-              #{pids => pids_new()}
-      end,
-      fun serv:bc_handle/2).
+bc_spawner() ->
+    {handler,
+     fun() -> 
+             process_flag(trap_exit, true),
+             #{pids => pids_new()}
+     end,
+     fun serv:bc_handle/2}.
+bc_start()  -> start(bc_spawner()).
+bc_up(Name) -> up(Name, bc_spawner()).
 
 bc_handle({subscribe, Pid}, #{pids := Pids}=State) when is_pid(Pid) -> 
     link(Pid),
