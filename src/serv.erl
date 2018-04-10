@@ -49,6 +49,10 @@ pids_add(Pid, Pids) when is_pid(Pid) ->
     sets:add_element(Pid, Pids).
 pids_del(Pid, Pids) when is_pid(Pid) ->
     sets:del_element(Pid, Pids).
+pids_subscribed(Pid, Pids) when is_pid(Pid) ->
+    sets:is_element(Pid, Pids).
+pids_pids(Pids) ->
+    sets:to_list(Pids).
 pids_foreach(Fun, Pids) ->
     _ = sets:fold(
           fun(Pid, Ps) -> Fun(Pid), Ps end,
@@ -58,7 +62,7 @@ pids_foreach(Fun, Pids) ->
 pids_send(Msg, Pids) ->
     pids_foreach(fun(Pid) -> Pid ! Msg end, Pids).
 
-%% Broadcaster. FIXME: use gen_event
+%% Broadcaster. FIXME: use gen_event?
 bc_spawner() ->
     {handler,
      fun() -> 
@@ -70,18 +74,34 @@ bc_start()  -> start(bc_spawner()).
 bc_up(Name) -> up(Name, bc_spawner()).
 
 bc_handle({subscribe, Pid}, #{pids := Pids}=State) when is_pid(Pid) -> 
-    link(Pid),
-    maps:put(pids, pids_add(Pid, Pids), State);
+    case pids_subscribed(Pid, Pids) of
+        true ->
+            %% Don't re-monitor
+            State;
+        false ->
+            _Ref = erlang:monitor(process, Pid),
+            maps:put(pids, pids_add(Pid, Pids), State)
+    end;
 bc_handle({subscribe, Atom}, State) when is_atom(Atom) -> 
-    bc_handle({subscribe, whereis(Atom)}, State);
-
-bc_handle({unsubscribe, Pid}, #{pids := Pids}=State) -> maps:put(pids, pids_del(Pid, Pids), State);
-bc_handle({foreach,     Fun}, #{pids := Pids}=State) -> pids_foreach(Fun, Pids), State;
-bc_handle({broadcast,   Msg}, #{pids := Pids}=State) -> pids_send(Msg,Pids), State;
-
-bc_handle({'EXIT', Pid, _}, #{pids := Pids}=State) ->
+    case whereis(Atom) of
+        undefined ->
+            tools:info("WARNING: whereis(~p) == undefined~n", [Atom]),
+            State;
+        Pid ->
+            bc_handle({subscribe, Pid}, State)
+    end;
+bc_handle({'DOWN',_Ref,process,Pid,_Reason}=_Msg, #{pids := Pids}=State) ->
+    %% tools:info("~p~n",[_Msg]),
     maps:put(pids, pids_del(Pid,Pids), State);
-
+bc_handle({unsubscribe, Pid}, #{pids := Pids}=State) ->
+    maps:put(pids, pids_del(Pid, Pids), State);
+bc_handle({foreach,     Fun}, #{pids := Pids}=State) ->
+    pids_foreach(Fun, Pids), State;
+bc_handle({broadcast,   Msg}, #{pids := Pids}=State) ->
+    pids_send(Msg,Pids), State;
+bc_handle({Pid,pids}, #{pids := Pids}=State) ->
+    obj:reply(Pid, pids_pids(Pids)),
+    State;
 bc_handle(Msg, State) ->
     try
         obj:handle(Msg, State)
