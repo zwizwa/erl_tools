@@ -25,6 +25,7 @@
 // SOFTWARE.
 
 #include "bert.h"
+#include "stdio.h"
 
 static struct bert_object *r_object(struct bert_reader *r);
 
@@ -59,17 +60,19 @@ static struct bert_object *r_slice(struct bert_reader *r,
 }
 static struct bert_object *r_object(struct bert_reader *r) {
     uint8_t type = r->pop(r);
-    if (type == BERT_LIST)          return r_list(r);
-    if (type == BERT_BINARY)        return r_slice(r, r->binary, 4);
-    if (type == BERT_NIL)           return r->nil;
-    if (type == BERT_SMALL_ATOM)    return r_slice(r, r->atom, 1);
-    if (type == BERT_ATOM)          return r_slice(r, r->atom, 2);
-    if (type == BERT_SMALL_INTEGER) return r->integer(r, r_uint(r, 1));
-    if (type == BERT_INTEGER)       return r->integer(r, r_sint(r, 4));
-    if (type == BERT_SMALL_TUPLE)   return r_tuple(r, 1);
-    if (type == BERT_LARGE_TUPLE)   return r_tuple(r, 4);
-    if (type == BERT_STRING)        return r_slice(r, r->string, 2);
-    r->error(r, "Unexpected BERT type");
+    if (r->list   && type == BERT_LIST)          return r_list(r);
+    if (r->binary && type == BERT_BINARY)        return r_slice(r, r->binary, 4);
+    if              (type == BERT_NIL)           return r->nil;
+    if (r->atom   && type == BERT_SMALL_ATOM)    return r_slice(r, r->atom, 1);
+    if (r->atom   && type == BERT_ATOM)          return r_slice(r, r->atom, 2);
+    if              (type == BERT_SMALL_INTEGER) return r->integer(r, r_uint(r, 1));
+    if              (type == BERT_INTEGER)       return r->integer(r, r_sint(r, 4));
+    if (r->tuple  && type == BERT_SMALL_TUPLE)   return r_tuple(r, 1);
+    if (r->tuple  && type == BERT_LARGE_TUPLE)   return r_tuple(r, 4);
+    if (r->string && type == BERT_STRING)        return r_slice(r, r->string, 2);
+    char error[32];
+    sprintf(error, "Unexpected BERT type: %d", type);
+    r->error(r, error);
     return NULL; // not reached
 }
 

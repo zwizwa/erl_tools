@@ -78,8 +78,9 @@ static inline uint32_t assert_read_u32(int fd) {
     assert_read_fixed(fd, &be[0], 4);
     return be[0] << 24 | be[1] << 16 | be[2] << 8 | be[3];
 }
-static inline void *assert_read_packet4(int fd) {
+static inline void *assert_read_packet4_len(int fd, uint32_t *save_len) {
     uint32_t buf_len = assert_read_u32(fd);
+    if (save_len) { *save_len = buf_len; }
     if (!buf_len) return NULL;
     uint8_t *buf = malloc(buf_len+1);
     if (!buf) { LOG("malloc(0x%08x) failed\n", buf_len+1); }
@@ -88,6 +89,10 @@ static inline void *assert_read_packet4(int fd) {
     buf[buf_len] = 0; // hack for LOG("%s").
     return buf;
 }
+static inline void *assert_read_packet4(int fd) {
+    return assert_read_packet4_len(fd, NULL);
+}
+
 
 
 
@@ -106,6 +111,16 @@ static inline int assert_write(int fd, const uint8_t *buf, uint32_t nb) {
 }
 static inline void assert_write_port8(int fd, void *buf, uint8_t nb_bytes) {
     assert_write(fd, &nb_bytes, 1);
+    assert_write(fd, buf, nb_bytes);
+}
+static inline void assert_write_port32(int fd, void *buf, uint32_t nb_bytes) {
+    uint8_t nb_bytes_buf[4] = {
+        nb_bytes >> 24,
+        nb_bytes >> 16,
+        nb_bytes >> 8,
+        nb_bytes
+    };
+    assert_write(fd, &nb_bytes_buf[0], 4);
     assert_write(fd, buf, nb_bytes);
 }
 
