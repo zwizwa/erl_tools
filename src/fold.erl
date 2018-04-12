@@ -19,8 +19,7 @@
 %% of both, and processes, yields input/output behavior.
 
 -module(fold).
--export([fold_range/3,
-         range/1,
+-export([range/1, range/2,
          map/2,
          fold/3,
          filter/2, filter_map/2, filter_index/2, drop/2,
@@ -64,23 +63,27 @@
 %% -type foldee(E,S) :: fun((E :: any(), S :: State) -> State).
 
 %% Tools
-fold_range(F,S,N,I) ->
-    case I < N of
+fold_range(F,S,Endx,I) ->
+    case I < Endx of
         false -> S;
-        true  -> fold_range(F, F(I,S), N, I+1)
+        true  -> fold_range(F, F(I,S), Endx, I+1)
     end.
             
-fold_range(F,S,N) ->
-    fold_range(F,S,N,0).
-
 empty() ->
     fun(_, Init) -> Init end.
 
 
 %% A fold representing a sequence is of type 
 -spec range(pos_integer()) -> fold2(integer(),_).
-range(N) -> fun(F,S) -> fold_range(F,S,N) end.
+-spec range(integer(), integer()) -> fold2(integer(),_).
 
+range(Endx) ->
+    range(0,Endx).
+range(Start,Endx) ->
+    true = Endx >= Start,
+    fun(F,S) -> fold_range(F,S,Endx,Start) end.
+
+    
 
 
 %% Map over a sequence represented as a fold, returning a new fold
