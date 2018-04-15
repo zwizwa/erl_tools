@@ -53,9 +53,14 @@ handle(Msg, State) ->
     throw({obj_handle, {Msg, State}}).
 
 call(Pid, Req, Timeout) when is_pid(Pid) ->
+    Ref = erlang:monitor(process, Pid),
     Pid ! {self(), Req},
     receive 
-        {Pid, obj_reply, Val} -> Val
+        {'DOWN',Ref,process,Pid,Reason} ->
+            {error, {exit, Reason}};
+        {Pid, obj_reply, Val} ->
+            erlang:demonitor(Ref, [flush]),
+            Val
     after
         Timeout -> exit({timeout,Timeout,Req})
     end;
