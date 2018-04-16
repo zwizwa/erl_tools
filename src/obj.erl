@@ -52,25 +52,43 @@ handle(Msg, State) ->
     %% tools:info("obj:handle: bad request ~p~n",[Bad]),
     throw({obj_handle, {Msg, State}}).
 
-call(Pid, Req, Timeout) when is_pid(Pid) ->
+resolve(Pid) when is_pid(Pid) ->
+    Pid;
+resolve(Name) ->
+    case whereis(Name) of
+        undefined -> exit({obj_call_undefined, Name});
+        Pid -> Pid
+    end.
+
+call(Obj, Req, Timeout, Warn) ->
+    Pid = resolve(Obj),
     Ref = erlang:monitor(process, Pid),
     Pid ! {self(), Req},
+    wait_reply(Pid, Req, Timeout, Warn, Ref).
+
+wait_reply(Pid, Req, Timeout, Warn, Ref) ->
     receive 
         {'DOWN',Ref,process,Pid,Reason} ->
-            {error, {exit, Reason}};
+            erlang:demonitor(Ref, [flush]),
+            throw({obj_call_monitor, {Pid, Reason}});
         {Pid, obj_reply, Val} ->
             erlang:demonitor(Ref, [flush]),
             Val
     after
-        Timeout -> exit({timeout,Timeout,Req})
-    end;
-call(Name, Req, Timeout) ->
-    case whereis(Name) of
-        undefined -> exit({obj_call_undefined, Name});
-        Pid -> call(Pid, Req, Timeout)
+        Timeout ->
+            Warn(),
+            wait_reply(Pid, Req, Timeout, Warn, Ref)
     end.
+
+call(Pid, Req, Timeout) when is_pid(Pid) ->
+    call(Pid, Req, Timeout,
+         fun() -> exit({timeout,Timeout,Req}) end).
+    
+
 call(Obj, Req) ->
-    call(Obj, Req, 3000).
+    call(Obj, Req, 3000,
+         fun() -> tools:info("WARNING: obj:call(~p,~p) busy.~n", [Obj, Req])  end).
+
 
 dump   (Pid)           -> call(Pid, dump).
 get    (Pid, Key)      -> case find(Pid, Key) of {ok, Val} -> Val; _ -> throw({obj_get_not_found, Key}) end.
