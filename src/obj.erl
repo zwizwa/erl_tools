@@ -73,7 +73,7 @@ call(Obj, Req) ->
     call(Obj, Req, 3000).
 
 dump   (Pid)           -> call(Pid, dump).
-get    (Pid, Key)      -> {ok, Val} = find(Pid, Key), Val.
+get    (Pid, Key)      -> case find(Pid, Key) of {ok, Val} -> Val; _ -> throw({obj_get_not_found, Key}) end.
 get    (Pid, Key, Def) -> case find(Pid, Key) of {ok, Val} -> Val; _ -> Def end.
 find   (Pid, Key)      -> call(Pid, {find, Key}).
 set    (Pid, Key, Val) -> call(Pid, {set, Key, Val}).
