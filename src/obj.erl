@@ -1,7 +1,7 @@
 -module(obj).
 -export([init/0, handle/2, call/2, call/3, reply/2,
          get/2, get/3, set/3, gets/2,
-         update/3, find/2, dump/1, replace/2, merge/2,
+         update/3, update/2, find/2, dump/1, replace/2, merge/2,
          update/4,
          kvstore/1, kvstore/2]).
 
@@ -46,6 +46,7 @@ handle({Pid, {remove, K}}, Map)    -> Map1 = maps:remove(K, Map), ok=reply(Pid, 
 handle({Pid, {find, K}}, Map)      -> ok=reply(Pid, maps:find(K, Map)), Map;
 handle({Pid, {set, K, V}}, Map)    -> reply(Pid, ok), maps:put(K, V, Map);
 handle({Pid, {update, K, F}}, Map) -> V = F(maps:get(K, Map)), ok=reply(Pid, V), maps:put(K, V, Map);
+handle({Pid, {update, F}}, Map)    -> {V,S} = F(Map), ok=reply(Pid, V), S;
 handle(shutdown, _)                -> exit(shutdown);
 
 handle(Msg, State) ->
@@ -96,6 +97,7 @@ get    (Pid, Key, Def) -> case find(Pid, Key) of {ok, Val} -> Val; _ -> Def end.
 find   (Pid, Key)      -> call(Pid, {find, Key}).
 set    (Pid, Key, Val) -> call(Pid, {set, Key, Val}).
 update (Pid, Key, Fun) -> call(Pid, {update, Key, Fun}).
+update (Pid, Fun)      -> call(Pid, {update, Fun}).
 replace(Pid, D)        -> call(Pid, {replace, D}).
 merge  (Pid, D)        -> call(Pid, {merge, D}).
     
