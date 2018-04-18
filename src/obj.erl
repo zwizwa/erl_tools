@@ -94,6 +94,14 @@ call(Obj, Req) ->
          fun() -> tools:info("WARNING: obj:call(~p,~p) busy.~n", [Obj, Req])  end).
 
 
+%% %% DEBUG
+%% call(Obj, Req) ->
+%%     call(Obj, Req, 1000,
+%%          fun() -> 
+%%                  throw({timeout, Obj, Req})
+%%          end).
+
+
 dump   (Pid)           -> call(Pid, dump).
 get    (Pid, Key)      -> case find(Pid, Key) of {ok, Val} -> Val; _ -> throw({obj_get_not_found, Key}) end.
 get    (Pid, Key, Def) -> case find(Pid, Key) of {ok, Val} -> Val; _ -> Def end.
