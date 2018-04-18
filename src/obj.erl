@@ -83,7 +83,10 @@ wait_reply(Pid, Req, Timeout, Warn, Ref) ->
 
 call(Pid, Req, Timeout) when is_pid(Pid) ->
     call(Pid, Req, Timeout,
-         fun() -> exit({timeout,Timeout,Req}) end).
+         fun() ->
+                 %% Indirect, to avoid dialyzer warning.
+                 apply(erlang,exit,[{timeout,Timeout,Req}])
+         end).
     
 
 call(Obj, Req) ->
