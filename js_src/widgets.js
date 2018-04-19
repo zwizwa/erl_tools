@@ -129,6 +129,8 @@ module.exports = {
     checkbox: { 
         set: function(el, val) { el.checked = val; }
     },
+
+
     // el :: <td /> or <div />, something to contain the value.
     cell: { 
         set: function(el, arg) {
@@ -154,9 +156,12 @@ module.exports = {
             else {
                 el.appendChild(create_element(arg));
             }
+        },
+        remove: function(el, arg) {
+            var child = document.getElementById(arg);
+            el.removeChild(child);
         }
     },
-
 
 
     // el :: item in select list.
@@ -204,6 +209,8 @@ module.exports = {
                     input_value(el)];
         }
     },
+
+
     log: {
         append_text: function(el, arg) {
             append_text(el, arg[0], arg[1]);
@@ -212,6 +219,7 @@ module.exports = {
             append_html(el, arg[0], arg[1]);
         }
     },
+
 
     // Not a behavior, just some associated tools exposed.
     tools: {
