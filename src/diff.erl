@@ -1,5 +1,5 @@
 -module(diff).
--export([diff/2, diff/3, as_map/1]).
+-export([diff/2, diff/3, as_map/1, split/1, diff_split/2]).
 
 %% Encode data structure differences as edit commands.  To keep the
 %% protocol simple, only maps are diffed as this gives a simple "paths
@@ -57,6 +57,34 @@ diff(ParentPath,SaveEdit,OldMap,NewMap) ->
     ForKeys(insert, Ins),
     ForKeys(update, Common),
     ok.
+
+
+%% The default diff operation produces {insert,path(),tree()} in case
+%% the entire subtree is new.  The split/1 function will refine that
+%% into 'variable' operations that create the containers, and a
+%% 'value' operation that will specify the value.  This allows
+%% struture and value to be completely separated.
+
+split(Op) ->
+    case Op of
+        {insert,Path,Tree} when is_map(Tree) ->
+            [{env,Path}|
+             lists:append(
+               [split({insert,Path++[K],V}) || {K,V} <- maps:to_list(Tree)])];
+        {insert,Path,Node} ->
+            [{var,Path},    %% Create hole
+             {bind,Path,Node}];  %% Fill hole
+        {update,Path,_,Value} ->
+            {bind,Path,Value};
+        _ ->
+            [Op]
+    end.
+
+
+diff_split(A,B) ->
+    lists:append(
+      lists:map(fun split/1, diff(A,B))).
+                
 
 
 %% E.g. for JSON encoding.    
