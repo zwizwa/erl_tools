@@ -152,6 +152,7 @@ websocket_terminate(_Reason, _Req, _State) ->
 %% This uses a multi-step bootstrap:
 %% - HTML with initial page layout calls into ws_start handler here, parameterized by code.
 %% - We instantiate that code here, parameterized by the websocket connection
+%% See also footnote 2.
 handle_ejson(#{type := <<"ws_start">>,
                args := StartHmac},
              State) ->
@@ -482,8 +483,7 @@ hmac_decode(X) -> hmac_decode(fun hmac_key/0, X).
 %%    but for some applications such closures are overkill.  Often it
 %%    makes more sense to have a single, centralized event handler.
 %%
-%%    For this, ws_action supports 
-
-
-
-
+%% 2. Some hoop jumping is necessary to allow an initial page to be
+%%    rendered before the websocket process is up.  This can be
+%%    avoided by not rendering anything at all, and building up the
+%%    page using websocket calls entirely.
