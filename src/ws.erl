@@ -157,17 +157,29 @@ handle_ejson(#{type := <<"ws_start">>,
 
 
 %% All ws.js browser applications support the ws_action message, which
-%% executes HMAC-authenticated Erlang callbacks (closures).  See
+%% supports HMAC-authenticated Erlang callbacks (closures).  See
 %% web:button/1, web:checkbutton/1, ...  and ws_input in ws.js
-handle_ejson(#{type := <<"ws_action">>, action := CallbackHmac} = Msg,
-             State) ->
+%% See also footnote 1.
+%% These are produced by "send*" methods in ws.js
+handle_ejson(#{type := <<"ws_action">>, action := Action} = Msg, State) ->
+
     %% log:info("ws_action: ~p ~p~n", [CallbackHmac, Fun]),
     %% Already dispatched, so these keys are no longer needed.
     M1 = maps:remove(action, Msg),
     M2 = maps:remove(type, M1),
-    {ok, Fun} = web:hmac_decode(CallbackHmac),
-    %% log:info("ws_action: ~p ~p~n",[Fun,M2]),
-    Fun(M2, State);
+    case Action of
+        <<"">> ->
+            %% Use the default handler. This avoids encoding overhead
+            %% in case a closure is not needed.
+            Handle = maps:get(handle, State),
+            Handle({ws, M2}, State);
+        CallbackHMac ->
+            %% Closure is authenticated.  Application needs to defined
+            %% the "web" module.  FIXME: create a ws_cb module instead.
+            {ok, Fun} = web:hmac_decode(CallbackHMac),
+            %% log:info("ws_action: ~p ~p~n",[Fun,M2]),
+            Fun(M2, State)
+    end;
 
 %% Date and time from browser.
 handle_ejson(#{type := <<"ws_datetime">>, 
@@ -419,3 +431,17 @@ reload_all() ->
     _ = ws_bc() ! {broadcast, #{ type => reload }}, ok.
 reload(Ws) ->
     Ws !  #{ type => reload }, ok.
+
+
+%% Footnotes
+
+%% 1. This mini-framework was constructed from the idea that embedded
+%%    closures are a good general purpose construct.  It appears so,
+%%    but for some applications such closures are overkill.  Often it
+%%    makes more sense to have a single, centralized event handler.
+%%
+%%    For this, ws_action supports 
+
+
+
+
