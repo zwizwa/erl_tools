@@ -78,7 +78,7 @@ split(Op) ->
             [{var,Path},    %% Create hole
              {{bind,Leaf},Path}];  %% Fill hole
         {update,Path,_,Leaf} ->
-            {{bind,Leaf},Path};
+            [{{bind,Leaf},Path}];
         _ ->
             [Op]
     end.
