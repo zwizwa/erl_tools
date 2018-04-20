@@ -36,6 +36,12 @@
          hmac_encode/2, hmac_decode/2,
          hmac_encode/1, hmac_decode/1,
 
+         %% Generate JavaScript callbacks
+         js_start/1,
+         js_send_input/1,
+         js_send_input_form/2,
+         js_send_event/1,
+
          %% Query values as produced by ws.js
          form_list/2
          
@@ -472,6 +478,18 @@ hmac_encode(X) -> hmac_encode(fun hmac_key/0, X).
 hmac_decode(X) -> hmac_decode(fun hmac_key/0, X).
 
 
+
+%% Encode calls to ws.js code.  Likely you want to export this
+%% somewhere, e.g. in an app.js module, and prefix the calls with
+%% "app.".
+js_start(CB) ->
+    io_lib:format("start('~s')", [hmac_encode(CB)]).
+js_send_input(CB) ->
+    io_lib:format("send_input('~s', this)", [hmac_encode(CB)]).
+js_send_input_form(CB, Name) ->
+    io_lib:format("send_input('~s', document.forms['~s'])", [hmac_encode(CB), Name]).
+js_send_event(CB) ->
+    io_lib:format("send_event('~s', event)",[hmac_encode(CB)]).
 
          
 
