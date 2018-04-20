@@ -484,14 +484,17 @@ hmac_decode(X) -> hmac_decode(fun hmac_key/0, X).
 %% somewhere, e.g. in an app.js module, and prefix the calls with
 %% "app.".
 js_start(CB) ->
-    io_lib:format("start('~s')", [hmac_encode(CB)]).
+    io_lib:format("start('~s')", [cb_encode(CB)]).
 js_send_input(CB) ->
-    io_lib:format("send_input('~s', this)", [hmac_encode(CB)]).
+    io_lib:format("send_input('~s', this)", [cb_encode(CB)]).
 js_send_input_form(CB, Name) ->
-    io_lib:format("send_input('~s', document.forms['~s'])", [hmac_encode(CB), Name]).
+    io_lib:format("send_input('~s', document.forms['~s'])", [cb_encode(CB), Name]).
 js_send_event(CB) ->
-    io_lib:format("send_event('~s', event)",[hmac_encode(CB)]).
+    io_lib:format("send_event('~s', event)",[cb_encode(CB)]).
 
+%% See ws_action handler above.
+cb_encode(handle) -> <<>>;
+cb_encode(CB)-> hmac_encode(CB).
          
 
 %% Footnotes
