@@ -111,7 +111,7 @@ db(Atom, DbFile, DbInit) ->
                          #{ db => sqlite3:port_open(DbFile()) }
                  end,
                  fun sqlite3:db_handle/2}),
-    #{ pid => Pid, timeout => 5000 }.
+    #{ pid => Pid, timeout => {warn, 3000} }.
 
 
 %% Base routine performs multiple queries.

@@ -81,17 +81,19 @@ wait_reply(Pid, Req, Timeout, Warn, Ref) ->
             wait_reply(Pid, Req, Timeout, Warn, Ref)
     end.
 
-call(Pid, Req, Timeout) when is_pid(Pid) ->
-    call(Pid, Req, Timeout,
+call(Obj, Req, {warn, Timeout}) ->
+    call(Obj, Req, Timeout,
+         fun() -> tools:info("WARNING: obj:call(~p,~p) busy.~n", [Obj, Req])  end);
+    
+call(Obj, Req, Timeout)  ->
+    call(Obj, Req, Timeout,
          fun() ->
                  %% Indirect, to avoid dialyzer warning.
                  apply(erlang,exit,[{timeout,Timeout,Req}])
          end).
-    
 
 call(Obj, Req) ->
-    call(Obj, Req, 3000,
-         fun() -> tools:info("WARNING: obj:call(~p,~p) busy.~n", [Obj, Req])  end).
+    call(Obj, Req, {warn, 3000}).
 
 
 %% %% DEBUG
