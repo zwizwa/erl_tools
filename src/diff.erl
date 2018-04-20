@@ -65,17 +65,20 @@ diff(ParentPath,SaveEdit,OldMap,NewMap) ->
 %% 'value' operation that will specify the value.  This allows
 %% struture and value to be completely separated.
 
+%% Note that all these are {Action, Path}, to be able to easily match
+%% on the Path separately for hierarchical decomposition.
+
 split(Op) ->
     case Op of
         {insert,Path,Tree} when is_map(Tree) ->
             [{env,Path}|
              lists:append(
                [split({insert,Path++[K],V}) || {K,V} <- maps:to_list(Tree)])];
-        {insert,Path,Node} ->
+        {insert,Path,Leaf} ->
             [{var,Path},    %% Create hole
-             {bind,Path,Node}];  %% Fill hole
-        {update,Path,_,Value} ->
-            {bind,Path,Value};
+             {{bind,Leaf},Path}];  %% Fill hole
+        {update,Path,_,Leaf} ->
+            {{bind,Leaf},Path};
         _ ->
             [Op]
     end.
