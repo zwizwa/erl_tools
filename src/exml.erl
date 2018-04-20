@@ -15,10 +15,8 @@
 
          cell/2,
 
-         json/2,
+         json/2
 
-         %% HMAC for encoding binary terms in JavaScript strings.
-         hmac_key/0, hmac/2, hmac_encode/2, hmac_decode/2
 
 ]).
 
@@ -185,36 +183,6 @@ attr_get_integer(Key,Attrs) ->
               
 
 
-%% Key used for term authentication (e.g. closures).
-%% Limit time-validity of key to one gw boot session.
-%% Failed keys will cause websocket processes to die, disconnecting
-%% socket which causes client to reconnect.
-hmac_key() ->
-    Pid = serv:up(
-            hmac_key,
-            {handler,
-             fun() -> #{ key => crypto:strong_rand_bytes(32) } end,
-             fun obj:handle/2}),
-    unlink(Pid),
-    obj:get(Pid, key).
-%% hmac_key() -> <<"oT8LGqAtMTGKyBHqoA7ky3PCzjTN5L">>.
-hmac(GetKey,Bin) when is_binary(Bin) -> 
-    crypto:hmac(sha256,GetKey(),Bin).
-
-%% Encode/decode for tunneling through JSON, cookies, embedded JS,
-%% URLs, ...  Use base64 encoding.
-
-hmac_encode(GetKey,Obj) ->
-    Bin = term_to_binary(Obj),
-    Hmac = hmac(GetKey,Bin),
-    base64:encode(term_to_binary({Bin,Hmac})).
-
-hmac_decode(GetKey,Base64) ->
-    {Bin,Hmac} = binary_to_term(base64:decode(Base64)),
-    case hmac(GetKey,Bin) of
-        Hmac  -> {ok, binary_to_term(Bin)};
-        Hmac1 -> {error, {hmac_fail, Hmac, Hmac1}}
-    end.
 
 
 

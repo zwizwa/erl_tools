@@ -31,6 +31,11 @@
          reload_all/0,
          pids/0,
 
+         %% HMAC for encoding binary terms in JavaScript strings.
+         hmac_key/0, hmac/2,
+         hmac_encode/2, hmac_decode/2,
+         hmac_encode/1, hmac_decode/1,
+
          %% Query values as produced by ws.js
          form_list/2
          
@@ -151,7 +156,7 @@ handle_ejson(#{type := <<"ws_start">>,
                args := StartHmac},
              State) ->
     %% log:info("ws_start: ~p~n", [StartHmac]),
-    {ok, Start} = web:hmac_decode(StartHmac),
+    {ok, Start} = hmac_decode(StartHmac),
     {ok, InitState} = Start(),
     maps:merge(State, InitState);
 
@@ -176,7 +181,7 @@ handle_ejson(#{type := <<"ws_action">>, action := Action} = Msg, State) ->
         CallbackHMac ->
             %% Closure is authenticated.  Application needs to defined
             %% the "web" module.  FIXME: create a ws_cb module instead.
-            {ok, Fun} = web:hmac_decode(CallbackHMac),
+            {ok, Fun} = hmac_decode(CallbackHMac),
             %% log:info("ws_action: ~p ~p~n",[Fun,M2]),
             Fun(M2, State)
     end;
@@ -241,7 +246,7 @@ call_wait(Ws, ID, Method, Arg) ->
            call_msg(ID,Method,Arg)),
     wait_reply().
 cont_reply(Pid) ->
-    web:hmac_encode(
+    hmac_encode(
       fun(Msg, State) -> Pid ! {cont_value, Msg}, State end).
 wait_reply() -> 
     receive {cont_value, Msg} -> Msg end.
@@ -432,6 +437,43 @@ reload_all() ->
 reload(Ws) ->
     Ws !  #{ type => reload }, ok.
 
+
+
+
+
+%% Encode/decode for tunneling through JSON, cookies, embedded JS,
+%% URLs, ...  Use base64 encoding.
+hmac_encode(GetKey,Obj) ->
+    Bin = term_to_binary(Obj),
+    Hmac = hmac(GetKey,Bin),
+    base64:encode(term_to_binary({Bin,Hmac})).
+hmac_decode(GetKey,Base64) ->
+    {Bin,Hmac} = binary_to_term(base64:decode(Base64)),
+    case hmac(GetKey,Bin) of
+        Hmac  -> {ok, binary_to_term(Bin)};
+        Hmac1 -> {error, {hmac_fail, Hmac, Hmac1}}
+    end.
+hmac(GetKey,Bin) when is_binary(Bin) -> 
+    crypto:hmac(sha256,GetKey(),Bin).
+
+
+%% By default, use a key that's generated once per session.  Failed
+%% keys will cause websocket processes to die, disconnecting socket
+%% which causes client to reconnect.  To change key, kill the process.
+hmac_key() ->
+    Pid = serv:up(
+            hmac_key,
+            {handler,
+             fun() -> #{ key => crypto:strong_rand_bytes(32) } end,
+             fun obj:handle/2}),
+    unlink(Pid),
+    obj:get(Pid, key).
+hmac_encode(X) -> hmac_encode(fun hmac_key/0, X).
+hmac_decode(X) -> hmac_decode(fun hmac_key/0, X).
+
+
+
+         
 
 %% Footnotes
 
