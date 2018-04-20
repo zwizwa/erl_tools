@@ -138,16 +138,13 @@ function start(args, method_call) {
     }
     ws.onclose = function() {
         console.log("ws.onclose:");
-
-        // document.body.style.background = 'grey';
-
-        // FIXME: Don't reload automatically.  It seems to interfere
-        // with too many things.  Have the user refresh manually.
-
-        //console.log("reload after", config.timeout);
-        //setTimeout(function(){
-        //    window.location.reload();
-        //}, config.timeout);
+        // It's been long a puzzle what to do here.  Reloading
+        // automatically after a timeout is not a good idea.  Changing
+        // the layout to notify the user isn't generic either.  Let's
+        // settle on reloading whenever an event is sent.
+        ws.send = function() {
+            window.location.reload();
+        }
     };
     return ws;
 }
