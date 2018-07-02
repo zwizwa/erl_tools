@@ -20,6 +20,7 @@
 
 -module(fold).
 -export([range/1, range/2,
+         chunked_range/2,
          map/2,
          fold/3,
          filter/2, filter_map/2, filter_index/2, drop/2,
@@ -83,7 +84,22 @@ range(Start,Endx) ->
     true = Endx >= Start,
     fun(F,S) -> fold_range(F,S,Endx,Start) end.
 
-    
+
+%% Fold over a chunked range
+chunked_range(ChunkSize, {Start,Endx}) ->    
+    fun(F,S) -> fold_chunked_range({Endx,ChunkSize,F},S,Start) end.
+fold_chunked_range({Endx,ChunkSize,Fun}=Env, State, Start) ->
+    true = Endx >= Start,
+    case Endx - Start =< ChunkSize of
+        true -> Fun({Start, Endx}, State);
+        false ->
+            Mid = Start + ChunkSize,
+            NextState = Fun({Start, Mid}, State),
+            fold_chunked_range(Env, NextState, Mid)
+    end.
+            
+        
+            
 
 
 %% Map over a sequence represented as a fold, returning a new fold
