@@ -1,3 +1,5 @@
+
+
 # Allow optional targets to be specified as an environment variable
 # passed to the top level rebar3.  E.g.:
 # export ERL_TOOLS_EXTRA_TARGETS=sqlite3.host.elf
@@ -10,7 +12,12 @@
 # different architectures!
 
 ERL_TOOLS_BUILD_DIR=$(REBAR_BUILD_DIR)/erl_tools
-ERL_TOOLS_BIN_DIR=$(ERL_TOOLS_BUILD_DIR)/$(shell $(CC) -dumpmachine)
+
+# FIXME: The multiple targets approach doesn't work very well.
+# It seems simplest to use symbolic links for _build instead.
+
+#ERL_TOOLS_BIN_DIR=$(ERL_TOOLS_BUILD_DIR)/$(shell $(CC) -dumpmachine)
+ERL_TOOLS_BIN_DIR=$(ERL_TOOLS_BUILD_DIR)/priv
 
 SQLITE3_ELF = $(ERL_TOOLS_BIN_DIR)/sqlite3.elf
 TARGETS := $(SQLITE3_ELF)
