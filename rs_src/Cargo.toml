@@ -1,0 +1,18 @@
+[package]
+name = "erl_tools_rs"
+version = "0.0.0"
+authors = [
+	"Tom Schouten <tom@zwizwa.be>",
+]
+
+description = "Misc Rust routines for Erlang"
+homepage = "https://github.com/zwizwa/erl_tools"
+repository = "https://github.com/zwizwa/erl_tools"
+license = "MIT"
+
+[[bin]]
+name = "erl_rs"
+path = "src/erl_rs.rs"
+
+[dependencies]
+eetf = "0.3"
