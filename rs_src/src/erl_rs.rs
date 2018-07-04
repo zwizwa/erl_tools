@@ -128,7 +128,7 @@ pub fn loop_apply_etf_2<In: Read, Out: Write>(
     }
 }
 
-pub fn loop_apply_etf_1<IO: Read+Write>(
+pub fn loop_apply_etf_1<IO: Read+Write> (
     f: &Fn(&Term) -> Option<Term>,
     io: &mut IO, 
 ) -> Result<()>
@@ -137,5 +137,23 @@ pub fn loop_apply_etf_1<IO: Read+Write>(
         let in_bin = read_packet4(io)?;
         let out_bin = apply_etf(f, &in_bin);
         write_packet4(io, &out_bin)?;
+    }
+}
+
+pub fn loop_event_etf<O: Write> ( 
+    f: &Fn() -> Option<Term>,
+    o: &mut O, 
+) -> Result<()>
+{
+    loop {
+        match f() {
+            Some(out_term) => {
+                let mut out_bin = Vec::new();
+                out_term.encode(&mut out_bin).unwrap();
+                write_packet4(o, &out_bin)?
+            },
+            None =>
+                ()
+        }
     }
 }
