@@ -76,6 +76,12 @@ pub fn as_i32(arg: &Term) -> Option<i32> {
         _ => None
     }
 }
+pub fn as_str(arg: &Term) -> Option<&str> {
+    match arg {
+        &Term::Atom(Atom {name: ref str}) => Some(str),
+        _ => None
+    }
+}
 
 // pub fn i32_3<T>(arg: &Term, f: &Fn(i32, i32, i32) -> Option<T>) {
 //     match arg {
@@ -92,23 +98,11 @@ pub fn as_i32(arg: &Term) -> Option<i32> {
 
 
 /* Dispatcher for {atom(),_} commands */
-pub fn dispatch_tagged_etf(
-    in_bin: &[u8],
-    dispatch_tag: &Fn(&str, &Term) -> Option<Term>
-) -> Vec<u8>
+pub fn apply_etf(f: &Fn(&Term) -> Option<Term>, in_bin: &[u8]) -> Vec<u8>
 {
+    /* Decode and dispatch */
     let in_term = Term::decode(Cursor::new(in_bin)).unwrap();
-    /* Unpack {Cmd=atom(),Arg} and dispatch. */
-    let out_term_option = match in_term {
-        Term::Tuple(Tuple{elements: terms}) =>
-            match &terms[..] {
-                &[Term::Atom(ref tag), ref arg] =>
-                    dispatch_tag(&tag.name.as_ref(), arg),
-                _ => None
-            },
-        _ => None
-    };
-    let out_term = match out_term_option {
+    let out_term = match f(&in_term) {
         Some(t) => t,
         None => tag("error", atom("bad_command"))
     };
@@ -121,26 +115,27 @@ pub fn dispatch_tagged_etf(
 // FIXME: Handle single/dual stream case more elegantly.
 // stdio needs 2, while sockets need 1.
 
-pub fn loop_dispatch_tagged_etf<In: Read, Out: Write>(
-    i: &mut In, o: &mut Out,
-    dispatch_tag: &Fn(&str, &Term) -> Option<Term>
+pub fn loop_apply_etf_2<In: Read, Out: Write>(
+    f: &Fn(&Term) -> Option<Term>,
+    i: &mut In,
+    o: &mut Out
 ) -> Result<()>
 {
     loop {
         let in_bin = read_packet4(i)?;
-        let out_bin = dispatch_tagged_etf(&in_bin, &dispatch_tag);
+        let out_bin = apply_etf(f, &in_bin);
         write_packet4(o, &out_bin)?;
     }
 }
 
-pub fn loop_dispatch_tagged1_etf<IO: Read+Write>(
-    io: &mut IO,
-    dispatch_tag: &Fn(&str, &Term) -> Option<Term>
+pub fn loop_apply_etf_1<IO: Read+Write>(
+    f: &Fn(&Term) -> Option<Term>,
+    io: &mut IO, 
 ) -> Result<()>
 {
     loop {
         let in_bin = read_packet4(io)?;
-        let out_bin = dispatch_tagged_etf(&in_bin, &dispatch_tag);
+        let out_bin = apply_etf(f, &in_bin);
         write_packet4(io, &out_bin)?;
     }
 }
