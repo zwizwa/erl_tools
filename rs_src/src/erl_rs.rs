@@ -4,6 +4,8 @@
 #![feature(conservative_impl_trait)]
 #![feature(slice_patterns,advanced_slice_patterns)]
 extern crate eetf;
+use std::vec::Vec;
+use std::option::Option;
 use std::io::{Read, Write, Cursor, Result};
 use eetf::{Term,Tuple,Atom,FixInteger};
 // use eetf::{Term,Tuple,Atom};
@@ -41,13 +43,6 @@ pub fn write_packet4<Stream: Write>(s: &mut Stream, buf: &[u8]) -> Result<()> {
     Ok(())
 }
 
-// just re-use io::Error
-fn error(str: String) -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::Other, str)
-}
-
-
-
 /* Specialized functions. */
 
 pub fn tag(tag: &str, term: Term) -> Term {
@@ -60,30 +55,67 @@ pub fn atom(tag: &str) -> Term {
     Term::from(Atom::from(tag))
 }
 
+/* Matching deeply nested structures is really awkward, su use Option
+ * converters, which are easier to use with ? syntax. */
+pub fn as_vec(arg: &Term, size: Option<usize>) -> Option<&Vec<Term>> {
+    match arg {
+        &Term::Tuple(Tuple{elements: ref terms}) => {
+            match size {
+                Some(len) => if terms.len() != len { return None; }
+                _ => ()
+            }
+            Some(&terms)
+        },
+        _ =>
+            None
+    }
+} 
+pub fn as_i32(arg: &Term) -> Option<i32> {
+    match arg {
+        &Term::FixInteger(FixInteger {value: v}) => Some(v),
+        _ => None
+    }
+}
+
+// pub fn i32_3<T>(arg: &Term, f: &Fn(i32, i32, i32) -> Option<T>) {
+//     match arg {
+//         &Term::Tuple(Tuple{elements: terms}) =>
+//             match &terms[..] {
+//                 &[Term::FixInteger(FixInteger {value: a}),
+//                   Term::FixInteger(FixInteger {value: b}),
+//                   Term::FixInteger(FixInteger {value: c})] => Some(f(a,b,c)),
+//                 _ => None
+//             }
+//         _ => None
+//     };
+// }
+
 
 /* Dispatcher for {atom(),_} commands */
 pub fn dispatch_tagged_etf(
     in_bin: &[u8],
-    dispatch_tag: &Fn(&str, &Term) -> Term
-) -> Result<Vec<u8>>
+    dispatch_tag: &Fn(&str, &Term) -> Option<Term>
+) -> Vec<u8>
 {
     let in_term = Term::decode(Cursor::new(in_bin)).unwrap();
     /* Unpack {Cmd=atom(),Arg} and dispatch. */
-    match in_term {
-        Term::Tuple(Tuple{elements: terms}) => {
+    let out_term_option = match in_term {
+        Term::Tuple(Tuple{elements: terms}) =>
             match &terms[..] {
-                &[Term::Atom(ref tag), ref arg] => {
-                    let out_term = dispatch_tag(&tag.name.as_ref(), arg);
-                    /* Wrap it up and reply. */
-                    let mut out_bin = Vec::new();
-                    out_term.encode(&mut out_bin).unwrap();
-                    return Ok(out_bin);
-                },
-                bad => { Err(error(format!("need {{atom(),_}}: {:?}",bad))) }
-            }
-        },
-        bad => { Err(error(format!("not a tuple: {:?}",bad))) }
-    }
+                &[Term::Atom(ref tag), ref arg] =>
+                    dispatch_tag(&tag.name.as_ref(), arg),
+                _ => None
+            },
+        _ => None
+    };
+    let out_term = match out_term_option {
+        Some(t) => t,
+        None => tag("error", atom("bad_command"))
+    };
+    /* Wrap it up and reply. */
+    let mut out_bin = Vec::new();
+    out_term.encode(&mut out_bin).unwrap();
+    return out_bin;
 }
 
 // FIXME: Handle single/dual stream case more elegantly.
@@ -91,24 +123,24 @@ pub fn dispatch_tagged_etf(
 
 pub fn loop_dispatch_tagged_etf<In: Read, Out: Write>(
     i: &mut In, o: &mut Out,
-    dispatch_tag: &Fn(&str, &Term) -> Term
+    dispatch_tag: &Fn(&str, &Term) -> Option<Term>
 ) -> Result<()>
 {
     loop {
         let in_bin = read_packet4(i)?;
-        let out_bin = dispatch_tagged_etf(&in_bin, &dispatch_tag)?;
+        let out_bin = dispatch_tagged_etf(&in_bin, &dispatch_tag);
         write_packet4(o, &out_bin)?;
     }
 }
 
 pub fn loop_dispatch_tagged1_etf<IO: Read+Write>(
     io: &mut IO,
-    dispatch_tag: &Fn(&str, &Term) -> Term
+    dispatch_tag: &Fn(&str, &Term) -> Option<Term>
 ) -> Result<()>
 {
     loop {
         let in_bin = read_packet4(io)?;
-        let out_bin = dispatch_tagged_etf(&in_bin, &dispatch_tag)?;
+        let out_bin = dispatch_tagged_etf(&in_bin, &dispatch_tag);
         write_packet4(io, &out_bin)?;
     }
 }
