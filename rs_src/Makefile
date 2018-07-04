@@ -5,15 +5,15 @@
 
 .PHONY: all
 
-ELF:=../priv/erl_rs.elf
+ELF:=../priv/erl_rs_example.elf
 all: $(ELF) 
 
 clean:
 	rm -rf $(ELF) target
 
-$(ELF): src/erl_rs.rs
-	[ ! -z "$$RUST_TARGET" ]
-	cargo build --target=$$RUST_TARGET --release
-	cp -av target/$$RUST_TARGET/release/erl_rs $@
+$(ELF): $(wildcard src/*.rs)
+	echo -e "\"$$RUST_TARGET\""
+	[ ! -z "$$RUST_TARGET" ] && CARGO_FLAGS="--target=$$RUST_TARGET" ; cargo build $$CARG_FLAGS --release
+	[ ! -z "$$RUST_TARGET" ] && TARGET_DOR=$$RUST_TARGET/ ; cp -av target/$$TARGET_DIR/release/erl_rs_example $@
 	ls -l $@
 

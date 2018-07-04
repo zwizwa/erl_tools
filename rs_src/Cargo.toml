@@ -10,9 +10,13 @@ homepage = "https://github.com/zwizwa/erl_tools"
 repository = "https://github.com/zwizwa/erl_tools"
 license = "MIT"
 
-[[bin]]
+[lib]
 name = "erl_rs"
 path = "src/erl_rs.rs"
+
+[[bin]]
+name = "erl_rs_example"
+path = "src/example.rs"
 
 [dependencies]
 eetf = "0.3"

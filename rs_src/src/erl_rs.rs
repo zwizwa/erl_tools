@@ -1,86 +1,114 @@
+/* Misc support code and specialization for eetf */
+
 /* A simple Erlang port in Rust. */
 #![feature(conservative_impl_trait)]
 #![feature(slice_patterns,advanced_slice_patterns)]
 extern crate eetf;
-use std::io::{self, Read, Write, Cursor};
-use eetf::{Term,Tuple,Atom};
+use std::io::{Read, Write, Cursor, Result};
+use eetf::{Term,Tuple,Atom,FixInteger};
+// use eetf::{Term,Tuple,Atom};
 
 
-/* Run time I/O errors are failures. */
-fn io_assert<T>(res: io::Result<T>) -> T {
-    match res {
-        Ok(v) => v,
-        Err(str) => {
-            panic!("error: {}", str);
-        }
-    }
-}
 /* Read */
-fn read(buf: &mut[u8]) {
-    io_assert(io::stdin().read_exact(buf));
-}
-fn read_u32be() -> u32 {
+
+fn read_u32be<Stream: Read>(s: &mut Stream) -> Result<u32> {
     let mut b : [u8; 4]= [0; 4];
-    read(&mut b);
-    ((b[0] as u32) << 24) + ((b[1] as u32) << 16) + ((b[2] as u32) << 8) +  b[3] as u32
+    s.read_exact(&mut b)?;
+    Ok(((b[0] as u32) << 24) + ((b[1] as u32) << 16) + 
+       ((b[2] as u32) << 8) +  b[3] as u32)
 }
-fn read_packet4() -> Vec<u8> {
-    let nb = read_u32be();
-    eprintln!("nb = {}", nb);
+pub fn read_packet4<Stream: Read>(s: &mut Stream) -> Result<Vec<u8>> {
+    let nb = read_u32be(s)?;
+    //eprintln!("nb = {}", nb);
     let mut inbuf = vec![0; nb as usize];
-    read(&mut inbuf);
-    inbuf
+    s.read_exact(&mut inbuf)?;
+    Ok(inbuf)
 }
 /* Write */
-fn write(buf: &[u8]) {
-    let len = io_assert(io::stdout().write(buf));
-    assert!(len == buf.len());
+fn write<Stream: Write>(s: &mut Stream, buf: &[u8]) -> Result<()> {
+    let len = s.write(buf)?;
+    if len == buf.len() { return Ok(()) }
+    write(s, &buf[len..])
 }
-fn write_u32be(v: u32) {
+fn write_u32be<Stream: Write>(s: &mut Stream, v: u32) -> Result<()> {
     let b = [(v >> 24) as u8, (v >> 16) as u8, (v >> 8) as u8, v as u8];
-    write(&b);
+    write(s, &b)
 }
-fn flush() {
-    io_assert(io::stdout().flush())
+pub fn write_packet4<Stream: Write>(s: &mut Stream, buf: &[u8]) -> Result<()> {
+    write_u32be(s, buf.len() as u32)?;
+    write(s, &buf)?;
+    s.flush()?;
+    Ok(())
 }
-fn write_packet4(buf: &[u8]) {
-    write_u32be(buf.len() as u32);
-    write(&buf);
-    flush();
+
+// just re-use io::Error
+fn error(str: String) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::Other, str)
 }
-/* Behavior */
-fn dispatch_cmd(cmd: &str, _arg: &Term) -> Term {
-    match cmd {
-        "test" => Term::from(Atom::from("test")),
-        bad => panic!("bad command: {:?}",bad)
-    }
+
+
+
+/* Specialized functions. */
+
+pub fn tag(tag: &str, term: Term) -> Term {
+    Term::from(Tuple::from(vec![atom(tag), term]))
 }
-fn dispatch_etf(in_bin: &[u8]) -> Vec<u8> {
+pub fn i32(i: i32) -> Term {
+    Term::from(FixInteger::from(i))
+}
+pub fn atom(tag: &str) -> Term {
+    Term::from(Atom::from(tag))
+}
+
+
+/* Dispatcher for {atom(),_} commands */
+pub fn dispatch_tagged_etf(
+    in_bin: &[u8],
+    dispatch_tag: &Fn(&str, &Term) -> Term
+) -> Result<Vec<u8>>
+{
     let in_term = Term::decode(Cursor::new(in_bin)).unwrap();
     /* Unpack {Cmd=atom(),Arg} and dispatch. */
     match in_term {
         Term::Tuple(Tuple{elements: terms}) => {
             match &terms[..] {
                 &[Term::Atom(ref tag), ref arg] => {
-                    let out_term = dispatch_cmd(&tag.name.as_ref(), arg);
+                    let out_term = dispatch_tag(&tag.name.as_ref(), arg);
                     /* Wrap it up and reply. */
                     let mut out_bin = Vec::new();
                     out_term.encode(&mut out_bin).unwrap();
-                    return out_bin;
+                    return Ok(out_bin);
                 },
-                bad => { panic!("need {{atom(),_}}: {:?}",bad); }
+                bad => { Err(error(format!("need {{atom(),_}}: {:?}",bad))) }
             }
         },
-        bad => { panic!("not a tuple: {:?}",bad); }
-    }
-}
-/* Packet handler */
-fn main() {
-    eprintln!("Rust {{packet,4}} port.");
-    loop {
-        let in_bin = read_packet4();
-        let out_bin = dispatch_etf(&in_bin);
-        write_packet4(&out_bin);
+        bad => { Err(error(format!("not a tuple: {:?}",bad))) }
     }
 }
 
+// FIXME: Handle single/dual stream case more elegantly.
+// stdio needs 2, while sockets need 1.
+
+pub fn loop_dispatch_tagged_etf<In: Read, Out: Write>(
+    i: &mut In, o: &mut Out,
+    dispatch_tag: &Fn(&str, &Term) -> Term
+) -> Result<()>
+{
+    loop {
+        let in_bin = read_packet4(i)?;
+        let out_bin = dispatch_tagged_etf(&in_bin, &dispatch_tag)?;
+        write_packet4(o, &out_bin)?;
+    }
+}
+
+pub fn loop_dispatch_tagged1_etf<IO: Read+Write>(
+    io: &mut IO,
+    dispatch_tag: &Fn(&str, &Term) -> Term
+) -> Result<()>
+{
+    loop {
+        let in_bin = read_packet4(io)?;
+        let out_bin = dispatch_tagged_etf(&in_bin, &dispatch_tag)?;
+        write_packet4(io, &out_bin)?;
+    }
+}
