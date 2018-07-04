@@ -8,11 +8,8 @@ use std::vec::Vec;
 use std::option::Option;
 use std::io::{Read, Write, Cursor, Result};
 use eetf::{Term,Tuple,Atom,FixInteger};
-// use eetf::{Term,Tuple,Atom};
-
 
 /* Read */
-
 fn read_u32be<Stream: Read>(s: &mut Stream) -> Result<u32> {
     let mut b : [u8; 4]= [0; 4];
     s.read_exact(&mut b)?;
@@ -43,8 +40,7 @@ pub fn write_packet4<Stream: Write>(s: &mut Stream, buf: &[u8]) -> Result<()> {
     Ok(())
 }
 
-/* Specialized functions. */
-
+/* Constructors. */
 pub fn tag(tag: &str, term: Term) -> Term {
     Term::from(Tuple::from(vec![atom(tag), term]))
 }
@@ -55,8 +51,8 @@ pub fn atom(tag: &str) -> Term {
     Term::from(Atom::from(tag))
 }
 
-/* Matching deeply nested structures is really awkward, su use Option
- * converters, which are easier to use with ? syntax. */
+/* Destructors.  Matching deeply nested structures is really awkward.
+ * Use Option instead, which is easier to use with ? syntax. */
 pub fn as_vec(arg: &Term, size: Option<usize>) -> Option<&Vec<Term>> {
     match arg {
         &Term::Tuple(Tuple{elements: ref terms}) => {
@@ -82,20 +78,6 @@ pub fn as_str(arg: &Term) -> Option<&str> {
         _ => None
     }
 }
-
-// pub fn i32_3<T>(arg: &Term, f: &Fn(i32, i32, i32) -> Option<T>) {
-//     match arg {
-//         &Term::Tuple(Tuple{elements: terms}) =>
-//             match &terms[..] {
-//                 &[Term::FixInteger(FixInteger {value: a}),
-//                   Term::FixInteger(FixInteger {value: b}),
-//                   Term::FixInteger(FixInteger {value: c})] => Some(f(a,b,c)),
-//                 _ => None
-//             }
-//         _ => None
-//     };
-// }
-
 
 /* Dispatcher for {atom(),_} commands */
 pub fn apply_etf(f: &Fn(&Term) -> Option<Term>, in_bin: &[u8]) -> Vec<u8>
