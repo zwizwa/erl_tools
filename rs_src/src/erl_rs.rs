@@ -1,8 +1,7 @@
 /* Misc support code and specialization for eetf */
 
 /* A simple Erlang port in Rust. */
-#![feature(conservative_impl_trait)]
-#![feature(slice_patterns,advanced_slice_patterns)]
+#![feature(slice_patterns)]
 extern crate eetf;
 use std::vec::Vec;
 use std::option::Option;
