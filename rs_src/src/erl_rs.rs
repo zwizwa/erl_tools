@@ -5,7 +5,7 @@ extern crate eetf;
 use std::vec::Vec;
 use std::option::Option;
 use std::io::{Read, Write, Cursor, Result};
-use eetf::{Term,Tuple,Atom,FixInteger};
+use eetf::{Term,Tuple,Atom,FixInteger,Binary};
 
 /* Read */
 fn read_u32be<Stream: Read>(s: &mut Stream) -> Result<u32> {
@@ -48,6 +48,9 @@ pub fn i32(i: i32) -> Term {
 pub fn atom(tag: &str) -> Term {
     Term::from(Atom::from(tag))
 }
+pub fn binary(bs: &[u8]) -> Term {
+    Term::from(Binary::from(bs))
+}
 
 /* Destructors.  Matching deeply nested structures is really awkward.
  * Use Option instead, which is easier to use with ? syntax. */
@@ -73,6 +76,12 @@ pub fn as_i32(arg: &Term) -> Option<i32> {
 pub fn as_str(arg: &Term) -> Option<&str> {
     match arg {
         &Term::Atom(Atom {name: ref str}) => Some(str),
+        _ => None
+    }
+}
+pub fn as_u8_slice(arg: &Term) -> Option<&[u8]> {
+    match arg {
+        &Term::Binary(Binary {bytes: ref vec}) => Some(&vec[..]),
         _ => None
     }
 }
