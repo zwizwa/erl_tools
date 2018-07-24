@@ -9,7 +9,7 @@
          websocket_info/3, websocket_terminate/3]).
 
 %% Socket interaction and tools
--export([call/4,
+-export([call/4, call_broadcast/4,
          call_sequence/2, call_sequence_bert/2,
          call_wait/4,
          call_exml/4,
@@ -225,13 +225,22 @@ call_fmt(ID,Method,Arg) ->
     #{ type   => call,
        id     => encode_id(ID),
        method => Method,
-       arg    => Arg }.
+       arg    => Arg}.
+
+call_fmt_broadcast(ID,Method,Arg) ->
+    #{ type   => call,
+       name     => encode_id(ID),
+       method => Method,
+       arg    => Arg}.
     
 %% Some Arg types are sent using Binary ERlang Term format for more
 %% efficient encoding.
 %% call_msg(ID,Method,{s16_le,_}=Arg) -> {bert, call_fmt(ID,Method,Arg)};
 %% Default is JSON.
 call_msg(ID,Method,Arg) -> call_fmt(ID,Method,Arg).
+
+call_msg_broadcast(ID,Method,Arg) -> call_fmt_broadcast(ID,Method,Arg).
+
 
 %% FIXME: check code and make sure no binary IDs are sent, then remove
 %% case and use exml:encode_key
@@ -244,6 +253,8 @@ encode_id(ID) -> type_base:encode({pterm,ID}).
 %% A-synchronous messages send -- do not wait for reply.  See call.js
 %% Some types are sent using Binary ERlang Term format.
 call(Ws, ID, Method, Arg) -> Ws ! call_msg(ID,Method,Arg), ok.
+
+call_broadcast(Ws, ID, Method, Arg) -> Ws ! call_msg_broadcast(ID,Method,Arg), ok.
 
 %% Pass continuation to implement synchronous call.  Other side will
 %% use cont as a ws_action.

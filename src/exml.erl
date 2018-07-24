@@ -64,6 +64,8 @@ input(_TypeMod, {Key, {clickable, {Tag,As,Es}}}) ->
      attr_merge(
        As,[{'data-name',encode_key(Key)},
            {'data-value',"_"},  %% Value-less event
+           {'name',encode_key(Key)},
+           {'data-mixin',cell},
            attr_decoder(button)]),
      Es};
 
