@@ -132,13 +132,38 @@ module.exports = {
     // el :: <td /> or <div />, something to contain the value.
     cell: { 
         set: function(el, arg) {
-            // console.log("cell_set",arg);
+             //console.log("cell_set",arg);
+             //console.log("cell_set-el",el);
             if (typeof(arg) == "string") {
                 el.innerHTML = arg;
             }
             else {
                 el.innerHTML = '';
                 el.appendChild(create_element(arg));
+            }
+        },
+
+        add_class: function(el, arg) {
+            if (typeof(arg) == 'object') {
+                for (var i = 0; i < arg.length; ++i) {      
+                    if (typeof(arg[i]) == "string") {
+                        el.classList.add(arg[i]);
+                    }
+                }   
+            } else {
+                el.classList.add(arg);
+            }
+        },
+
+        remove_class: function(el, arg) {
+            if (typeof(arg) == 'object') {
+                for (var i = 0; i < arg.length; ++i) {      
+                    if (typeof(arg[i]) == "string") {
+                        el.classList.remove(arg[i]);
+                    }
+                }   
+            } else {
+                el.classList.remove(arg);
             }
         },
         // Note: Use create_element to create SVG elements.

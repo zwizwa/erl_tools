@@ -114,12 +114,13 @@ function start(args, method_call) {
         send_datetime();
     }
     ws.onmessage = function (evt) {
-        // console.log(evt.data);
+        //console.log(evt.data);
         last_evt = evt
+
         if ("{" == evt.data[0]) {
             // JSON
             var msg = JSON.parse(evt.data);
-            //console.log('jsonmsg',msg);
+            //console.log('jsonmsg',typeof(msg));
             handle(msg);
         }
         else if (evt.data instanceof ArrayBuffer) {

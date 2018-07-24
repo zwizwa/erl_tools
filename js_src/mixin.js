@@ -61,11 +61,20 @@ function error(errmsg) {
 
 
 function route_msg(behaviors, msg) {
-    var el = document.getElementById(msg.id);
-    if (!el) {
-        error(["element not found",msg.id]);
+    if ("id" in msg) {
+        var el = document.getElementById(msg.id);
+        if (!el) {
+            error(["element not found",msg.id]);
+        }
+        return route_el_msg(behaviors, el, msg);
+    } else {
+        var els = document.getElementsByName(msg.name);
+        var rMessage = [];
+        for (var i = 0; i < els.length; ++i) {
+            rMessage.push(route_el_msg(behaviors, els[i], msg));
+        }
+        return rMessage;
     }
-    return route_el_msg(behaviors, el, msg);
 }
 function route_el_msg(behaviors, target_el, msg) {
     var el = target_el;
