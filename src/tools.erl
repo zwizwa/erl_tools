@@ -1,3 +1,5 @@
+%% (c) 2018 Tom Schouten -- see LICENSE file
+
 -module(tools).
 -export([info_p/1, info/1, info/2, info/3, info_subscribe/1, info_unsubscribe/1,
          unhex/1, unhex_string/1, hex/1, hex_list/1, hex4/1, hex8/1, hex16/1, hex_u32/1,
@@ -64,13 +66,6 @@
 
       
 %% Collection of generic tools for Erlang.
-
-%% To the extent possible under law, Tom Schouten has waived all
-%% copyright and related or neighboring rights to tools.erl
-%% Code:    http://zwizwa.be/git/erl_tools
-%% License: http://creativecommons.org/publicdomain/zero/1.0
-
-
 
 
 unhex([]) -> [];

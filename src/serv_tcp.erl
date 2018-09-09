@@ -1,12 +1,10 @@
+%% (c) 2018 Tom Schouten -- see LICENSE file
+
 -module(serv_tcp).
 -export([init/2, init/4, init/5, handle/2, accept_loop/3]).
 
 %% TCP server with client registry.
 
-%% To the extent possible under law, Tom Schouten has waived all
-%% copyright and related or neighboring rights to serv_tcp.erl
-%% Code:    http://zwizwa.be/git/erl_tools
-%% License: http://creativecommons.org/publicdomain/zero/1.0
 
 
 %% `Connect': a serv:start prototype that handles a single client

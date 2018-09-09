@@ -8,7 +8,7 @@ authors = [
 description = "Misc Rust routines for Erlang"
 homepage = "https://github.com/zwizwa/erl_tools"
 repository = "https://github.com/zwizwa/erl_tools"
-license = "MIT"
+license = "BSD3"
 
 [lib]
 name = "erl_rs"

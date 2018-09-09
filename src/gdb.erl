@@ -1,3 +1,5 @@
+%% (c) 2018 Tom Schouten -- see LICENSE file
+
 -module(gdb).
 -export([open/5         %% Start GDB through TCP GDB RSP, providing a Port handler
         ,open_os_pid/4  %% Start GDB attaching to host Pid
@@ -15,11 +17,6 @@
 %% GDB Machine Interface (MI).
 %%
 %% Interact with GDB from erlang.
-%%
-%% To the extent possible under law, Tom Schouten has waived all
-%% copyright and related or neighboring rights to gdb.erl
-%% Code:    http://zwizwa.be/git/erl_tools
-%% License: http://creativecommons.org/publicdomain/zero/1.0
 
 
 open_os_pid(GdbMi, OsPid, Elf, Sink) ->

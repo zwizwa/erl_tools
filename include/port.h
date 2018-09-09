@@ -1,10 +1,4 @@
-
-// To the extent possible under law, Tom Schouten has waived all
-// copyright and related or neighboring rights to the erl_tools
-// library.
-//
-// Code:    http://zwizwa.be/git/erl_tools
-// License: http://creativecommons.org/publicdomain/zero/1.0
+// (c) 2018 Tom Schouten -- see LICENSE file
 
 #ifndef PORT_H
 #define PORT_H

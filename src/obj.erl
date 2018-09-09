@@ -1,3 +1,5 @@
+%% (c) 2018 Tom Schouten -- see LICENSE file
+
 -module(obj).
 -export([init/0, handle/2, call/2, call/3, reply/2,
          get/2, get/3, set/3, gets/2,
@@ -6,12 +8,6 @@
          kvstore/1, kvstore/2]).
 
 %% Simple async object.
-
-%% To the extent possible under law, Tom Schouten has waived all
-%% copyright and related or neighboring rights to obj.erl
-%% Code:    http://zwizwa.be/git/erl_tools
-%% License: http://creativecommons.org/publicdomain/zero/1.0
-
 
 %% How to pick a representation of process state?  If it's not
 %% obvious, and efficiency is not a concern, pick a Map.

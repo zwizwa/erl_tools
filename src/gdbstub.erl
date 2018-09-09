@@ -1,3 +1,5 @@
+%% (c) 2018 Tom Schouten -- see LICENSE file
+
 -module(gdbstub).
 -export([start/1,handle/2]).
 
@@ -6,11 +8,6 @@
 %% Have GDB speak RSP to Erlang, allowing Erlang to speak a simplified
 %% protocol to firmware.
 %%
-%% To the extent possible under law, Tom Schouten has waived all
-%% copyright and related or neighboring rights to gdbstub.erl
-%% Code:    http://zwizwa.be/git/erl_tools
-%% License: http://creativecommons.org/publicdomain/zero/1.0
-
 
 start(Port) ->
     serv:start(

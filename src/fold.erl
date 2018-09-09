@@ -1,11 +1,7 @@
+%% (c) 2018 Tom Schouten -- see LICENSE file
+
 %% Sequences represented as tail recursive left folds.
 %% I.e. event processing state machine loops.
-
-%% To the extent possible under law, Tom Schouten has waived all
-%% copyright and related or neighboring rights to fold.erl
-%% Code:    http://zwizwa.be/git/erl_tools
-%% License: http://creativecommons.org/publicdomain/zero/1.0
-
 
 %% This approach to abstracting sequences in a strict language allows
 %% chaining of stream processors without building intermediate data

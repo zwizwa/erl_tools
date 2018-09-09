@@ -1,3 +1,5 @@
+%% (c) 2018 Tom Schouten -- see LICENSE file
+
 -module(serv).
 -export([
          %% Broadcaster
@@ -27,11 +29,6 @@
 
 -define(IF(C,A,B), (case (C) of true -> (A); false -> (B) end)).
 -export_types([start_spec/0]).
-%% To the extent possible under law, Tom Schouten has waived all
-%% copyright and related or neighboring rights to serv.erl
-%% Code:    http://zwizwa.be/git/erl_tools
-%% License: http://creativecommons.org/publicdomain/zero/1.0
-
 
 
 %% Simple server tools - avoid OTP boilerplate.

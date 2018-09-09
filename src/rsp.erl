@@ -1,3 +1,5 @@
+%% (c) 2018 Tom Schouten -- see LICENSE file
+
 -module(rsp).
 -export([wrap/1,
          unwrap/1,
@@ -15,12 +17,6 @@
 -import(tools,[info/1, info/2, unhex/1, hex/1]).
 
 %% GDB RSP protocol tools
-
-%% To the extent possible under law, Tom Schouten has waived all
-%% copyright and related or neighboring rights to rsp.erl
-%% Code:    http://zwizwa.be/git/erl_tools
-%% License: http://creativecommons.org/publicdomain/zero/1.0
-
 
 %% FIX: We're not sending acks.  Stub ignores those.
 
