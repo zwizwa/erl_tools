@@ -55,7 +55,8 @@
          process_dictionary_get_value/2,
          reload_from_beam_list/1,
          transpose/1,
-         clean_filename/1
+         clean_filename/1,
+         format_backtrace/1
         ]).
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -882,6 +883,8 @@ clean_filename(Filename) ->
       ["\s", "/", "\\\\"]).
 
 
+format_backtrace(_) -> bt.
+     
 
 
 -ifdef(TEST).
