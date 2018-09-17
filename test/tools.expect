@@ -82,4 +82,22 @@ end
 , %% =>
 [[1,4,7],[2,5,8],[3,6,9]]
 }
+,
+{ %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+fun () ->
+	tools:format_backtrace([{obj, wait_reply, 5,
+				 [{file,
+				   "/home/tom/priv/git-private/humanetics/gw_src/"
+				   "gateway/gw/_build/default/lib/gw/src/obj.erl"},
+				  {line, 70}]},
+				{spa_exec, edit_event, 2,
+				 [{file, "gateway/gw/src/spa_exec.erl"},
+				  {line, 320}]}])
+end
+, %% expected =>
+ok
+, %% found =>
+["/home/tom/priv/git-private/humanetics/gw_src/gateway/gw/_build/default/lib/gw/src/obj.erl:70: obj:wait_reply/5\n",
+ "gateway/gw/src/spa_exec.erl:320: spa_exec:edit_event/2\n"]
+}
 ].

@@ -883,8 +883,17 @@ clean_filename(Filename) ->
       ["\s", "/", "\\\\"]).
 
 
-format_backtrace(_) -> bt.
-     
+format_backtrace(Lst) ->
+     lists:map(fun format_backtrace_line/1, Lst).
+format_backtrace_line({Module, Function, Arity, PropList}) ->
+    %% FIME: Why is erlang:module_info/1 source different from what's recorded in the backtrace?
+    %%File = proplists:get_value(file, PropList),
+    Info = erlang:get_module_info(Module),
+    Compile = proplists:get_value(compile, Info),
+    File = proplists:get_value(source, Compile),
+    Line = proplists:get_value(line, PropList),
+    format("~s:~p: ~p:~p/~p~n", [File, Line, Module, Function, Arity]).
+                       
 
 
 -ifdef(TEST).
