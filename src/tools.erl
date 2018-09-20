@@ -56,7 +56,7 @@
          reload_from_beam_list/1,
          transpose/1,
          clean_filename/1,
-         format_backtrace/1
+         format_backtrace/2
         ]).
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -883,16 +883,16 @@ clean_filename(Filename) ->
       ["\s", "/", "\\\\"]).
 
 
-format_backtrace(Lst) ->
-     lists:map(fun format_backtrace_line/1, Lst).
-format_backtrace_line({Module, Function, Arity, PropList}) ->
+format_backtrace(FixPath, Lst) ->
+    [format_backtrace_line(FixPath, Entry) || Entry <- Lst].
+format_backtrace_line(FixPath, {Module, Function, Arity, PropList}) ->
     %% FIME: Why is erlang:module_info/1 source different from what's recorded in the backtrace?
     %%File = proplists:get_value(file, PropList),
     Info = erlang:get_module_info(Module),
     Compile = proplists:get_value(compile, Info),
     File = proplists:get_value(source, Compile),
     Line = proplists:get_value(line, PropList),
-    format("~s:~p: ~p:~p/~p~n", [File, Line, Module, Function, Arity]).
+    format("~s:~p: ~p:~p/~p~n", [FixPath(File), Line, Module, Function, Arity]).
                        
 
 

@@ -30,6 +30,7 @@
          reload/1,
          reload_all/0,
          pids/0,
+         find/1,
 
          %% HMAC for encoding binary terms in JavaScript strings.
          hmac_key/0, hmac/2,
@@ -84,7 +85,13 @@ websocket_init(_TransportName, Req, _Opts) ->
     log:info("ws: init ~p~n",[{Agent,Peer}]),
 
     {ok, Req,
-     #{terminate => fun(_) -> ok end,
+     #{terminate =>
+           fun(#{ supervisor := {ok, Pid} }) ->
+                   log:info("shutdown supervisor ~p~n",[Pid]),
+                   exit(Pid, shutdown);
+              (_) -> 
+                   ok 
+           end,
        agent => Agent,
        peer => Peer}}.
 
@@ -448,6 +455,35 @@ ws_bc() ->
 pids() ->
     #{ pids := Pids } = obj:dump(ws_bc()),
     sets:to_list(Pids).
+
+%% For debugging it is convenient to identify a particular web
+%% session.  This function assumes:
+%% - The websocket processes unsertands the obj.erl protocol
+%% - The qv field contains the query values
+%% - The query values contain an id field
+%%
+%% Note that it is possible that there are multiple clients.  Caller
+%% should take care of that, so return a list here.
+
+find(ID) when is_atom(ID) ->
+    find(atom_to_binary(ID,utf8));
+find(ID) when is_binary(ID) ->
+    lists:flatten(
+      lists:map(
+        fun(Pid) ->
+                try
+                    {ok, Qv} = obj:find(Pid, qv),
+                    {ok, ID} = maps:find(id, Qv),
+                    [Pid]
+                catch
+                    _:_ -> []
+                end
+        end,
+        pids())).
+    
+    
+                 
+     
 
 %% Ask all websockets to reload
 reload_all() ->

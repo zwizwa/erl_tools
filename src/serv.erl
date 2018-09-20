@@ -15,6 +15,10 @@
          %% Several spawning methods
          start/1,
          enter/1,
+         %% For OTP supervisors
+         supervisor_init/2,
+         start_child/1,
+
          %% queue flush + synchronous call based batch processing
          batch_processor/2, flush/0, receive_batch/0,
 
@@ -32,6 +36,13 @@
 
 
 %% Simple server tools - avoid OTP boilerplate.
+
+%% OTP is great.  Supervisors are great.  However, gen_server is
+%% heavyweight, requiring one module per service type.  Often, that is
+%% really overkill, and an anonymous init+handler is sufficient.
+%% Combine this with obj.erl for object-style services on top of
+%% serv.erl handlers.
+
 
 %% To persist processes across reload, either:
 %% - do not reload serv (more than once): processes are blocked in receive_loop/2
@@ -199,6 +210,34 @@ start({body, Body}) ->
     start({spawner, fun() -> spawn_link(Body) end});
 start({spawner, Spawn}) ->
     Spawn().
+
+
+%% For use in supervisor child_spec().
+start_child(Spec) ->
+    try {ok, start(Spec)}
+    catch C:E -> {error, {C,E}} end.
+
+%% Simplified OTP superviser init function using some reasonable defaults.
+%% - start supervisor as: supervisor:start_link(?MODULE, InitArgs),
+%% - export an init function in your module that calls serv:sup_init/2
+  
+%% FIXME: Why is Modules needed?
+supervisor_init(Modules, Specs) ->
+    Restart = permanent,
+    ShutDown = brutal_kill,
+    Type = worker,
+    ChildSpecs = 
+        [{ID, 
+          {serv, start_child, [StartSpec]},
+          Restart,
+          ShutDown,
+          Type,
+          Modules}
+         || {ID, StartSpec} <- Specs],
+    {ok, {{one_for_one, 5, 5}, ChildSpecs}}.
+
+
+
 
 
 %% Take over current process.

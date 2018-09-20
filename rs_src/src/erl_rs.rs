@@ -45,6 +45,10 @@ pub fn tag(tag: &str, term: Term) -> Term {
 pub fn i32(i: i32) -> Term {
     Term::from(FixInteger::from(i))
 }
+pub fn i32_vec(v: &[i32]) -> Term {
+    let tv: Vec<Term> = v.into_iter().map(|i| i32(*i)).collect();
+    Term::from(Tuple::from(tv))
+}
 pub fn atom(tag: &str) -> Term {
     Term::from(Atom::from(tag))
 }
