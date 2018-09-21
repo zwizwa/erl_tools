@@ -121,7 +121,10 @@ Bert.prototype = {
     ZERO:          0,
 
     types: {
-        s16_le: function(buffer) { return new Int16Array(buffer); }
+        // FIXME: Typed array views are inthe native byte-order.
+        // Use DataView to ensure this also works on big-endian machines.
+        s16_le: function(buffer) { return new Int16Array(buffer); },
+        u16_le: function(buffer) { return new Uint16Array(buffer); },
     },
 
     decode: function (arraybuf) {

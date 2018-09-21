@@ -52,7 +52,8 @@ function form_field(input) {
 function input_name(el) {
     var dn = el.getAttribute('data-name');
     if (dn) { return dn; }
-    else return el.name;
+    if (el.name) { return el.name; }
+    return el.getAttribute('id');
 }
 
 // Convert input's value to string based on kind of input.
