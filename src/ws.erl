@@ -43,6 +43,9 @@
          js_send_input_form/2,
          js_send_event/1,
 
+         %% Tools for child processes as widget controllers.
+         start_widgets/3, start_widgets/2,
+
          %% Query values as produced by ws.js
          form_list/2
          
@@ -98,7 +101,7 @@ websocket_init(_TransportName, Req, _Opts) ->
 websocket_handle({text, Json}, Req, State) ->
     %% Interpret all incoming messages as JSON.
     {ok, EJson} = json:decode(Json),
-    NextState = handle_ejson(EJson, State),  %% Async only
+    NextState = handle_ejson_(EJson, State),  %% Async only
     {ok, Req, NextState};
 websocket_handle({binary, Bin}, Req, State) -> 
     %% Binary messages (Uint8Array) are interpreted as binary erlang
@@ -106,7 +109,7 @@ websocket_handle({binary, Bin}, Req, State) ->
     %% to avoid a JSON parser.
     EJson = binary_to_term(Bin),
     %% log:info("via bert: ~p~n",[EJson]),
-    NextState = handle_ejson(EJson, State),  %% Async only
+    NextState = handle_ejson_(EJson, State),  %% Async only
     {ok, Req, NextState};
 websocket_handle({ping,_}, Req, State) -> 
     {ok, Req, State};
@@ -159,6 +162,11 @@ websocket_terminate(_Reason, _Req, _State) ->
     log:info("ws:websocket_terminate: no terminate handler~n"),
     ok.
 
+
+%% Tap point
+handle_ejson_(Msg, State) ->
+    %% log:info("handle_ejson: ~p~n", [Msg]),
+    handle_ejson(Msg, State).
 
 %% Generic websocket start routine.
 %%
@@ -472,7 +480,7 @@ find(ID) when is_binary(ID) ->
       lists:map(
         fun(Pid) ->
                 try
-                    {ok, Qv} = obj:find(Pid, qv),
+                    {ok, Qv} = obj:find(Pid, query),
                     {ok, ID} = maps:find(id, Qv),
                     [Pid]
                 catch
@@ -542,6 +550,65 @@ js_send_event(CB) ->
 %% See ws_action handler above.
 cb_encode(handle) -> <<>>;
 cb_encode(CB)-> hmac_encode(CB).
+
+
+%% Websocket application using widgets implemented as subprocesses.
+
+%% To make that manageable, some design choices are made
+%% - An OTP supervisor is used
+%% - Messages are based on form_list/2 with parameterized parsers
+%% - Keys in are prefixed with child names.
+%% - The module defines an init(Ws) method
+
+start_widgets(Ws, Module) ->
+    start_widgets(Ws, Module, type).
+
+start_widgets(Ws, Module, Types) ->
+    %% Note: caller needs to present Types to deserialize the
+    %% messages.  Protocol can be application-dependent.
+    {ok, Sup} = supervisor:start_link(Module, Ws),
+    #{
+       supervisor => Sup,
+       module => Module,
+       handle => 
+           %% Note: {info, Msg} is explicitly not handled: nobody has
+           %% any business sending messages to the websocket of a
+           %% multiprocess app.
+           fun({ws, EJson}, State) ->
+                   to_children(Sup, form_list(Types, EJson)),
+                   State
+           end
+     }.
+
+%% Sup:      supervisor Pid
+%% FormList: already decoded using application's type serializer
+to_children(Sup, FormList) ->
+    Children = [{Id,Child} || {Id,Child,_,_} <- supervisor:which_children(Sup)],
+    Transposed = transpose_form_list(FormList),
+    lists:foreach(
+      fun({Name, SubForm}) ->
+              Pid = proplists:get_value(Name, Children),
+              Pid ! SubForm
+      end,
+      Transposed).
+                         
+   
+%% Awkward due to legacy multi-entry "form" format.  We're likely
+%% never going to run into the general case.  So just handle the
+%% special case for now.
+transpose_form_list([{{Key1,Key2}, Val}]) ->
+    [{Key1,[{Key2,Val}]}];
+transpose_form_list(FL) ->
+    error({transpose_form_list,FL}).
+    
+
+
+
+%% The problem here is routing of events.  One approach that seems to
+%% work is to prefix all relevant identifiers using a supervis
+
+
+
          
 
 %% Footnotes
