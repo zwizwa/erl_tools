@@ -564,18 +564,19 @@ start_widgets(#{ ws := _Ws, module := Module, type := Types} = Env) ->
     %% Note: caller needs to present Types to deserialize the
     %% messages.  Protocol can be application-dependent.
     {ok, Sup} = supervisor:start_link(Module, {supervisor, Env}),
-    #{
-       supervisor => Sup,
-       module => Module,
-       handle => 
-           %% Note: {info, Msg} is explicitly not handled: nobody has
-           %% any business sending messages to the websocket of a
-           %% multiprocess app.
-           fun({ws, EJson}, State) ->
-                   to_children(Sup, form_list(Types, EJson)),
-                   State
-           end
-     }.
+    maps:merge(
+      Env,
+      #{
+        supervisor => Sup,
+        handle => 
+            %% Note: {info, Msg} is explicitly not handled so it will
+            %% fail: nobody has any business sending non-protocol
+            %% messages to the websocket of a multiprocess app.
+            fun({ws, EJson}, State) ->
+                    to_children(Sup, form_list(Types, EJson)),
+                    State
+            end
+       }).
 
 %% Sup:      supervisor Pid
 %% FormList: already decoded using application's type serializer
