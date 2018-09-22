@@ -44,7 +44,7 @@
          js_send_event/1,
 
          %% Tools for child processes as widget controllers.
-         start_widgets/3, start_widgets/2,
+         start_widgets/1,
 
          %% Query values as produced by ws.js
          form_list/2
@@ -560,16 +560,9 @@ cb_encode(CB)-> hmac_encode(CB).
 %% - Keys in are prefixed with child names.
 %% - The module defines an init(Ws) method
 
-start_widgets(Ws, Module) ->
-    start_widgets(Ws, Module, type).
-
-start_widgets(Ws, Module, Types) ->
+start_widgets(#{ ws := _Ws, module := Module, type := Types} = Env) ->
     %% Note: caller needs to present Types to deserialize the
     %% messages.  Protocol can be application-dependent.
-    Env = #{
-      module => Module,
-      ws => Ws
-     },
     {ok, Sup} = supervisor:start_link(Module, {supervisor, Env}),
     #{
        supervisor => Sup,
