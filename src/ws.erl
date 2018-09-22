@@ -566,7 +566,11 @@ start_widgets(Ws, Module) ->
 start_widgets(Ws, Module, Types) ->
     %% Note: caller needs to present Types to deserialize the
     %% messages.  Protocol can be application-dependent.
-    {ok, Sup} = supervisor:start_link(Module, Ws),
+    Env = #{
+      module => Module,
+      ws => Ws
+     },
+    {ok, Sup} = supervisor:start_link(Module, {supervisor, Env}),
     #{
        supervisor => Sup,
        module => Module,

@@ -1,5 +1,37 @@
 -module(ws_widget).
--export([test/1]).
+-export([
+         %% Convert collection of widgets to initial page template
+         layout/2,
+         supervisor/2,
+         test/1]).
+
+%% Widgets resemble the 2-phase startup of single page applications.
+
+%% Create initial layout.
+layout(Widgets, Env) ->
+    log:info("~p~n", [{Widgets, Env}]),
+    maps:map(
+      fun(Name, Init) ->
+              Env1 = maps:put(path, Name, Env),
+              Init({layout, Env1})
+      end,
+      Widgets).
+
+%% Convert widget's serv_spec into an OTP supervisor init/1 response.
+supervisor(Widgets, Env = #{ module := Module, ws := _Ws }) ->
+    Init = 
+        serv:supervisor_init(
+          [Module],
+          maps:to_list(
+            maps:map(
+              fun(Name, Init) ->
+                      Env1 = maps:put(path, Name, Env),
+                      Init({serv_spec, Env1})
+              end,
+              Widgets))),
+    log:info("Init=~p~n", [Init]),
+    Init.
+
 
 %% Test widget for multi-process widget approch based on ws.erl infrastructure.
 
@@ -19,25 +51,28 @@
 %% "app.send_input(this)", calling into the JavaScript code in js_src
 
 
-test(#{ ws   := Ws,
-        path := Path } = Env) ->
-
-    {handler,
-     fun() ->
-             Exml = [{pre,[],[[<<"Test Widget">>]]},
-                     button(Env, {Path, button123}, <<"Test123">>)],
-             %% log:info("~p~n", [{Ws,Path,Exml}]),
-             ws:call_exml(Ws, Path, set, Exml),
-             #{}
-     end,
-     fun(Msg, State) ->
-             log:info("test_widget: ~p~n", [Msg]),
-             %% FIXME: setting button names doesn't seem to work well
-             %% this way..  Maybe a problem with cell just setting
-             %% text instead of a html element?
-             ws:call_exml(Ws, {Path, button123}, set, [{'div',[],[[<<"clicked!">>]]}]),
-             State
-     end}.
+test(#{path := Path} = Env) ->
+    {
+      fun() -> {'div',[{id,Path},{'data-mixin',cell}],[]} end,
+      fun(Ws) ->
+              {handler,
+               fun() ->
+                       Exml = [{pre,[],[[<<"Test Widget">>]]},
+                               button(Env, {Path, button123}, <<"Test123">>)],
+                       %% log:info("~p~n", [{Ws,Path,Exml}]),
+                       ws:call_exml(Ws, Path, set, Exml),
+                       #{}
+               end,
+               fun(Msg, State) ->
+                       log:info("test_widget: ~p~n", [Msg]),
+                       %% FIXME: setting button names doesn't seem to work well
+                       %% this way..  Maybe a problem with cell just setting
+                       %% text instead of a html element?
+                       ws:call_exml(Ws, {Path, button123}, set, [{'div',[],[[<<"clicked!">>]]}]),
+                       State
+               end}
+      end
+    }.
 
 
 %% Layout.
