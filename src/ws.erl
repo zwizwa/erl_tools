@@ -88,14 +88,7 @@ websocket_init(_TransportName, Req, _Opts) ->
     log:info("ws: init ~p~n",[{Agent,Peer}]),
 
     {ok, Req,
-     #{terminate =>
-           fun(#{ supervisor := {ok, Pid} }) ->
-                   log:info("shutdown supervisor ~p~n",[Pid]),
-                   exit(Pid, shutdown);
-              (_) -> 
-                   ok 
-           end,
-       agent => Agent,
+     #{agent => Agent,
        peer => Peer}}.
 
 websocket_handle({text, Json}, Req, State) ->
@@ -155,12 +148,25 @@ websocket_info(Msg, Req, State) ->
     log:info("ws:websocket_info: ignore: ~p~n",[Msg]),
     {ok, Req, State}.
 
-websocket_terminate(_Reason, _Req, #{terminate := Terminate}=State) ->
+websocket_terminate(_Reason, _Req, State) ->
     log:info("terminate~n"),
-    Terminate(State), ok;
-websocket_terminate(_Reason, _Req, _State) ->
-    log:info("ws:websocket_terminate: no terminate handler~n"),
-    ok.
+    case maps:find(terminate, State) of
+        {ok, Terminate} ->
+            log:info("- running 'terminate' method~n"),
+            Terminate(State), ok;
+        _ ->
+            log:info("- no 'terminate' method~n"),
+            ok
+    end,
+    case maps:find(supervisor, State) of
+        {ok, Pid} ->
+            log:info("- shutdown supervisor ~p~n", [Pid]),
+            exit(Pid, shutdown), ok;
+        _ ->
+            log:info("- no supervisor~n"),
+            ok 
+    end.
+
 
 
 %% Tap point
@@ -196,10 +202,21 @@ handle_ejson(#{type := <<"ws_action">>, action := Action} = Msg, State) ->
     M2 = maps:remove(type, M1),
     case Action of
         <<"">> ->
-            %% Use the default handler. This avoids encoding overhead
-            %% in case a closure is not needed.
-            Handle = maps:get(handle, State),
-            Handle({ws, M2}, State);
+            case maps:find(handle, State) of
+                {ok, Handle} ->
+                    %% Use the default handler. This avoids encoding
+                    %% overhead in case a closure is not needed.
+                    Handle({ws, M2}, State);
+                _ ->
+                    %% For multi-process applications, the ws task
+                    %% does not handle anything.  Delegate to one of
+                    %% the supervisor's children.
+                    #{ supervisor := Sup,
+                       type_module := Types } = State,
+                    to_children(Sup, form_list(Types, M2)),
+                    State
+            end;
+                    
         CallbackHMac ->
             %% Closure is authenticated.  Application needs to defined
             %% the "web" module.  FIXME: create a ws_cb module instead.
@@ -560,23 +577,12 @@ cb_encode(CB)-> hmac_encode(CB).
 %% - Keys in are prefixed with child names.
 %% - The module defines an init(Ws) method
 
-start_widgets(#{ ws := _Ws, module := Module, type := Types} = Env) ->
+start_widgets(#{ ws := _Ws, module := Module} = Env) ->
     %% Note: caller needs to present Types to deserialize the
     %% messages.  Protocol can be application-dependent.
+
     {ok, Sup} = supervisor:start_link(Module, {supervisor, Env}),
-    maps:merge(
-      Env,
-      #{
-        supervisor => Sup,
-        handle => 
-            %% Note: {info, Msg} is explicitly not handled so it will
-            %% fail: nobody has any business sending non-protocol
-            %% messages to the websocket of a multiprocess app.
-            fun({ws, EJson}, State) ->
-                    to_children(Sup, form_list(Types, EJson)),
-                    State
-            end
-       }).
+    maps:put(supervisor, Sup, Env).
 
 %% Sup:      supervisor Pid
 %% FormList: already decoded using application's type serializer
