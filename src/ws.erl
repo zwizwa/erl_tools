@@ -209,10 +209,15 @@ handle_ejson(#{type := <<"ws_action">>, action := Action} = Msg, State) ->
                 _ ->
                     %% .. one of the children of the supervisor
                     %% associated to this websocket.
-                    #{ supervisor  := Sup,
-                       type_module := Types } = State,
-                    to_children(Sup, form_list(Types, M2)),
-                    State
+                    case State of
+                        #{ supervisor  := Sup,
+                           type_module := Types } ->
+                            to_children(Sup, form_list(Types, M2)),
+                            State;
+                        _ ->
+                            log:info("No handler for: ~p~n;", [M2]),
+                            State
+                    end
             end;
                     
         CallbackHMac ->
