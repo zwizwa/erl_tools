@@ -198,25 +198,25 @@ handle_ejson(#{type := <<"ws_action">>, action := Action} = Msg, State) ->
     M1 = maps:remove(action, Msg),
     M2 = maps:remove(type, M1),
     case Action of
+
         <<"">> ->
+            %% Not a closure, but a message that is to be delivered to
+            %% the default handler, which is either..
             case maps:find(handle, State) of
                 {ok, Handle} ->
-                    %% Use the default handler. This avoids encoding
-                    %% overhead in case a closure is not needed.
+                    %% .. explicitly specified, or..
                     Handle({ws, M2}, State);
                 _ ->
-                    %% For multi-process applications, the ws task
-                    %% does not handle anything.  Delegate to one of
-                    %% the supervisor's children.
-                    #{ supervisor := Sup,
+                    %% .. one of the children of the supervisor
+                    %% associated to this websocket.
+                    #{ supervisor  := Sup,
                        type_module := Types } = State,
                     to_children(Sup, form_list(Types, M2)),
                     State
             end;
                     
         CallbackHMac ->
-            %% Closure is authenticated.  Application needs to defined
-            %% the "web" module.  FIXME: create a ws_cb module instead.
+            %% Closure is authenticated.
             {ok, Fun} = hmac_decode(CallbackHMac),
             %% log:info("ws_action: ~p ~p~n",[Fun,M2]),
             Fun(M2, State)
