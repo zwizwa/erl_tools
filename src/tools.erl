@@ -891,8 +891,18 @@ format_backtrace_line(FixPath, {Module, Function, Arity, PropList}) ->
     Info = erlang:get_module_info(Module),
     Compile = proplists:get_value(compile, Info),
     File = proplists:get_value(source, Compile),
-    Line = proplists:get_value(line, PropList),
-    format("~s:~p: ~p:~p/~p~n", [FixPath(File), Line, Module, Function, Arity]).
+    Line = proplists:get_value(line, PropList, 0),  %% Default makes Emacs parser work.
+    FmtFun =
+        case Arity of
+            %% See documentation of erlang:get_stacktrace()
+            _ when is_number(Arity) ->  %% FIXME: is arity() always a number?
+                format("~p:~p/~p", [Module,Function,Arity]);
+            _ when is_list(Arity) ->
+                format("~p:~p/~p, Args=~p", [Module, Function, length(Arity), Arity])
+        end,
+
+
+    format("~s:~p: ~s~n", [FixPath(File), Line, FmtFun]).
                        
 
 
