@@ -43,6 +43,9 @@
          js_send_input_form/2,
          js_send_event/1,
 
+         %% Delegate to supervisor's child
+         to_child/3,
+
          %% Query values as produced by ws.js
          form_list/2
          
@@ -571,6 +574,19 @@ cb_encode(handle) -> <<>>;
 cb_encode(CB)-> hmac_encode(CB).
 
 
+%% Forward message to supervisor's child by name.
+to_child(Sup, Child, Msg) when is_atom(Child) ->
+    lists:foreach(
+      fun({C,Pid,_,_}) -> 
+              if C == Child -> Pid ! Msg;
+                 true -> ok
+              end
+      end,
+      supervisor:which_children(Sup)).
+    
+    
+    
+    
 
 %% Sup:      supervisor Pid
 %% FormList: already decoded using application's type serializer

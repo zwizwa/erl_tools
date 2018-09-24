@@ -7,7 +7,10 @@
          put_list/2, put_map/2,
          update/4, update_val/4,
          update/3, update_val/3,
-         keys/1, init/2, zero/0, with_default/2,
+         keys/1,
+         init/2, init_with_default/2, 
+         zero/0,
+         with_default/2,
          read_only/1, read_only_from_map/1,
          get_type_bin_val/2,
          combined/2]).
@@ -69,6 +72,9 @@ init(KVStore, Init) when is_map(Init) ->
         false -> put_map(KVStore, New); %% Returns {ok,_} | {error,_}
         true -> ok
     end.
+
+init_with_default(KVStore, Init) when is_map(Init) ->
+    init(KVStore, maps:merge(Init, to_map(KVStore))).
     
 zero() ->
     {kvstore,
@@ -80,7 +86,8 @@ zero() ->
         (_) -> throw(kvstore_zero)
      end}.
                    
-%% Wrap a kvstore with default generator
+%% Wrap a kvstore with default generator or map
+%% FIXME: this isn't all that useful.  See also init_with_default
 with_default({kvstore, F}=Parent, DefaultFind) ->     
     {kvstore,
      fun(find) ->
