@@ -591,23 +591,18 @@ to_child(Sup, Child, Msg) when is_atom(Child) ->
 %% Sup:      supervisor Pid
 %% FormList: already decoded using application's type serializer
 to_children(Sup, FormList) ->
-    Children = [{Id,Child} || {Id,Child,_,_} <- supervisor:which_children(Sup)],
-    Transposed = transpose_form_list(FormList),
-    lists:foreach(
-      fun({Name, SubForm}) ->
-              Pid = proplists:get_value(Name, Children),
-              Pid ! SubForm
-      end,
-      Transposed).
-                         
+    Child = form_destination(FormList),
+    to_child(Sup, Child, FormList).
+
+
+%% Find out where this needs to go by inspecting the key of the first
+%% element in the form.
+
    
 %% Awkward due to legacy multi-entry "form" format.  We're likely
 %% never going to run into the general case.  So just handle the
 %% special case for now.
-transpose_form_list([{{Key1,Key2}, Val}]) ->
-    [{Key1,[{Key2,Val}]}];
-transpose_form_list(FL) ->
-    error({transpose_form_list,FL}).
+form_destination([{{Path, _SubKey}, _Val} | _Rest]) when is_atom(Path) -> Path.
     
 
 
