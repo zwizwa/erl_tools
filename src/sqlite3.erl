@@ -112,13 +112,30 @@ db(Atom, DbFile, DbInit) ->
 
 %% Base routine performs multiple queries.
 %% This allows serializing transactions.
+
+%% Note: this was transformed from a map into a "reversing foldl", to
+%% allow interpersing code between transactions without having to
+%% rewrite a lot of the logic.  Maybe clean this up later?.  To undo,
+%% remove the 'check' clause, and translate it back into a map that
+%% computes Results directly.
 db_handle({Pid, {queries, Queries}}, #{db := DB} = State) ->
-    Results =
-        [sink:gen_to_list(
-           fun(Sink) -> sqlite3:port_query(DB, Query, Sink) end)
-         || Query <- Queries],
+    RResults =
+        lists:foldl(
+          fun ({check, Check}, RRes) ->
+                  Check(RRes);
+              (Query, RRes) ->
+                  %% log:info("Query: ~p~n", [Query]),
+                  Res = sink:gen_to_list(
+                          fun(Sink) -> sqlite3:port_query(DB, Query, Sink) end),
+                  [Res|RRes]
+          end,
+          [],
+          Queries),
+    Results = lists:reverse(RResults),
     Pid ! {self(), obj_reply, Results},
     State;
+
+
 
 db_handle({Port, {exit_status, _}=E}, #{db := Port}) ->
     log:info("ERROR: unexpected db port exit: ~p~n", [E]),
@@ -147,8 +164,8 @@ queries(DbPid, Queries, Timeout) ->
 -type db() :: fun(() -> #{ 'pid' => pid(), 'timeout' => timeout()}).
 
 %% Lazy retrieval of DB connection + raise errors in caller's thread.
--spec sql(db(), [{binary(), [binding()]}]) -> [result_table()].
-sql(DB, Queries) ->
+-spec sql_inner(db(), [{binary(), [binding()]}]) -> [result_table()].
+sql_inner(DB, Queries) ->
     #{pid := Pid, timeout := Timeout} = DB(),
 
     Tables = queries(Pid, Queries, Timeout),
@@ -185,7 +202,7 @@ sql_transaction(DB, Queries) ->
               [[{<<"begin transaction">>, []}],
                Queries,
                [{<<"end transaction">>, []}]]),
-        Rv = sql(DB, Transaction),
+        Rv = sql_inner(DB, Transaction),
         {ok, Rv}
     catch
         C:E ->
@@ -193,13 +210,23 @@ sql_transaction(DB, Queries) ->
             %% likely a bug elsewhere.
             Err0 = {C,E,erlang:get_stacktrace()},
             try
-                [] = sql(DB, [{<<"rollback transaction">>, []}]),
+                [] = sql_inner(DB, [{<<"rollback transaction">>, []}]),
                 {error, {rollback_ok, Err0}}
             catch 
                 %% Why does this happen?
                 C1:E1 -> {error, {rollback_fail, {Err0, {C1,E1}}}}
             end
     end.
+
+
+%% Single statements will also be wrapped as a transaction.  This
+%% ensures some more constraints on how the db can be called.  FIXME:
+%% Is there any caller to sql_transition that actually uses the
+%% result?
+sql(DB, Queries) ->
+    {ok, Results} = sql_transaction(DB, Queries),
+    lists:droplast(tl(Results)).
+
 
 
 
