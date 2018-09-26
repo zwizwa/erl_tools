@@ -119,19 +119,13 @@ db(Atom, DbFile, DbInit) ->
 %% remove the 'check' clause, and translate it back into a map that
 %% computes Results directly.
 db_handle({Pid, {queries, Queries}}, #{db := DB} = State) ->
-    RResults =
-        lists:foldl(
-          fun ({check, Check}, RRes) ->
-                  Check(RRes);
-              (Query, RRes) ->
-                  %% log:info("Query: ~p~n", [Query]),
-                  Res = sink:gen_to_list(
-                          fun(Sink) -> sqlite3:port_query(DB, Query, Sink) end),
-                  [Res|RRes]
+    Results =
+        run_transaction(  %% early stop on error.
+          fun(Query) ->
+                  sink:gen_to_list(
+                    fun(Sink) -> sqlite3:port_query(DB, Query, Sink) end)
           end,
-          [],
           Queries),
-    Results = lists:reverse(RResults),
     Pid ! {self(), obj_reply, Results},
     State;
 
@@ -150,6 +144,33 @@ db_handle(Msg,State) ->
     obj:handle(Msg,State).
 
 
+run_transaction(RunQuery, Queries) ->
+    %% Always rollback first in case DB got into a bad state.
+    RunQuery({<<"rollback transaction">>, []}),
+    RunQuery({<<"begin transaction">>, []}),
+    Rv = run_until_error(RunQuery, Queries, []),
+    RunQuery({<<"end transaction">>, []}),
+    Rv.
+
+run_until_error(_, [], Acc) -> lists:reverse(Acc);
+run_until_error(Fun, [Q|Qs], Acc) ->
+    Rows = Fun(Q),
+    case (try throw_if_error(Rows), ok
+          catch {sqlite3_errmsg,_}=E -> E end) of
+        ok -> run_until_error(Fun, Qs, [Rows|Acc]);
+        Err -> Err
+    end.
+
+%% Any row can be an error instead.
+throw_if_error(Rows) ->
+    lists:foreach(
+      fun({sqlite3_errmsg,_}=E) -> throw(E);
+         (_) -> ok
+      end,
+      Rows).
+
+
+
 %% -spec query(pid(),query()) -> [[binary()] | {sqlite3_errmsg,binary()}].
 %%query(DbPid, Query) ->
 %%    obj:call(DbPid, {query, Query}).
@@ -164,69 +185,20 @@ queries(DbPid, Queries, Timeout) ->
 -type db() :: fun(() -> #{ 'pid' => pid(), 'timeout' => timeout()}).
 
 %% Lazy retrieval of DB connection + raise errors in caller's thread.
--spec sql_inner(db(), [{binary(), [binding()]}]) -> [result_table()].
-sql_inner(DB, Queries) ->
-    #{pid := Pid, timeout := Timeout} = DB(),
-
-    Tables = queries(Pid, Queries, Timeout),
-    %% If reply contains errors we throw them into the caller's
-    %% process.  Normal results are [[binary()]].
-    lists:foreach(
-      fun({{SQL,Bindings},Rows}) ->
-              lists:foreach(
-                fun({sqlite3_errmsg,_}=E) -> throw({sqlite3,E,{DB,SQL,Bindings}});
-                   (_) -> ok
-                end,
-                Rows)
-      end,
-      lists:zip(Queries, Tables)),
-    Tables.
-    
-
-
-%% FIXME: It is currently possible to race transactions, which is
-%% likely where the "cannot start.." error comes from.  Redesign it
-%% such that this is no longer possible.  I.e. create a second level
-%% of sql access to serialize transactions.
-
-%% Transactions always go through this functions.
-%% Do not expose begin, end, rollback separately.
-%% The idea is that is function will not leave the DB in an inconsistent state.
-
-sql_transaction(DB, Queries) ->
-    try 
-        %% Can fail with: <<"cannot start a transaction within a transaction">>
-        %% so place it inside of the try block.
-        Transaction =
-            lists:append(
-              [[{<<"begin transaction">>, []}],
-               Queries,
-               [{<<"end transaction">>, []}]]),
-        Rv = sql_inner(DB, Transaction),
-        {ok, Rv}
-    catch
-        C:E ->
-            %% Rollback can fail apparently.. Log it because it's
-            %% likely a bug elsewhere.
-            Err0 = {C,E,erlang:get_stacktrace()},
-            try
-                [] = sql_inner(DB, [{<<"rollback transaction">>, []}]),
-                {error, {rollback_ok, Err0}}
-            catch 
-                %% Why does this happen?
-                C1:E1 -> {error, {rollback_fail, {Err0, {C1,E1}}}}
-            end
-    end.
-
-
-%% Single statements will also be wrapped as a transaction.  This
-%% ensures some more constraints on how the db can be called.  FIXME:
-%% Is there any caller to sql_transition that actually uses the
-%% result?
+-spec sql(db(), [{binary(), [binding()]}]) -> [result_table()].
 sql(DB, Queries) ->
-    {ok, Results} = sql_transaction(DB, Queries),
-    lists:droplast(tl(Results)).
-
+    #{pid := Pid, timeout := Timeout} = DB(),
+    case queries(Pid, Queries, Timeout) of
+        {sqlite3_errmsg,_}=E -> throw(E);
+        Rv -> Rv
+    end.
+    
+%% Alterative using ok/error for sqlite3_errmsg errors
+sql_transaction(DB, Queries) ->
+    try {ok, sql(DB, Queries)}
+    catch {sqlite3_errmsg,_}=E -> {error, E} end.
+        
+    
 
 
 
