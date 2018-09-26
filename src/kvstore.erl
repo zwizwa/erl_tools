@@ -4,7 +4,8 @@
          find/2, put/3, clear/1, to_list/1, to_map/1,
          remove/2,
          to_map/2, to_list/2,
-         put_list/2, put_map/2,
+         put_list/2, put_list_cond/3,
+         put_map/2, put_map_cond/3,
          update/4, update_val/4,
          update/3, update_val/3,
          keys/1,
@@ -18,15 +19,17 @@
 %% FIXME: rename these to the interface of obj.erl
 
 %% Simple abstract key-value store interface.
-put        ({kvstore, F}, Key, TypeVal)  -> (F(put))(Key, TypeVal).
-find       ({kvstore, F}, Key)           -> (F(find))(Key).
-to_list    ({kvstore, F})                -> (F(to_list))().
-to_map     ({kvstore, F})                -> (F(to_map))().
-put_map    ({kvstore, F}, Map)           -> (F(put_map))(Map).
-put_list   ({kvstore, F}, Map)           -> (F(put_list))(Map).
-keys       ({kvstore, F})                -> (F(keys))().
-clear      ({kvstore, F})                -> (F(clear))().
-remove     ({kvstore, F}, Key)           -> (F(remove))(Key).
+put           ({kvstore, F}, Key, TypeVal)  -> (F(put))(Key, TypeVal).
+find          ({kvstore, F}, Key)           -> (F(find))(Key).
+to_list       ({kvstore, F})                -> (F(to_list))().
+to_map        ({kvstore, F})                -> (F(to_map))().
+put_map       ({kvstore, F}, Map)           -> (F(put_map))(Map).
+put_map_cond  ({kvstore, F}, Map, Check)    -> (F(put_map_cond))(Map, Check).
+put_list      ({kvstore, F}, Map)           -> (F(put_list))(Map).
+put_list_cond ({kvstore, F}, Map, Check)    -> (F(put_list_cond))(Map, Check).
+keys          ({kvstore, F})                -> (F(keys))().
+clear         ({kvstore, F})                -> (F(clear))().
+remove        ({kvstore, F}, Key)           -> (F(remove))(Key).
 
 get_or_make(KVStore, Key, Make) ->
     case find(KVStore, Key) of

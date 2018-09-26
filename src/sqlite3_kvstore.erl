@@ -39,9 +39,12 @@ table_op({table,TypeMod,DB,Table}, find) ->
             end
     end;
 
-table_op({table,TypeMod,DB,Table}, to_list) ->
-    QLoad = tools:format_binary(
-              "select var,type,val from ~p", [Table]),
+table_op({table,_,_,Table}, qload) ->
+    tools:format_binary(
+      "select var,type,val from ~p", [Table]);
+
+table_op({table,TypeMod,DB,_}=Spec, to_list) ->
+    QLoad = table_op(Spec, qload),
     fun() ->
             [type_base:decode_ktv(TypeMod, BinKTV)
              || BinKTV <- sql(DB, QLoad, [])]
@@ -79,9 +82,19 @@ table_op(Spec, put_list) ->
     MakeQPut = table_op(Spec, qput),
     table_op(Spec, put_list, MakeQPut);
 
+table_op(Spec, put_list_cond) ->
+    MakeQPut = table_op(Spec, qput),
+    QLoad = table_op(Spec, qload),
+    table_op(Spec, put_list_cond, {MakeQPut, QLoad});
+
 table_op(Spec, put_map) ->
     PutList = table_op(Spec, put_list),
     table_op(Spec, put_map, PutList);
+
+table_op(Spec, put_map_cond) ->
+    PutListCond = table_op(Spec, put_list_cond),
+    table_op(Spec, put_map_cond, PutListCond);
+
 
 table_op({table,_,DB,Table}, clear) ->
     QClear = tools:format_binary("delete from ~p", [Table]),
@@ -112,8 +125,30 @@ table_op({table,_,DB,_}, put_list, MakeQPut) ->
                 {error, Error} -> throw({put_list,Error})
             end
     end;
+table_op({table,TypeMod,DB,_}, put_list_cond, {MakeQPut,QLoad}) ->
+    fun(List,Check) ->
+            Queries =
+                lists:map(
+                  fun({K,V}) -> MakeQPut(K,V) end,
+                  List) ++ 
+                [QLoad,
+                 {check,
+                  fun([NewList|_]) ->
+                          Check([type_base:decode_ktv(TypeMod, BinKTV)
+                                 || BinKTV <- NewList])
+                  end}],
+            case sql_transaction(DB, Queries) of
+                {ok, _} -> ok;
+                {error, Error} -> throw({put_list,Error})
+            end
+    end;
 table_op({table,_,_,_}, put_map, PutList) ->
-    fun(Map) -> PutList(maps:to_list(Map)) end.
+    fun(Map) -> PutList(maps:to_list(Map)) end;
+table_op({table,_,_,_}, put_map_cond, PutMapCond) ->
+    fun(Map,Check) ->
+            ListCheck = fun(L) -> Check(maps:from_list(L)) end,
+            PutMapCond(maps:to_list(Map), ListCheck)
+    end.
 
 
     
