@@ -153,18 +153,29 @@ run_transaction(RunQuery, Queries) ->
     Rv.
 
 run_until_error(_, [], Acc) -> lists:reverse(Acc);
-run_until_error(Fun, [Q|Qs], Acc) ->
-    Rows = Fun(Q),
-    case (try throw_if_error(Rows), ok
-          catch {sqlite3_errmsg,_}=E -> E end) of
-        ok -> run_until_error(Fun, Qs, [Rows|Acc]);
-        Err -> Err
+run_until_error(RunQuery, [Q|Qs], Acc) ->
+    case Q of
+        {check, Check} ->
+            case Check(Acc) of
+                ok ->
+                    run_until_error(RunQuery, Qs, Acc);
+                Msg ->
+                    RunQuery({<<"rollback transaction">>, []}),
+                    {sqlite3_abort, Msg}
+            end;
+         _ ->
+            Rows = RunQuery(Q),
+            case (try throw_if_error(Rows), ok
+                  catch {_,_}=E -> E end) of
+                ok -> run_until_error(RunQuery, Qs, [Rows|Acc]);
+                Err -> Err
+            end
     end.
 
 %% Any row can be an error instead.
 throw_if_error(Rows) ->
     lists:foreach(
-      fun({sqlite3_errmsg,_}=E) -> throw(E);
+      fun({_,_}=E) -> throw(E);
          (_) -> ok
       end,
       Rows).
@@ -189,14 +200,17 @@ queries(DbPid, Queries, Timeout) ->
 sql(DB, Queries) ->
     #{pid := Pid, timeout := Timeout} = DB(),
     case queries(Pid, Queries, Timeout) of
-        {sqlite3_errmsg,_}=E -> throw(E);
+        {_,_}=E -> throw(E);
         Rv -> Rv
     end.
     
 %% Alterative using ok/error for sqlite3_errmsg errors
 sql_transaction(DB, Queries) ->
     try {ok, sql(DB, Queries)}
-    catch {sqlite3_errmsg,_}=E -> {error, E} end.
+    catch
+        {sqlite3_errmsg,_}=E -> {error, E};
+        {sqlite3_abort,_}=E  -> {error, E}
+    end.
         
     
 
