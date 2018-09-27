@@ -9,7 +9,7 @@
          update/4, update_val/4,
          update/3, update_val/3,
          keys/1,
-         init/2, init_with_default/2, 
+         init/2,
          zero/0,
          with_default/2,
          read_only/1, read_only_from_map/1,
@@ -65,19 +65,18 @@ update_val(KVStore, Key, Fun, Make) ->
 update_val(S,K,F) ->
     update_val(S,K,F,not_found(K)).
              
-init(KVStore, Init) when is_map(Init) ->  
+init(KVStore, Defaults) when is_map(Defaults) ->  
     %% Do not write if nothing changed.  Useful in case writes are
     %% slow (e.g. sync after each transaction on slow SD card).
     %% FIXME: there must be a smarter way to do this.
     Old  = to_map(KVStore),
-    New  = maps:merge(Init,Old),
+    New  = maps:merge(Defaults,Old),
     case New == Old of
         false -> put_map(KVStore, New); %% Returns {ok,_} | {error,_}
         true -> ok
-    end.
+    end,
+    New.
 
-init_with_default(KVStore, Init) when is_map(Init) ->
-    init(KVStore, maps:merge(Init, to_map(KVStore))).
     
 zero() ->
     {kvstore,

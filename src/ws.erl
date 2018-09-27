@@ -215,7 +215,14 @@ handle_ejson(#{type := <<"ws_action">>, action := Action} = Msg, State) ->
                     case State of
                         #{ supervisor  := Sup,
                            type_module := Types } ->
-                            to_children(Sup, form_list(Types, M2)),
+                            try 
+                                FL = form_list(Types, M2),
+                                to_children(Sup, FL)
+                            catch
+                                %% Decode error.
+                                {bad_value, {Child,_}, _} = E ->
+                                    to_child(Sup, Child, E)
+                            end,
                             State;
                         _ ->
                             log:info("No handler for: ~p~n;", [M2]),

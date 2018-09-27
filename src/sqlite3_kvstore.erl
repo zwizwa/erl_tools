@@ -139,7 +139,7 @@ table_op({table,TypeMod,DB,_}, put_list_cond, {MakeQPut,QLoad}) ->
                   end}],
             case sql_transaction(DB, Queries) of
                 {ok, _} -> ok;
-                {error, Error} -> throw({put_list,Error})
+                {error, Error} -> throw({put_list_cond,Error})
             end
     end;
 table_op({table,_,_,_}, put_map, PutList) ->
