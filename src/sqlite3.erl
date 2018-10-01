@@ -185,7 +185,7 @@ throw_if_error(Rows) ->
 %% -spec query(pid(),query()) -> [[binary()] | {sqlite3_errmsg,binary()}].
 %%query(DbPid, Query) ->
 %%    obj:call(DbPid, {query, Query}).
--spec queries(pid(),[query()],infinity | integer()) -> [[[binary()] | {sqlite3_errmsg,binary()}]].
+-spec queries(pid(),[query()],infinity | integer()) -> [[[binary()]]] | {sqlite3_errmsg,binary()} | {sqlite3_abort,any()}.
 queries(DbPid, Queries, Timeout) ->
     obj:call(DbPid, {queries, Queries}, Timeout).
     

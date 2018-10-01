@@ -1,5 +1,7 @@
 -module(reflection).
--export([module_has_export/2, module_source/1, load_erl/3, run_erl/1, run_beam/3]).
+-export([module_has_export/2,
+         module_source/1, module_source_unpack/1, module_source_raw/1,
+         load_erl/3, run_erl/1, run_beam/3]).
 
 %% The point of the code below is to have "immediate" code
 %% distribution on edit.  It creates a fast path, reusing the rebar3
@@ -13,11 +15,24 @@ module_has_export(Module,Export) ->
     E = proplists:get_value(exports, MI),
     lists:member(Export,E).
 
+module_source_raw(Module) ->
+    Info = erlang:get_module_info(Module),
+    Compile = proplists:get_value(compile, Info),
+    File = proplists:get_value(source, Compile),
+    File.
+
+
+%% Often for cross-compilation, the source is not available on the
+%% target.  However, during debugging, it is ok to assume that the
+%% developer's machine has the source available but that it might not
+%% be in the exact location that is embedded in the target beam file.
+
+%% Old approach.
+
 module_source(Module) when is_atom(Module) ->
-    MI = erlang:get_module_info(Module),
-    C = proplists:get_value(compile, MI),
-    S = proplists:get_value(source, C),
-    [Erl,_,Package|_] = lists:reverse(re:split(S,"/")),
+    module_source_unpack(module_source_raw(Module)).
+module_source_unpack(File) ->
+    [Erl,_,Package|_] = lists:reverse(re:split(File,"/")),
     {Package,Erl}.
 
 %% Prefix points into a rebar3 directory structure, e.g. ".../_build/default"
@@ -51,8 +66,6 @@ load_erl(Prefix,Source,Nodes) ->
 
 
 
-
-
 %% Run misc .erl files on build host instance.
 scan(IOList) ->
     Str = binary_to_list(
@@ -77,3 +90,6 @@ run_beam(StrModule, ErlFile, BeamFile) ->
     Module = list_to_atom(StrModule),
     _ = code:load_binary(Module, ErlFile, BeamCode),
     apply(Module,run,[]).
+
+
+

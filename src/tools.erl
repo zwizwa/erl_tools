@@ -888,9 +888,7 @@ format_stacktrace(FixPath, Lst) ->
 format_stacktrace_line(FixPath, {Module, Function, Arity, PropList}) ->
     %% FIME: Why is erlang:module_info/1 source different from what's recorded in the stacktrace?
     %%File = proplists:get_value(file, PropList),
-    Info = erlang:get_module_info(Module),
-    Compile = proplists:get_value(compile, Info),
-    File = proplists:get_value(source, Compile),
+    File = reflection:module_source_raw(Module),
     Line = proplists:get_value(line, PropList, 0),  %% Default makes Emacs parser work.
     FmtFun =
         case Arity of
