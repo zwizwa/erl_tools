@@ -126,8 +126,8 @@ void sql_error(int rv) {
     bert_write_packet(&err.w, 4, &sql_error_seq, &msg_send);
     sentinel();
 
-    // Also send on console and abort.
-    LOG("sqlite3_errmsg -> %s\n", err.msg);
+    // Abort iteration
+    // LOG("sqlite3_errmsg -> %s\n", err.msg);
     longjmp(error_jmp_buf, 1);
 }
 
