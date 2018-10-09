@@ -15,7 +15,9 @@
 
          cell/2,
 
-         json/2
+         json/2,
+
+         validate/1
 
 
 ]).
@@ -216,6 +218,21 @@ json(ID,Data) ->
             throw({error, {E, Data}})
     end.
 
+
+
+%% Single element validator.  Reason: better error messages + explore
+%% possibility of static checking.
+
+validate([Bin]) when is_binary(Bin) -> ok;
+validate({Tag,As,Es}) when is_atom(Tag) ->
+    lists:foreach(fun validate_a/1, As),
+    lists:foreach(fun validate/1, Es).
+validate_a({Tag,Value}) when is_atom(Tag) and is_binary(Value) -> ok;
+validate_a({Tag,Value}) when is_atom(Tag) and is_atom(Value) -> ok.
+
+    
+    
+    
 
 
 %% FIXME: sort out old ideas
