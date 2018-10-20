@@ -16,6 +16,7 @@
 -module(pfold).
 -export([range/1,
          append/2, append/1,
+         from_list/1,
          to_list/1, to_rlist/1,
          to_list/2, to_rlist/2,
          take/2,
@@ -49,6 +50,19 @@ range(F,State,N,I) ->
     end.
 range(N) -> fun(F,S) -> range(F,S,N,0) end.
 
+
+from_list(Es) -> fun(F,S) -> from_list(F,S,Es) end.
+from_list(_,S,[]) -> S;
+from_list(F,S,[E|Es]) -> 
+    case F(E,S) of
+        {next, NextState} ->
+            from_list(F,NextState,Es);
+        {stop, FinalState} ->
+            FinalState
+    end.
+                
+    
+                           
 
 
 %% Perform fold, and annotate return value with finished/stopped.
@@ -88,6 +102,7 @@ to_rlist(SF) -> to_rlist(SF, fun all/1).
 to_list(SF,NextOrStop) -> lists:reverse(to_rlist(SF,NextOrStop)).
 to_list(SF) -> to_list(SF, fun all/1).
 
+    
     
 
 take(SF, MaxNb) ->

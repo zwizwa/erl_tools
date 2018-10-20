@@ -5,7 +5,7 @@
          unhex/1, unhex_string/1, hex/1, hex_list/1, hex4/1, hex8/1, hex16/1, hex_u32/1,
          strunk/1, getter/1, 
          format/2, format_binary/2,
-         creader/1, int/1, float/1, hex_data/1, enumerate/1, chunks/2, nchunks/3,
+         creader/1, int/1, float/1, hex_data/1, enumerate/1, chunks/2, nchunks/3, grid_chunks/3,
          unpack/2, unpack_s32/1, unpack_u16/1, unpack_s16/1,
          p_rem/2, p_div_rem/2, p_div/2,
          n_rem/2, n_div_rem/2, n_div/2,
@@ -131,6 +131,17 @@ nchunks(Offset, Endx, Max) ->
         true  -> [{Offset, Max} | nchunks(Offset + Max, Endx, Max)];
         false -> [{Offset, Left}]
     end.
+
+%% Similar, but grid-aligned, and using start/endx rep.
+grid_chunks(_SZ, Start, Endx) when Start >= Endx -> [];
+grid_chunks(SZ, Start, Endx) -> 
+    Low = tools:p_div(Start, SZ) * SZ,
+    High = Low + SZ,
+    if (Endx > High) -> [{Start,High} | grid_chunks(SZ, High, Endx)];
+       true -> [{Start,Endx}] end.
+
+
+
 
 % Character reader.
 % FIXME: turn this into a de-chunker

@@ -98,6 +98,8 @@ bc_handle({subscribe, Atom}, State) when is_atom(Atom) ->
         Pid ->
             bc_handle({subscribe, Pid}, State)
     end;
+bc_handle({'EXIT',Pid,_Reason}=_Msg, #{pids := Pids}=State) ->
+    maps:put(pids, pids_del(Pid,Pids), State);
 bc_handle({'DOWN',_Ref,process,Pid,_Reason}=_Msg, #{pids := Pids}=State) ->
     %% tools:info("~p~n",[_Msg]),
     maps:put(pids, pids_del(Pid,Pids), State);
