@@ -160,6 +160,3 @@ read_only_from_map(Map) ->
         (to_list)  ->
              fun() -> maps:to_list(Map) end
      end}.
-
-                                   
-                      

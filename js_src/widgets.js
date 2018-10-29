@@ -119,6 +119,17 @@ function create_element(spec) {
     return el;
 }
 
+// Most values are strings
+function decode(data_decoder, encoded) {
+    if (data_decoder == 'boolean') {
+        if (encoded == "true")  return true;
+        if (encoded == "false") return false;
+    }
+    else {
+        console.log("no_decoder",data_decoder);
+        return null;
+    }
+}
 
 
 
@@ -145,7 +156,11 @@ module.exports = {
                 el.appendChild(create_element(arg));
             }
         },
-
+        set_attribute: function(el, args) {
+            var name = args[0];
+            var val  = args[1];
+            el.setAttribute(name, val)
+        },
         add_class: function(el, arg) {
             if (typeof(arg) == 'object') {
                 for (var i = 0; i < arg.length; ++i) {      
@@ -205,7 +220,7 @@ module.exports = {
     input: {
         set: function(el, arg) {
             if (el.type == 'checkbox') {
-                el.checked = arg;
+                el.checked = decode(el.getAttribute('data-decoder'), arg);
             }
             else if (el.type == 'select-one') {
                 var o = el.options;
