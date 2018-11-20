@@ -26,6 +26,8 @@
 
 %% Port operations.
 port_open(DbFile) ->
+
+    %% FIXME: remove this hack
     Priv =
         case code:priv_dir(erl_tools) of
             {error,bad_name} -> 
