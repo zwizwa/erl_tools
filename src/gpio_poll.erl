@@ -24,5 +24,7 @@ start(ValueNodes) ->
 parse(Msg) ->
     %% Any other messages cause pattern errors and kill the process.
     {data,{eol,Line}} = Msg,
-    [_Index, _Value] = Event = lists:map(fun binary_to_integer/1, re:split(Line,",")),
-    Event.
+    case lists:map(fun binary_to_integer/1, re:split(Line,",")) of
+        [-1, -1] -> ping;
+        [I,V] -> {ok, {I,V}}
+    end.

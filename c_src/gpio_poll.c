@@ -16,36 +16,43 @@
 #define BUILDINFO ""
 #endif
 
-#define EVENTS (POLLPRI | POLLERR)
+#define GPIO_EVENTS (POLLPRI | POLLERR)
+#define STDIN_EVENTS (POLLHUP | POLLIN)
+
 
 int MAIN(int argc, char **argv) {
 
-    if (argc < 2) {
-        LOG("%s" BUILDINFO "\n", argv[0]);
-        LOG("usage: %s <gpio_value_path>\n", argv[0]);
-        exit(1);
-    }
     int nb_fd = argc-1;
     char **path = argv+1;
-    struct pollfd pfd[nb_fd];
+    struct pollfd pfd[nb_fd + 1];
+    // Watch all GPIO nodes
     for (int i=0; i<nb_fd; i++) {
         pfd[i].revents = 0;
-        pfd[i].events = EVENTS;
+        pfd[i].events = GPIO_EVENTS;
         ASSERT_ERRNO(pfd[i].fd = open(path[i], O_RDONLY));
     }
+    // and remote close.
+    pfd[nb_fd].fd = 0;
+    pfd[nb_fd].revents = 0;
+    pfd[nb_fd].events = STDIN_EVENTS;
+
     for(;;) {
         int rv;
-        ASSERT_ERRNO(rv = poll(&pfd[0], nb_fd, -1)); // block indefinitely
-        ASSERT(rv > 0);
+        ASSERT_ERRNO(rv = poll(&pfd[0], nb_fd + 1, -1));
+        ASSERT(rv >= 0);
+        if (pfd[nb_fd].revents & STDIN_EVENTS) {
+            exit(0);
+        }
         for (int i=0; i<nb_fd; i++) {
-            if (pfd[i].revents & EVENTS) {
+            if (pfd[i].revents & GPIO_EVENTS) {
                 lseek(pfd[i].fd, 0, SEEK_SET);
                 char buf[3] = {};
                 ASSERT(2 == read(pfd[i].fd, buf, sizeof(buf)));
                 int val = atoi(buf);
                 printf("%d,%d\n", i, val);
-                fflush(stdout);
             }
         }
+        fflush(stdout);
+
     }
 }
