@@ -1,6 +1,6 @@
 -module(gpio_poll).
 -export([start/1, parse/1]).
-start(ValueNodes) ->
+start(GpioNbs) ->
 
     %% FIXME: remove this hack
     Priv =
@@ -17,14 +17,12 @@ start(ValueNodes) ->
             Dir -> Dir
         end,
 
-    Cmd = iolist_to_binary([Priv, "/gpio_poll.elf", [[" ", VN] || VN <- ValueNodes]]),
+    Cmd = iolist_to_binary([Priv, "/gpio_poll.elf", [[" ", integer_to_list(N)] || N <- GpioNbs]]),
     log:info("gpio_poll: ~s~n", [Cmd]),
     open_port({spawn, Cmd}, [use_stdio, {line,10}, exit_status, binary]).
 
 parse(Msg) ->
     %% Any other messages cause pattern errors and kill the process.
     {data,{eol,Line}} = Msg,
-    case lists:map(fun binary_to_integer/1, re:split(Line,",")) of
-        [-1, -1] -> ping;
-        [I,V] -> {ok, {I,V}}
-    end.
+    [I,V] = lists:map(fun binary_to_integer/1, re:split(Line,",")),
+    {I,V}.

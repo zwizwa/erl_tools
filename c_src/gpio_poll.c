@@ -23,13 +23,15 @@
 int MAIN(int argc, char **argv) {
 
     int nb_fd = argc-1;
-    char **path = argv+1;
+    char **gpio_nb = argv+1;
     struct pollfd pfd[nb_fd + 1];
     // Watch all GPIO nodes
     for (int i=0; i<nb_fd; i++) {
         pfd[i].revents = 0;
         pfd[i].events = GPIO_EVENTS;
-        ASSERT_ERRNO(pfd[i].fd = open(path[i], O_RDONLY));
+        char path[100];
+        sprintf(path, "/sys/class/gpio/gpio%s/value", gpio_nb[i]);
+        ASSERT_ERRNO(pfd[i].fd = open(path, O_RDONLY));
     }
     // and remote close.
     pfd[nb_fd].fd = 0;
