@@ -3,6 +3,7 @@
          %% Convert collection of widgets to initial page template
          layout/2,
          supervisor/2,
+         repl/1,
          example/1]).
 
 %% Widgets are constructed out of HTML layout, client side behavior
@@ -94,3 +95,36 @@ button(#{ send := Send }, ID, Text) ->
       {'data-mixin', cell},      %% DOM behavior for erl->js messages
       {id, ID_enc}],             %% erl<->js messages
      [[Text]]}.
+
+
+%% FIXME: just a doodle
+%% Program interaction
+repl(Cmd = {_, #{path := Path}}) ->
+    %% IDs _must_ be prefixed with Path.  This determines routing
+    %% between the JavaScript code and the Erlang process identified
+    %% by the same name inside the supervisor structure.
+    ID = {Path, repl},
+    case Cmd of
+        {layout, #{ send := Send } = _Env} ->
+            {'div',[],
+             [{input,
+               [{id,ws:encode_id(ID)},
+                {name,ws:encode_id(ID)},
+                {onchange, Send},
+                {'data-decoder',binary},
+                {'data-mixin',input}],
+               []}]};
+        {serv_spec, #{ws := Ws} = Env} ->
+            {handler,
+             fun() ->
+                     ws:call(Ws, ID, set, <<"">>),
+                     Env 
+             end,
+             fun(Msg, State) ->
+                     log:info("ws_widget:repl: ~p~n", [Msg]),
+                     %%ws:call(Ws, ID, set_attribute, [value,<<"">>]),
+                     ws:call(Ws, ID, set, <<"">>),
+                     State
+             end}
+    end.
+   
