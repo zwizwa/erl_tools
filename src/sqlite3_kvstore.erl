@@ -28,7 +28,7 @@ sql_transaction(DB,Qs) -> sqlite3:sql_transaction(DB,Qs).
 
 table_op({table,TypeMod,DB,Table}, find) ->
     QRead = tools:format_binary(
-              "select type,val from ~p where var = ?", [Table]),
+              "select type,val from '~s' where var = ?", [table_name(Table)]),
     fun(Key) ->
             BinKey = type_base:encode_key(Key),
             case sql(DB, QRead, [{text,BinKey}]) of
@@ -41,7 +41,7 @@ table_op({table,TypeMod,DB,Table}, find) ->
 
 table_op({table,_,_,Table}, qload) ->
     tools:format_binary(
-      "select var,type,val from ~p", [Table]);
+      "select var,type,val from '~s'", [table_name(Table)]);
 
 table_op({table,TypeMod,DB,_}=Spec, to_list) ->
     QLoad = table_op(Spec, qload),
@@ -56,7 +56,7 @@ table_op(Spec, to_map) ->
 
 table_op({table,_TypeMod,DB,Table}, keys) ->
     QKeys = tools:format_binary(
-              "select var from ~p", [Table]),
+              "select var from '~s'", [table_name(Table)]),
     fun() ->
             [type_base:decode_key(BinKey)
              || [BinKey] <- sql(DB, QKeys, [])]
@@ -64,7 +64,7 @@ table_op({table,_TypeMod,DB,Table}, keys) ->
 
 table_op({table,TypeMod,_,Table}, qput) ->
     QPut = tools:format_binary(
-               "insert or replace into ~p (var,type,val) values (?,?,?)", [Table]),
+               "insert or replace into '~s' (var,type,val) values (?,?,?)", [table_name(Table)]),
     fun(K,TV) ->
             BinKTV = type_base:encode_ktv(TypeMod, {K,TV}),
             {QPut, BinKTV}
@@ -97,11 +97,11 @@ table_op(Spec, put_map_cond) ->
 
 
 table_op({table,_,DB,Table}, clear) ->
-    QClear = tools:format_binary("delete from ~p", [Table]),
+    QClear = tools:format_binary("delete from '~s'", [table_name(Table)]),
     fun() -> [] = sql(DB, QClear, []), ok end;
 
 table_op({table,_,DB,Table}, remove) ->
-    QRemove = tools:format_binary("delete from ~p where var = ?", [Table]),
+    QRemove = tools:format_binary("delete from '~s' where var = ?", [table_name(Table)]),
     fun(Key) ->
             BinKey = type_base:encode_key(Key),
             [] = sql(DB, QRemove, [{'text',BinKey}]), ok
@@ -154,7 +154,7 @@ table_op({table,_,_,_}, put_map_cond, PutMapCond) ->
     
                    
 %% Implementation based on database table and type_base.erl type conversion.
-table({table,TypeMod,DB,Table}=Args) when is_atom(Table) and is_atom(TypeMod) ->
+table({table,TypeMod,DB,Table}=Args) when is_atom(TypeMod) ->
     %% Make sure it exists.
     table_init(DB,Table),
     existing_table(Args).
@@ -188,18 +188,22 @@ existing_table(Spec) ->
      end}.
                    
 %% Ad-hoc key value stores.
-table_init(DB,Table) when is_atom(Table) ->
+table_init(DB,Table) ->
     [] = sql(DB,
              tools:format_binary(
-               "create table if not exists ~p (var, type, val, primary key (var))",
-               [Table]),
+               "create table if not exists '~s' (var, type, val, primary key (var))",
+               [table_name(Table)]),
              []).
 
-table_delete(DB, Table) when is_atom(Table) ->
+table_delete(DB, Table) ->
     sql(DB,
         tools:format_binary(
-          "drop table if exists ~p",
-          [Table]),
+          "drop table if exists '~s'",
+          [table_name(Table)]),
+
         []).
 
-
+table_name(Table) when is_atom(Table) ->
+    atom_to_list(Table);
+table_name({Table,Nb}) when is_atom(Table) and is_integer(Nb) ->
+    io_lib:format("{~p,~p}",[Table,Nb]).
