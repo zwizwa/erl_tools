@@ -14,6 +14,7 @@
          with_default/2,
          read_only/1, read_only_from_map/1,
          get_type_bin_val/2,
+         prefixed/2,
          combined/2]).
 
 %% FIXME: rename these to the interface of obj.erl
@@ -26,7 +27,7 @@ to_map        ({kvstore, F})                -> (F(to_map))().
 put_map       ({kvstore, F}, Map)           -> (F(put_map))(Map).
 put_map_cond  ({kvstore, F}, Map, Check)    -> (F(put_map_cond))(Map, Check).
 put_list      ({kvstore, F}, Map)           -> (F(put_list))(Map).
-put_list_cond ({kvstore, F}, Map, Check)    -> (F(put_list_cond))(Map, Check).
+put_list_cond ({kvstore, F}, Lst, Check)    -> (F(put_list_cond))(Lst, Check).
 keys          ({kvstore, F})                -> (F(keys))().
 clear         ({kvstore, F})                -> (F(clear))().
 remove        ({kvstore, F}, Key)           -> (F(remove))(Key).
@@ -106,6 +107,35 @@ with_default({kvstore, F}=Parent, DefaultFind) ->
              
              
      
+
+%% Prefix all names.
+%% FIXME: only partially implemented
+prefixed(Prefix, {kvstore,F}) ->
+    ToList = fun() -> [{{Prefix,K},TV} || {K,TV} <- (F(to_list))()] end,
+    {kvstore,
+     fun(to_map) ->
+             fun() -> maps:from_list(ToList()) end;
+        (to_list) ->
+             ToList;
+        (put_list) ->
+             fun(Lst) ->
+                     %% FIXME: assert prefix
+                     (F(put_list))(
+                       [{K,TV} || {{_Prefix, K}, TV} <- Lst])
+             end;
+        (find) ->
+             fun(Key0={Pfx,Key}) -> 
+                     case Pfx of
+                         Prefix -> (F(find))(Key);
+                         _ -> {error, {not_found, Key0}}
+                     end
+
+             end
+     end}.
+             
+                            
+                           
+            
                           
              
 %% Combine two stores.  This is useful to make different keys have
