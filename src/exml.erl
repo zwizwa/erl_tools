@@ -58,6 +58,8 @@ to_binary(Es) ->
 %% Special input types.
 
 
+%% FIXME: Change this to the "Env" model.
+
 %% Any kind of clickable templated element.  This behaves similar to
 %% button, but is encoded differently as it is not an <input/> node.
 %% See widget.js

@@ -3,7 +3,10 @@
          %% Convert collection of widgets to initial page template
          layout/2,
          supervisor/2,
+         %% Layout renderers
+         button/2, table/2, input/2,
          %% Widgets
+         kvstore_edit/1,
          repl/1,
          example/1]).
 
@@ -137,3 +140,117 @@ repl(Cmd = {_, #{path := Path}}) ->
    
 
 
+
+%% Layout templates for widgets.
+
+%% First argument is Env that is passed to a widget's layout function
+%% as {layout, Env}.
+
+%% For use in widget startup.
+button(#{path := Path, send := Send}, Tag) ->
+    Text = tools:format_binary("~p",[Tag]),
+    {button,
+     [{onclick, Send},
+      {'data-decoder', button},  %% Type conversion for js->erl messages.
+      {'data-mixin', cell},      %% DOM behavior for erl->js messages
+      id({Path,Tag})],           %% erl<->js messages
+     [[Text]]}.
+
+%% Table, using kvstore for initialization.
+table(Env, TableList) ->
+    {table, [],
+     lists:map(
+       fun({Key, Name}) when is_binary(Name) ->
+               {tr,[],
+                [{td,[],[[Name]]},
+                 {td,[],[input(Env, Key)]}]}
+       end,
+       TableList)}.
+%% FIXME: this indirection to the "input" renderer should be rempoved.
+%% It is here to gradually refactor application code.
+input(Env = #{kvstore := KVStore, input := Input}, Key) ->
+    %% Initialize from KVStore, set callback to 'handle' method.
+    Input(Env, {Key, kvstore:get(KVStore, Key), handle});
+
+%% Newer code can leave out "input"
+input(_Env = #{kvstore := _KVStore}, _Key) ->
+    throw('FIXME_implement_input').
+    
+
+         
+
+%% Edit a KVStore as a table
+%% Note: all the keys in the store need to be prefixed: {Path, _}
+kvstore_edit({layout, 
+              #{path     := Path,
+                defaults := Defaults,
+                labels   := Labels,
+                kvstore  := KVStore }=Env}) ->
+    _ = kvstore:init(KVStore, Defaults),
+    Body = 
+        {'div',[{style, <<"width: 100%; display: table;">>}],
+         [{'div',[{id, ws:encode_id({Path,error})},
+                  {'data-mixin',cell}],
+           [] %% [[<<"<error goes here>">>]]
+          },
+          {'div', [], [table(Env, Labels)]}]},
+    %% exml:validate(Body),  %% Assertion
+    Body;
+kvstore_edit({serv_spec, 
+              #{ kvstore := KVStore,
+                 ws := Ws,
+                 path := Path }=Env}=_Msg) ->
+    {handler,
+     fun() ->
+             log:set_info_name({?MODULE,Path}),
+             %% Browser reload does not update the values of number
+             %% boxes, so be sure to set them to the internal values
+             %% here.
+             lists:foreach(
+               fun({Key,{_Type, _Val}=TV}=_KTV) ->
+                       %% log:info("init: ~p~n",[_KTV]),
+                       ws:call(Ws, Key, set, type:encode(TV))
+               end,
+               kvstore:to_list(KVStore)),
+             Env
+     end,
+     fun kvstore_edit_handle/2}.
+kvstore_edit_handle([{{Path, _Control}, {_Type, _Val}}] = KTVList,
+                    State = #{ path    := Path, 
+                               kvstore := KVStore,
+                               ws      := Ws }) ->
+    case maps:find(check_constraints, State) of
+        {ok, CheckConstraints} ->
+            %% Update KVStore atomically with constraint check.  Values will
+            %% be retreived in start_recording/1
+            kvstore:put_list_cond(
+              KVStore, KTVList,
+              fun(Lst) -> CheckConstraints(State, Lst) end);
+        _ ->
+            kvstore:put_list(
+              KVStore, KTVList)
+    end,
+    %% Reset error message
+    ws:call(Ws, {Path, error}, set, <<"">>),
+    log:info("update: ~p~n",[KTVList]),
+    State;
+kvstore_edit_handle({bad_value, {Path, Control}, Error}=E,
+                    State = #{ ws := Ws }) ->
+    %% Router encountered a problem during value decoding.
+    ErrorMsg =
+        case Error of
+            {_Type, _Entry, ErrorText} ->
+                tools:format_binary("~p: ~s",[Control, ErrorText]);
+            _ ->
+                <<"Error">>
+        end,
+    ws:call(Ws, {Path, error}, set, ErrorMsg), 
+    log:info("error: ~p~n", [E]),
+    State.
+
+
+
+%% Throughout the application, id attributes are assumed to be
+%% printable terms.  See ws.erl and type_base.erl pterm
+id(PTerm) ->
+    {id, ws:encode_id(PTerm)}.
