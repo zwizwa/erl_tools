@@ -96,17 +96,6 @@ example(Cmd = {_, #{path := Path}}) ->
 
 
 
-%% Layout.  Move this somewhere else.
-button(#{ send := Send }, ID, Text) ->
-    ID_enc = ws:encode_id(ID),
-    {button,
-     [{onclick, Send},
-      {'data-decoder', button},  %% Type conversion for js->erl messages.
-      {'data-mixin', cell},      %% DOM behavior for erl->js messages
-      {id, ID_enc}],             %% erl<->js messages
-     [[Text]]}.
-
-
 %% FIXME: just a doodle
 %% Program interaction
 repl(Cmd = {_, #{path := Path}}) ->
@@ -140,42 +129,6 @@ repl(Cmd = {_, #{path := Path}}) ->
    
 
 
-
-%% Layout templates for widgets.
-
-%% First argument is Env that is passed to a widget's layout function
-%% as {layout, Env}.
-
-%% For use in widget startup.
-button(#{path := Path, send := Send}, Tag) ->
-    Text = tools:format_binary("~p",[Tag]),
-    {button,
-     [{onclick, Send},
-      {'data-decoder', button},  %% Type conversion for js->erl messages.
-      {'data-mixin', cell},      %% DOM behavior for erl->js messages
-      id({Path,Tag})],           %% erl<->js messages
-     [[Text]]}.
-
-%% Table, using kvstore for initialization.
-table(Env, TableList) ->
-    {table, [],
-     lists:map(
-       fun({Key, Name}) when is_binary(Name) ->
-               {tr,[],
-                [{td,[],[[Name]]},
-                 {td,[],[input(Env, Key)]}]}
-       end,
-       TableList)}.
-%% FIXME: this indirection to the "input" renderer should be rempoved.
-%% It is here to gradually refactor application code.
-input(Env = #{kvstore := KVStore, input := Input}, Key) ->
-    %% Initialize from KVStore, set callback to 'handle' method.
-    Input(Env, {Key, kvstore:get(KVStore, Key), handle});
-
-%% Newer code can leave out "input"
-input(_Env = #{kvstore := _KVStore}, _Key) ->
-    throw('FIXME_implement_input').
-    
 
          
 
@@ -260,3 +213,52 @@ kvstore_edit_handle({bad_value, {Path, Control}, Error}=E,
 %% printable terms.  See ws.erl and type_base.erl pterm
 id(PTerm) ->
     {id, ws:encode_id(PTerm)}.
+
+
+
+%% Layout templates for widgets.
+
+%% First argument is Env that is passed to a widget's layout function
+%% as {layout, Env}.
+
+%% Layout.  Move this somewhere else.
+button(#{ send := Send }, ID, Text) ->
+    ID_enc = ws:encode_id(ID),
+    {button,
+     [{onclick, Send},
+      {'data-decoder', button},  %% Type conversion for js->erl messages.
+      {'data-mixin', cell},      %% DOM behavior for erl->js messages
+      {id, ID_enc}],             %% erl<->js messages
+     [[Text]]}.
+
+%% For use in widget startup.
+button(#{path := Path, send := Send}, Tag) ->
+    Text = tools:format_binary("~p",[Tag]),
+    {button,
+     [{onclick, Send},
+      {'data-decoder', button},  %% Type conversion for js->erl messages.
+      {'data-mixin', cell},      %% DOM behavior for erl->js messages
+      id({Path,Tag})],           %% erl<->js messages
+     [[Text]]}.
+
+%% Table, using kvstore for initialization.
+table(Env, TableList) ->
+    {table, [],
+     lists:map(
+       fun({Key, Name}) when is_binary(Name) ->
+               {tr,[],
+                [{td,[],[[Name]]},
+                 {td,[],[input(Env, Key)]}]}
+       end,
+       TableList)}.
+%% FIXME: this indirection to the "input" renderer should be rempoved.
+%% It is here to gradually refactor application code.
+input(Env = #{kvstore := KVStore, input := Input}, Key) ->
+    %% Initialize from KVStore, set callback to 'handle' method.
+    Input(Env, {Key, kvstore:get(KVStore, Key), handle});
+
+%% Newer code can leave out "input"
+input(_Env = #{kvstore := _KVStore}, _Key) ->
+    throw('FIXME_implement_input').
+    
+
