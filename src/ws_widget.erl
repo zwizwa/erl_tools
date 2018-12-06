@@ -202,7 +202,7 @@ kvstore_edit({serv_spec,
                  path := Path }=Env}=_Msg) ->
     {handler,
      fun() ->
-             log:set_info_name({?MODULE,Path}),
+             log:set_info_name({kvstore_edit,Path}),
              %% Browser reload does not update the values of number
              %% boxes, so be sure to set them to the internal values
              %% here.
@@ -219,20 +219,26 @@ kvstore_edit_handle([{{Path, _Control}, {_Type, _Val}}] = KTVList,
                     State = #{ path    := Path, 
                                kvstore := KVStore,
                                ws      := Ws }) ->
-    case maps:find(check_constraints, State) of
-        {ok, CheckConstraints} ->
-            %% Update KVStore atomically with constraint check.  Values will
-            %% be retreived in start_recording/1
-            kvstore:put_list_cond(
-              KVStore, KTVList,
-              fun(Lst) -> CheckConstraints(State, Lst) end);
-        _ ->
-            kvstore:put_list(
-              KVStore, KTVList)
+    try
+        case maps:find(check_constraints, State) of
+            {ok, CheckConstraints} ->
+                %% Update KVStore atomically with constraint check.  Values will
+                %% be retreived in start_recording/1
+                kvstore:put_list_cond(
+                  KVStore, KTVList,
+                  fun(Lst) -> CheckConstraints(State, Lst) end);
+            _ ->
+                kvstore:put_list(
+                  KVStore, KTVList)
+        end,
+        %% Reset error message
+        ws:call(Ws, {Path, error}, set, <<"">>),
+        log:info("update: ~p~n",[KTVList])
+    catch
+        {put_list_cond,{sqlite3_abort,FailInfo}} ->
+            log:info("Condition check failed: ~p~n", [FailInfo]),
+            ws:call(Ws, {Path, error}, set, FailInfo)
     end,
-    %% Reset error message
-    ws:call(Ws, {Path, error}, set, <<"">>),
-    log:info("update: ~p~n",[KTVList]),
     State;
 kvstore_edit_handle({bad_value, {Path, Control}, Error}=E,
                     State = #{ ws := Ws }) ->
