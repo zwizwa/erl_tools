@@ -23,9 +23,12 @@ sql_transaction(DB,Qs) -> sqlite3:sql_transaction(DB,Qs).
 %% recomputed, but it is still possible to cache them by storing the
 %% result of the function lookup.
 
--type table_spec() :: {table, atom(), fun(() -> pid()), atom()}.
+-type table_spec() :: {table, atom(), sqlite3:db(), atom()}.
 -spec table_op(table_spec(), _) -> _.
 
+%% Extension: get the table.
+table_op({table,_TypeMod,DB,Table}, db_table) ->
+    {ok, {DB,Table}};
 table_op({table,TypeMod,DB,Table}, find) ->
     QRead = tools:format_binary(
               "select type,val from '~s' where var = ?", [table_name(Table)]),

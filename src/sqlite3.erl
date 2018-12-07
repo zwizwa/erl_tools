@@ -109,7 +109,8 @@ db(Atom, DbFile, DbInit) ->
                          #{ db => sqlite3:port_open(DbFile()) }
                  end,
                  fun sqlite3:db_handle/2}),
-    #{ pid => Pid, timeout => {warn, 3000} }.
+    #{ pid => Pid,
+       timeout => {warn, 3000} }.
 
 
 %% Base routine performs multiple queries.
@@ -195,12 +196,14 @@ queries(DbPid, Queries, Timeout) ->
 
 %% Thunk allows for lazy DB connections.
 %% -type timeout() :: infinity | integer().
--type db() :: fun(() -> #{ 'pid' => pid(), 'timeout' => timeout()}).
+-type db_spec() :: #{ 'pid' => pid(), 'timeout' => {'warn',timeout()} }.
+-type db() :: db_spec() | fun(() -> db_spec()).
 
 %% Lazy retrieval of DB connection + raise errors in caller's thread.
 -spec sql(db(), [{binary(), [binding()]}]) -> [result_table()].
-sql(DB, Queries) ->
-    #{pid := Pid, timeout := Timeout} = DB(),
+sql(DB, Queries) when is_function(DB) ->
+    sql(DB(), Queries);
+sql(#{pid := Pid, timeout := Timeout}, Queries) ->
     case queries(Pid, Queries, Timeout) of
         {_,_}=E -> throw(E);
         Rv -> Rv

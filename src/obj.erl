@@ -46,7 +46,7 @@ handle({Pid, {update, F}}, Map)    -> {V,S} = F(Map), ok=reply(Pid, V), S;
 handle(shutdown, _)                -> exit(shutdown);
 
 handle(Msg, State) ->
-    %% tools:info("obj:handle: bad request ~p~n",[Bad]),
+    %% tools:info("obj:handle: bad request ~p~n",[Msg]), State.
     throw({obj_handle, {Msg, State}}).
 
 resolve(Pid) when is_pid(Pid) ->
