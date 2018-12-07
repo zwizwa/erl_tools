@@ -8,6 +8,7 @@
          %% Widgets
          kvstore_edit/1,
          repl/1,
+         config/2,
          example/1]).
 
 %% Widgets are constructed out of HTML layout, client side behavior
@@ -82,7 +83,7 @@ example(Cmd = {_, #{path := Path}}) ->
         {layout, Env} ->
             {'div',[],
              [{pre,[],[[<<"Example Widget">>]]},
-              button(Env, ID, <<"Example123">>)]};
+              button(Env, ID, <<"Click Me">>)]};
         {serv_spec, #{ws := Ws} = Env} ->
             {handler,
              fun() -> maps:put(count, 1, Env) end,
@@ -262,3 +263,11 @@ input(_Env = #{kvstore := _KVStore}, _Key) ->
     throw('FIXME_implement_input').
     
 
+%% Create a new widget by extending the environment.  Note that while
+%% this appears a a little inefficient -- a merge operation is
+%% executed for each widget call -- this is not really a problem since
+%% the function is called only twice: once for layout and once to
+%% start the event handler.
+config(Fun,Env1) ->
+    fun({Cmd,Env}) -> Fun({Cmd,maps:merge(Env,Env1)}) end.
+            
