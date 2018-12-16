@@ -65,6 +65,9 @@ host/%.o: %.c
 
 
 
-# In progress.
-%.test: %.c
+# Simple stand-alone build
+%.host: %.c
 	gcc -o $@ $< -I../include -DMAIN=main -Wall
+# OpemWRT SDK for nexx router.  See buildroot host.
+%.nexx: %.c
+	. ~/cross/env-nexx.sh ; mipsel-openwrt-linux-gcc -Os -o $@ $< -I../include -DMAIN=main -Wall -Werror
