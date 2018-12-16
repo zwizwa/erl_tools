@@ -25,9 +25,10 @@ A note on the WebSocket toolkit
 One thing that the proliferation of web frameworks tells me, is that
 there is no proper way to approach the problem.  The ws code in this
 repository was grown to support embedded software applications.  The
-toolkit attempts to integrate browser code 
-
-The code focuses on
+code consists of what I consider to be bare essentials for distrubuted
+application development: some way for a collecting of things on one
+side, to talk to a collection of things on the other.  The
+implementation consists of:
 
 1) an object + communication model that matches both sides well.  For
 Erlang this is processes + messages.  For the Javascript side this is

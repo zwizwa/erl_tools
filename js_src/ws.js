@@ -146,6 +146,18 @@ function start(args, method_call) {
         ws.send = function() {
             window.location.reload();
         }
+        // Optionally, replace a node in the page with different
+        // layout. Add a delay here such that a reload initiated by
+        // the other side does not clear the display.
+        var el = document.getElementById("onclose_cell");
+        if (el) {
+            var html = el.getAttribute("onclose_html");
+            if (html) {
+                setTimeout(
+                    function() { el.innerHTML = html; },
+                    500);
+            };
+        };
     };
     return ws;
 }
