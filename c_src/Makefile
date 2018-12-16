@@ -62,3 +62,9 @@ host/%.o: %.c
 	mkdir -p ../priv/host
 	$(HOST_CC) $(HOST_LDFLAGS) -o $@ $< $(HOST_LIB_O) -lsqlite3
 	file $@
+
+
+
+# In progress.
+%.test: %.c
+	gcc -o $@ $< -I../include -DMAIN=main -Wall
