@@ -3,10 +3,10 @@
 
 -module(sqlite3).
 -export([%% PORT
-         port_open/1, port_close/1, port_query/3,
+         port_open/1, port_shutdown/1, port_query/3,
 
          %% SERVER
-         db/3, sql/2, sql_transaction/2,
+         db/3, sql/2, sql_transaction/2, close/1,
 
          %% Internal, for reloads
          db_handle/2
@@ -45,10 +45,10 @@ port_open(DbFile) ->
     Port = open_port({spawn, Cmd}, [use_stdio, {packet,4}, exit_status, binary]),
     %% log:info("port: ~p~n",[Port]),
     Port.
-port_close(Port) ->
+port_shutdown(Port) ->
     Port ! {self(), {command, <<>>}},
-    port_close_flush(Port).
-port_close_flush(Port) ->
+    port_shutdown_flush(Port).
+port_shutdown_flush(Port) ->
     receive
         {Port, {exit_status, 0}} ->
             ok;
@@ -56,7 +56,7 @@ port_close_flush(Port) ->
             exit(E);
         {Port, _} = _M -> 
             %% log:info("close_flush ~p~n",[_M]),
-            port_close_flush(Port)
+            port_shutdown_flush(Port)
     end.
 port_query(Port, {SQL, Bindings}=Query, Sink) when is_binary(SQL) and is_list(Bindings)->
     Bin = term_to_binary(Query),
@@ -138,11 +138,14 @@ db_handle({Port, {exit_status, _}=E}, #{db := Port}) ->
     log:info("ERROR: unexpected db port exit: ~p~n", [E]),
     exit(E);
 
-%% db_handle({Pid, {query, Query}}, #{db := DB} = State) ->
-%%     Pid ! {self(), obj_reply, 
-%%            sink:gen_to_list(
-%%              fun(Sink) -> sqlite3:port_query(DB, Query, Sink) end)},
-%%     State;
+%% The idea here is to have a synchronous call that ensures a best
+%% effort has been made to close the db in an orderly manner such that
+%% the function performing the obj:call can terminate the process.
+db_handle({Pid, close}, #{db := Port} = State) ->
+    Rv = port_shutdown(Port),
+    obj:reply(Pid, Rv),
+    State;
+
 db_handle(Msg,State) ->
     obj:handle(Msg,State).
 
@@ -191,7 +194,6 @@ throw_if_error(Rows) ->
 -spec queries(pid(),[query()],infinity | integer()) -> [[[binary()]]] | {sqlite3_errmsg,binary()} | {sqlite3_abort,any()}.
 queries(DbPid, Queries, Timeout) ->
     obj:call(DbPid, {queries, Queries}, Timeout).
-    
 
 
 %% Thunk allows for lazy DB connections.
@@ -208,6 +210,12 @@ sql(#{pid := Pid, timeout := Timeout}, Queries) ->
         {_,_}=E -> throw(E);
         Rv -> Rv
     end.
+
+%% This ensures it is serialized and won't interrupt a transaction.
+close(#{pid := Pid}) ->
+    Rv = obj:call(Pid, close),
+    exit(Pid, kill),
+    Rv.
     
 %% Alterative using ok/error for sqlite3_errmsg errors
 sql_transaction(DB, Queries) ->

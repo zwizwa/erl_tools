@@ -167,3 +167,8 @@ map(MapFun, Fold, FoldFun, Init) ->
                  
 
                  
+%% How to "fold over a fold"?  E.g. given a Fold, how to create a new
+%% Fold.  Or better: how to treat the fold as a stream + iterate a
+%% stateful I/O processor over the fold?
+
+
