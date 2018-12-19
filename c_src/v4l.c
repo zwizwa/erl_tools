@@ -141,7 +141,7 @@ int MAIN(int argc, char **argv) {
          * handle, and will kill this process when the pipe is
          * closed. */
         int cmd_len = assert_read_u32(0);
-        LOG("cmd_len=%d\n", cmd_len);
+        //LOG("cmd_len=%d\n", cmd_len);
         ASSERT(cmd_len == 0);
         //if (cmd_len) {
         //    uint8_t cmd_buf[cmd_len];
@@ -153,9 +153,9 @@ int MAIN(int argc, char **argv) {
         };
         ASSERT_ERRNO(ioctl(fd, VIDIOC_DQBUF, &buf));
         ASSERT(buf.index < req.count);
-        LOG("buf:%d bytes:%d.\n", buf.index, buf.bytesused);
+        //LOG("buf:%d bytes:%d.\n", buf.index, buf.bytesused);
         compress(buffers[buf.index].start);
-        LOG("jpeg_size: %d.\n", (int)jpeg_size);
+        //LOG("jpeg_size: %d.\n", (int)jpeg_size);
         //write(1, jpeg_buf, jpeg_size); exit(0);
         //assert_write_port32(1, buffers[buf.index].start, buf.bytesused);
         assert_write_port32(1, jpeg_buf, jpeg_size);

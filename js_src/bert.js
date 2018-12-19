@@ -125,6 +125,7 @@ Bert.prototype = {
         // Use DataView to ensure this also works on big-endian machines.
         s16_le: function(buffer) { return new Int16Array(buffer); },
         u16_le: function(buffer) { return new Uint16Array(buffer); },
+        u8:     function(buffer) { return new Uint8Array(buffer); },
     },
 
     decode: function (arraybuf) {

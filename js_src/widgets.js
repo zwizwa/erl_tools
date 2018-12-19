@@ -172,7 +172,6 @@ module.exports = {
                 el.classList.add(arg);
             }
         },
-
         remove_class: function(el, arg) {
             if (typeof(arg) == 'object') {
                 for (var i = 0; i < arg.length; ++i) {      
@@ -201,6 +200,15 @@ module.exports = {
         remove: function(el, arg) {
             var child = document.getElementById(arg);
             el.removeChild(child);
+        },
+        // https://gist.github.com/candycode/f18ae1767b2b0aba568e
+        set_image_data: function(el, arg) {
+            var type  = arg[0]; // e.g. "image/jpeg"
+            var array = arg[1]; // see bert.js Uint8Array call
+            var blob = new Blob( [ array ], { type: type } );
+            var urlCreator = window.URL || window.webkitURL;
+            var imageUrl = urlCreator.createObjectURL( blob );
+            el.src = imageUrl;
         }
     },
 

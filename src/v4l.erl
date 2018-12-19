@@ -2,7 +2,8 @@
 -export([obj/1, port/1, handle/2]).
 
 %% User needs to provide command to launch (remote) binary.  The
-%% function here only sets the protocol used over the link.
+%% function here only sets the protocol used over the link.  See
+%% c_src/v4l.c
 
 %% Note that this has been designed in the scenario where the remote
 %% machine is not running an Erlang instance.  It will only run the
@@ -21,18 +22,21 @@ obj(Cmd) ->
        fun() -> 
                Port = port(Cmd),
                next(Port),
-               #{ port => Port } 
+               #{ port => Port, bc => serv:bc_start() } 
        end,
        fun v4l:handle/2}).
-handle({Port, Msg}, #{ port := Port } = State) ->
+handle({Port, Msg}, #{ port := Port, bc := BC } = State) ->
     case Msg of
-        {data, _} ->
-            log:info("frame~n"),
+        {data, Data} ->
+            %% log:info("frame~n"),
+            BC ! {broadcast, {v4l, self(), {jpeg, Data}}},
             next(Port),
             State;
         {exit_status, _}=E ->
             exit(E)
     end;
+handle({subscribe, _}=Msg, State = #{ bc := BC }) ->
+    BC ! Msg, State;
 handle(Msg, State) ->
     obj:handle(Msg, State).
                
