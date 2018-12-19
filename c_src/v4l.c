@@ -106,7 +106,7 @@ int MAIN(int argc, char **argv) {
 
     /* Setup up buffers and queue them. */
     struct v4l2_requestbuffers req = {
-        .count = 4,
+        .count = 2,
         .type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
         .memory = V4L2_MEMORY_MMAP
     };
