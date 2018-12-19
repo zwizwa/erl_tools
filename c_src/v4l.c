@@ -1,7 +1,7 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <fcntl.h>              /* low-level i/o */
+#include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <linux/videodev2.h>
@@ -9,6 +9,7 @@
 #include "jpeglib.h"
 
 #define WRITE write
+#define READ  read
 #include "system.h"
 #include "port.h"
 
@@ -42,7 +43,7 @@ void compress(uint8_t *buf) {
     cinfo.image_width  = width;
     cinfo.image_height = height;
     cinfo.input_components = 3;
-    cinfo.in_color_space = JCS_YCbCr; // 
+    cinfo.in_color_space = JCS_YCbCr;
     jpeg_set_defaults(&cinfo);
 
     int quality = 75;
@@ -57,7 +58,7 @@ void compress(uint8_t *buf) {
         uint8_t *in_row = &buf[cinfo.next_scanline * 2 * width];
         for (int x=0; x<width; x++) {
             int x2 = x/2;
-            // Y Cr Y Cb -> Y Cr Cb
+            // Y Cr Y Cb -> Y Cr Cb Y Cr Cb
             out_row[x*3]   = in_row[x*2];
             out_row[x*3+1] = in_row[x2*4+1];
             out_row[x*3+2] = in_row[x2*4+3];
@@ -95,11 +96,9 @@ int MAIN(int argc, char **argv) {
         .type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
         .fmt = {
             .pix = {
-                .width       = 640,
-                .height      = 480,
-                //.pixelformat = V4L2_PIX_FMT_RGB24
+                .width       = width,
+                .height      = height,
                 .pixelformat = V4L2_PIX_FMT_YUYV,
-                //.field       = V4L2_FIELD_INTERLACED
             }
         }
     };
@@ -132,10 +131,22 @@ int MAIN(int argc, char **argv) {
         ASSERT_ERRNO(ioctl(fd, VIDIOC_QBUF, &buf));
     }
 
+
     /* Main streaming loop. */
     enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     ASSERT_ERRNO(ioctl(fd, VIDIOC_STREAMON, &type));
     for(;;) {
+        /* Other side needs to request frame.  This solves two
+         * problems: it limits the data rate to something the pipe can
+         * handle, and will kill this process when the pipe is
+         * closed. */
+        int cmd_len = assert_read_u32(0);
+        LOG("cmd_len=%d\n", cmd_len);
+        ASSERT(cmd_len == 0);
+        //if (cmd_len) {
+        //    uint8_t cmd_buf[cmd_len];
+        //    assert_read_fixed(0, &cmd_buf[0], cmd_len);
+        //}
         struct v4l2_buffer buf = {
             .type   = V4L2_BUF_TYPE_VIDEO_CAPTURE,
             .memory = V4L2_MEMORY_MMAP
@@ -145,15 +156,16 @@ int MAIN(int argc, char **argv) {
         LOG("buf:%d bytes:%d.\n", buf.index, buf.bytesused);
         compress(buffers[buf.index].start);
         LOG("jpeg_size: %d.\n", (int)jpeg_size);
-        write(1, jpeg_buf, jpeg_size); exit(0);
-
+        //write(1, jpeg_buf, jpeg_size); exit(0);
         //assert_write_port32(1, buffers[buf.index].start, buf.bytesused);
+        assert_write_port32(1, jpeg_buf, jpeg_size);
+        // cleanup
+        free(jpeg_buf);
+        jpeg_buf = NULL;
+        jpeg_size = 0;
         ASSERT_ERRNO(ioctl(fd, VIDIOC_QBUF, &buf));
     }
 }
 
-
-// TODO: add a frame dropping mechanism, or add mjpeg compression.
-// current bandwidth is too low.
 
 

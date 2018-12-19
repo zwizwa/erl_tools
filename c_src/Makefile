@@ -68,6 +68,8 @@ host/%.o: %.c
 # Simple stand-alone build
 %.host: %.c Makefile
 	gcc -o $@ $< -I../include -DMAIN=main -Wall -ljpeg -g
+
 # OpemWRT SDK for nexx router.  See buildroot host.
-%.nexx: %.c ~/cross/env-nexx.sh Makefile
-	. ~/cross/env-nexx.sh ; mipsel-openwrt-linux-gcc -Os -o $@ $< -I../include -DMAIN=main -Wall -Werror -ljpeg
+CROSS_ENV:=/i/buildroot/home/tom/cross/env-nexx.sh
+%.nexx: %.c $(CROSS_ENV) Makefile
+	. $(CROSS_ENV) ; mipsel-openwrt-linux-gcc -Os -o $@ $< -I../include -DMAIN=main -Wall -Werror -ljpeg
