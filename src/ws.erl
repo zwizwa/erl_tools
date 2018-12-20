@@ -15,6 +15,7 @@
          call_wait/4,
          call_exml/4,
          call_wait_exml/4,
+         sync/2,
 
          info/3, info_ehtml/2, info_ehtml/3, info_ehtml/1,
 
@@ -314,6 +315,16 @@ cont_reply(Pid) ->
 wait_reply() -> 
     receive {cont_value, Msg} -> Msg end.
 
+%% Queue-flush synchronization
+sync(Ws, Thunk) ->
+    Ws ! #{
+      %% Piggy-back on ping type.
+      type => ping,
+      %% Reply message is ignored.  All information is contained in
+      %% the closure.
+      cont =>  ws:hmac_encode(fun(_Msg, WsState) -> Thunk(), WsState end)
+     }.
+    
 
     
     
