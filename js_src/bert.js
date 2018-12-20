@@ -226,6 +226,7 @@ Bert.prototype = {
     },
     push_inner: function (a, obj) {
         var type = typeof(obj);
+        //console.log(type, obj);
         this["push_" + type].call(this, a, obj);
     },
     // JavaScript types, called by push_inner

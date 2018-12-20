@@ -78,6 +78,7 @@ function start(args, method_call) {
             type: "ws_action",
             action: msg.cont
         };
+        //console.log(msg.cont);
         try {
             rpl.ok = handlers[msg.type](msg);
         }

@@ -28,7 +28,7 @@ obj(Cmd) ->
 handle({Port, Msg}, #{ port := Port, bc := BC } = State) ->
     case Msg of
         {data, Data} ->
-            %% log:info("frame~n"),
+            %% log:info("frame: ~p bytes~n", [size(Data)]),
             BC ! {broadcast, {v4l, self(), {jpeg, Data}}},
             next(Port),
             State;

@@ -10,7 +10,8 @@
 
 %% Socket interaction and tools
 -export([call/4, call_broadcast/4,
-         call_sequence/2, call_sequence_bert/2,
+         call_sequence/2,
+         call_sequence_bert/2,
          call_wait/4,
          call_exml/4,
          call_wait_exml/4,
@@ -314,6 +315,9 @@ wait_reply() ->
     receive {cont_value, Msg} -> Msg end.
 
 
+    
+    
+
 %% E.g to avoid repaints when sending gui updates.
 call_sequence(Ws, Messages) ->
     Ws ! fmt_sequence(Messages), ok.
@@ -327,6 +331,7 @@ fmt_sequence(Messages) ->
 
 call_sequence_bert(Ws, Messages) ->
     Ws ! {bert, fmt_sequence(Messages)}, ok.
+
 
 %% Convenient shorthand for routines that expect innerHTML, which
 %% needs to be encoded as binary.
