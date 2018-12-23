@@ -202,14 +202,21 @@ module.exports = {
             el.removeChild(child);
         },
         // https://gist.github.com/candycode/f18ae1767b2b0aba568e
+        // https://stackoverflow.com/questions/9913765/rapidly-updating-image-with-data-uri-causes-caching-memory-leak
         set_image_data: function(el, arg) {
+            var urlCreator = window.URL || window.webkitURL;
+            if (el['data-url']) {
+                // Apparently the browser can't keep track of this, so
+                // manual release is necessary.
+                urlCreator.revokeObjectURL(el['data-url']);
+            }
             var type  = arg[0]; // e.g. "image/jpeg"
             var array = arg[1]; // see bert.js Uint8Array call
             var blob = new Blob( [ array ], { type: type } );
-            var urlCreator = window.URL || window.webkitURL;
             var imageUrl = urlCreator.createObjectURL( blob );
             el.src = imageUrl;
-        }
+            el['data-url'] = imageUrl;
+        },
     },
 
 

@@ -66,10 +66,15 @@ host/%.o: %.c
 
 
 # Simple stand-alone build
-%.host: %.c Makefile
+build/host/%.elf: %.c Makefile
+	mkdir -p $$(dirname $@)
 	gcc -o $@ $< -I../include -DMAIN=main -Wall -ljpeg -g
 
-# OpenWRT SDK for nexx router.  See buildroot host.
-CROSS_ENV:=/i/buildroot/home/tom/cross/env-nexx.sh
-%.nexx: %.c $(CROSS_ENV) Makefile
-	. $(CROSS_ENV) ; mipsel-openwrt-linux-gcc -Os -o $@ $< -I../include -DMAIN=main -Wall -Werror -ljpeg
+# OpenWRT SDK for nexx router.  This assumes cross project is
+# available under:
+build/nexx/%.elf: %.c Makefile
+	[ ! -z "$$CROSS" ]
+	mkdir -p $$(dirname $@)
+	. $(CROSS)/env-nexx.sh ; mipsel-openwrt-linux-gcc -Os -o $@ $< -I../include -DMAIN=main -Wall -Werror -ljpeg
+	file $@
+

@@ -11,7 +11,7 @@
          %% Pid registry with GC
          pids_new/0, pids_add/2, pids_del/2, pids_foreach/2, pids_send/2,
          %% Simple server control
-         up/2, down/1, daemon/3,
+         up/2, down/1, daemon/3, obj/2,
          %% Several spawning methods
          start/1,
          enter/1,
@@ -192,6 +192,12 @@ up(Name, Spawner) ->
         Pid ->
             Pid
     end.
+
+%% Useful for debug objects
+obj(Name,Init) ->
+    up(Name, {handler, fun() -> Init end, fun obj:handle/2}).
+                                
+
 %% Generic starter, also for non-serv processes.
 -type start_spec() ::
         {handler, fun(() -> _), fun((_,_)->_)} |

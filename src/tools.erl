@@ -23,7 +23,7 @@
          binary_fold/3, binary_sum/1, binary_join/2,
          mask_bits/1,
          run_session/2, run_script/2,
-         maps_apply/4, maps_append/3, maps_count/2,
+         maps_apply/4, maps_append/3, maps_count/2, maps_inverse/1,
          maps_update_path/4, maps_find_path/2,
          tagged_index/2,
          map_to_list/1,
@@ -460,7 +460,14 @@ maps_append(Tag, Val, Map) ->
 
 maps_count(Tag, Map) ->    
     maps_apply(Tag, fun (Val) -> 1 + Val end, 0, Map).
-                             
+
+%% Compute inverse.  Note that dupliate keys will get dropped
+%% according the natural sort order.
+maps_inverse(Map) ->
+    maps:from_list(
+      lists:sort(
+        [{V,K} || {K,V} <- maps:to_list(Map)])).
+
 
 %% Create tagged index map from fold.
 %% Sentinels are abstracted as:
@@ -825,6 +832,8 @@ re_dispatch(Data, [{Regex,Fun}|Rest]) ->
             %%tools:info("~p~n",[_Err]),
             re_dispatch(Data, Rest)
     end.
+
+
 
 become(Name) ->
     case whereis(Name) of
