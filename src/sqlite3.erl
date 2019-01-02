@@ -6,7 +6,7 @@
          port_open/1, port_shutdown/1, port_query/3,
 
          %% SERVER
-         db/3, sql/2, sql_transaction/2, close/1,
+         db_registered/3, sql/2, sql_transaction/2, close/1,
 
          %% Internal, for reloads
          db_handle/2
@@ -21,6 +21,13 @@
 -type result_cell()  :: binary().
 -type result_row()   :: [result_cell()].
 -type result_table() :: [result_row()].
+
+-type query_error()   :: {sqlite3_errmsg,binary()} | {sqlite3_abort,any()}.
+-type query_ok()      :: [result_table()].
+-type query_timeout() :: obj:obj_timeout().
+
+-type db_spec() :: #{ 'pid' => pid(), 'timeout' => query_timeout() }.
+
 
 %% PORT
 
@@ -97,7 +104,8 @@ port_sync(Port, Sink) ->
 
 %% Process wrapper around sqlite3.erl
 
-db(Atom, DbFile, DbInit) ->
+-spec db_registered(atom(), fun(() -> string()), fun((db_spec()) -> ok)) -> db_spec().
+db_registered(Atom, DbFile, DbInit) ->
     ParentPid = self(),
     Pid = 
         serv:up(Atom,
@@ -188,23 +196,17 @@ throw_if_error(Rows) ->
 
 
 
-%% -spec query(pid(),query()) -> [[binary()] | {sqlite3_errmsg,binary()}].
-%%query(DbPid, Query) ->
-%%    obj:call(DbPid, {query, Query}).
--spec queries(pid(),[query()],infinity | integer()) -> [[[binary()]]] | {sqlite3_errmsg,binary()} | {sqlite3_abort,any()}.
+-spec queries(pid(),
+              [query()],
+              query_timeout()) ->
+                     query_ok() | query_error().
+
+
 queries(DbPid, Queries, Timeout) ->
     obj:call(DbPid, {queries, Queries}, Timeout).
 
 
-%% Thunk allows for lazy DB connections.
-%% -type timeout() :: infinity | integer().
--type db_spec() :: #{ 'pid' => pid(), 'timeout' => {'warn',timeout()} }.
--type db() :: db_spec() | fun(() -> db_spec()).
-
-%% Lazy retrieval of DB connection + raise errors in caller's thread.
--spec sql(db(), [{binary(), [binding()]}]) -> [result_table()].
-sql(DB, Queries) when is_function(DB) ->
-    sql(DB(), Queries);
+-spec sql(db_spec(), [{binary(), [binding()]}]) -> [result_table()].
 sql(#{pid := Pid, timeout := Timeout}, Queries) ->
     case queries(Pid, Queries, Timeout) of
         {_,_}=E -> throw(E);

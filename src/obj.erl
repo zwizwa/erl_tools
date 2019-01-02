@@ -19,7 +19,7 @@
 %% it doesn't punish the construction of processes with complicated
 %% state.  Keep it small!
 
--export_type([handle/1]).
+-export_type([handle/1,obj_timeout/0]).
 
 
 init() -> #{}.
@@ -76,6 +76,8 @@ wait_reply(Pid, Req, Timeout, Warn, Ref) ->
             Warn(),
             wait_reply(Pid, Req, Timeout, Warn, Ref)
     end.
+
+-type obj_timeout() :: {'warn', timeout()} | timeout().
 
 call(Obj, Req, {warn, Timeout}) ->
     call(Obj, Req, Timeout,

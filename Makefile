@@ -37,4 +37,6 @@ accept: eunit
 # FIXME: clean this up
 # It reuses the PLT file created by "rebar3 dialyzer"
 typer.hrl:
-	typer --plt `find _build/default -name  '*_plt'` -r -pz _build/default `find src/*.erl` >typer.hrl
+	rm -f $@
+	typer --plt `find _build/default -name  '*_plt'` -r -pz _build/default `find src/*.erl` >$@.tmp
+	mv $@.tmp $@
