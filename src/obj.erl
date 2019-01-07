@@ -43,11 +43,12 @@ handle({Pid, {find, K}}, Map)      -> ok=reply(Pid, maps:find(K, Map)), Map;
 handle({Pid, {set, K, V}}, Map)    -> reply(Pid, ok), maps:put(K, V, Map);
 handle({Pid, {update, K, F}}, Map) -> V = F(maps:get(K, Map)), ok=reply(Pid, V), maps:put(K, V, Map);
 handle({Pid, {update, F}}, Map)    -> {V,S} = F(Map), ok=reply(Pid, V), S;
-handle(shutdown, _)                -> exit(shutdown);
+handle(shutdown, _)                -> exit(shutdown).
 
-handle(Msg, State) ->
-    %% tools:info("obj:handle: bad request ~p~n",[Msg]), State.
-    throw({obj_handle, {Msg, State}}).
+%% DON'T DO THIS: catch-all clauses limit dialyzer view
+%% handle(Msg, State) ->
+%%     %% tools:info("obj:handle: bad request ~p~n",[Msg]), State.
+%%     throw({obj_handle, {Msg, State}}).
 
 resolve(Pid) when is_pid(Pid) ->
     Pid;
