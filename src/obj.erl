@@ -52,10 +52,16 @@ handle(shutdown, _)                -> exit(shutdown).
 
 resolve(Pid) when is_pid(Pid) ->
     Pid;
-resolve(Name) ->
+resolve(Name) when is_atom(Name) ->
     case whereis(Name) of
         undefined -> exit({obj_call_undefined, Name});
-        Pid -> Pid
+        Pid when is_pid(Pid) -> Pid
+    end;
+resolve({Name,Node}=NN) when is_atom(Name) and is_atom(Node) ->
+    case rpc:call(Node, erlang, whereis, [Name]) of
+        undefined -> exit({obj_call_undefined, Name});
+        {badrpc, nodedown} -> exit({obj_call_nodedown, NN});
+        Pid when is_pid(Pid) -> Pid
     end.
 
 call(Obj, Req, Timeout, Warn) ->
