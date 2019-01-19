@@ -1,8 +1,8 @@
 -module(reflection).
 -export([module_has_export/2,
          module_source/1, module_source_unpack/1, module_source_raw/1,
-         sync_file/3,
-         inotifywait/1, inotifywait_handle/2, src_watch/1,
+         sync_file/3, update_file/3,
+         inotifywait/1, inotifywait_handle/2, push_erl_change/2,
          load_erl/3, run_erl/1, run_beam/3]).
 
 %% The point of the code below is to have "immediate" code
@@ -176,18 +176,6 @@ inotifywait_handle(Msg, State) ->
     obj:handle(Msg, State).
 
 
-%% Simple wrapper that only handles CLOSE_WRITE.
-src_watch(Config = #{ handle := Handle }) ->
-    inotifywait(
-      maps:put(
-        handle,
-        fun({inotify, {File, Event}}, State) ->
-                case Event of
-                    <<"CLOSE_WRITE">> -> Handle(File, State);
-                    _ -> State
-                end
-        end,
-        Config)).
 
 
 sync_file(LocalFile, Node, RemoteFile) ->
@@ -200,6 +188,36 @@ sync_file(LocalFile, Node, RemoteFile) ->
                 _ -> copy_file(LocalFile, Node, RemoteFile), copied
             end
     end.
+
+%% Compile the file inside the VM.  Note this requires that the paths
+%% are set properly to allow for include files.
+push_erl_change(File, #{ path := Path, nodes := Nodes }) ->
+    Opts = [verbose,report_errors,report_warnings,binary],
+    case compile:file(Path(File), Opts) of
+        {ok, Mod, Bin} ->
+            _ = tools:pmap(
+                  fun(Node) ->
+                          RPC = fun (M,F,A) -> rpc:call(Node,M,F,A) end,
+                          RemoteFile = RPC(code,which,[Mod]),
+                          %% log:info("pushing ~p to ~p, ~s~n", [Mod, Node, RemoteFile]),
+                          reflection:update_file(Node, RemoteFile, Bin),
+                          RPC(code,purge,[Mod]),
+                          RPC(code,load_file,[Mod])
+                  end,
+                  Nodes);
+        error ->
+            ok
+    end.
+
+
+update_file(Node, RemoteFile, Bin) when is_atom(Node) and is_binary(Bin) ->
+    RPC = fun (M,F,A) -> rpc:call(Node,M,F,A) end,
+    {ok, FileInfo} = RPC(file,read_file_info,[RemoteFile]), 
+    _ = RPC(file,delete,[RemoteFile]), %% For executables
+    ok = RPC(file,write_file,[RemoteFile,Bin]),
+    ok = RPC(file,write_file_info,[RemoteFile,FileInfo]),
+    ok.
+
 copy_file(LocalFile, Node, RemoteFile) ->
     {ok, FileInfo} = file:read_file_info(LocalFile),
     RPC = fun (M,F,A) -> rpc:call(Node,M,F,A) end,
@@ -208,4 +226,5 @@ copy_file(LocalFile, Node, RemoteFile) ->
     ok = RPC(file,write_file,[RemoteFile,Bin]),
     ok = RPC(file,write_file_info,[RemoteFile,FileInfo]),
     ok.
+
 
