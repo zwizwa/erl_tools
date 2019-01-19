@@ -165,7 +165,14 @@ inotifywait_handle({Port, {data, {eol, Line}}},
             %% It seems convenient to unpack multiple events here.
             %% It's not clear why inotifywait doesn't do this.
             lists:foreach(
-              fun(Event) -> Handle({inotify, {File, Event}}, State) end,
+              fun(Event) ->
+                      Msg = {inotify, {File, Event}}, 
+                      case Handle of
+                          %% Allow symbolic indirection to avoid badfun
+                          {Mod, Fun} -> Mod:Fun(Msg, State);
+                          _ -> Handle(Msg, State)
+                      end
+              end,
               re:split(EventsC, ","));
         _ ->
             %% log:info("WARNING: inotifywait_handle: ~p~n", [Line]),
@@ -209,8 +216,9 @@ push_erl_change(File, #{ path := Path, nodes := Nodes }) ->
             ok
     end.
 
-
+%% FIXME: Do update time stamp.
 update_file(Node, RemoteFile, Bin) when is_atom(Node) and is_binary(Bin) ->
+    %% log:info("update_file ~p~n",[{Node,RemoteFile,size(Bin)}]),
     RPC = fun (M,F,A) -> rpc:call(Node,M,F,A) end,
     {ok, FileInfo} = RPC(file,read_file_info,[RemoteFile]), 
     _ = RPC(file,delete,[RemoteFile]), %% For executables
@@ -226,5 +234,4 @@ copy_file(LocalFile, Node, RemoteFile) ->
     ok = RPC(file,write_file,[RemoteFile,Bin]),
     ok = RPC(file,write_file_info,[RemoteFile,FileInfo]),
     ok.
-
 
