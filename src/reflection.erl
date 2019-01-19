@@ -164,16 +164,11 @@ inotifywait_handle({Port, {data, {eol, Line}}},
         [File, EventsC | _] ->
             %% It seems convenient to unpack multiple events here.
             %% It's not clear why inotifywait doesn't do this.
-            lists:foreach(
-              fun(Event) ->
-                      Msg = {inotify, {File, Event}}, 
-                      case Handle of
-                          %% Allow symbolic indirection to avoid badfun
-                          {Mod, Fun} -> Mod:Fun(Msg, State);
-                          _ -> Handle(Msg, State)
-                      end
-              end,
-              re:split(EventsC, ","));
+            lists:foldl(
+              Handle, State,
+              [{inotify, {File, Event}}
+               || Event <- re:split(EventsC, ",")]);
+
         _ ->
             %% log:info("WARNING: inotifywait_handle: ~p~n", [Line]),
             ok
