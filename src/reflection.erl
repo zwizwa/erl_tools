@@ -2,7 +2,7 @@
 -export([module_has_export/2,
          module_source/1, module_source_unpack/1, module_source_raw/1,
          sync_file/3,
-         inotifywait/1, inotifywait_handle/2,
+         inotifywait/1, inotifywait_handle/2, src_watch/1,
          load_erl/3, run_erl/1, run_beam/3]).
 
 %% The point of the code below is to have "immediate" code
@@ -135,31 +135,27 @@ run_beam(StrModule, ErlFile, BeamFile) ->
 %% There is a C extension for inotify, but it seems more useful to
 %% just use inotifywait from the inotify-tools Debian package.
 
-inotifywait({files, Files}) ->
-    inotifywait({cmd, 
-                 iolist_to_binary(
-                   ["inotifywait -m",
-                    [[" ", File] || File <- Files]])});
-inotifywait({cmd, Cmd}) ->
+inotifywait(#{ files := Files } = Config) ->
+    inotifywait(
+      maps:put(cmd,
+               iolist_to_binary(
+                 ["inotifywait -m",
+                  [[" ", File] || File <- Files]]),
+               Config));
+inotifywait(#{ cmd := Cmd, handle := _Handle } = Config) ->
     serv:start(
       {handler,
        fun() ->
                Opts = [{line, 1000}, binary, use_stdio, exit_status],
                Port = open_port({spawn, Cmd}, Opts),
-               #{ port => Port, bc => serv:bc_start() }
+               maps:merge(Config, #{ port => Port })
        end,
        fun reflection:inotifywait_handle/2}).
-
-inotifywait_handle({subscribe,_}=Cmd, State = #{bc := BC}) ->
-    BC ! Cmd,
-    State;
-
 inotifywait_handle({Port, {exit_status,_}=E}, _State = #{port := Port}) ->
     log:info("~p~n",[E]),
     exit(E);
-
 inotifywait_handle({Port, {data, {eol, Line}}},
-                   State = #{port := Port, bc := BC }) ->
+                   State = #{port := Port, handle := Handle }) ->
     %% FIXME: This assumes the file names have no spaces.  Since this
     %% is an ad-hoc tool, I'm not going to bother with handling that
     %% case.  If you have spaces in your path, you already know you're
@@ -169,21 +165,29 @@ inotifywait_handle({Port, {data, {eol, Line}}},
             %% It seems convenient to unpack multiple events here.
             %% It's not clear why inotifywait doesn't do this.
             lists:foreach(
-              fun(Event) ->
-                      Msg = {inotify, {File, Event}},
-                      %% log:info("~p~n", [Msg]),
-                      BC ! {broadcast, Msg}
-              end,
+              fun(Event) -> Handle({inotify, {File, Event}}, State) end,
               re:split(EventsC, ","));
         _ ->
             %% log:info("WARNING: inotifywait_handle: ~p~n", [Line]),
             ok
     end,
     State;
-
 inotifywait_handle(Msg, State) ->
     obj:handle(Msg, State).
 
+
+%% Simple wrapper that only handles CLOSE_WRITE.
+src_watch(Config = #{ handle := Handle }) ->
+    inotifywait(
+      maps:put(
+        handle,
+        fun({inotify, {File, Event}}, State) ->
+                case Event of
+                    <<"CLOSE_WRITE">> -> Handle(File, State);
+                    _ -> State
+                end
+        end,
+        Config)).
 
 
 sync_file(LocalFile, Node, RemoteFile) ->
