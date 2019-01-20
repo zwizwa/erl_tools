@@ -135,13 +135,6 @@ run_beam(StrModule, ErlFile, BeamFile) ->
 %% There is a C extension for inotify, but it seems more useful to
 %% just use inotifywait from the inotify-tools Debian package.
 
-inotifywait(#{ files := Files } = Config) ->
-    inotifywait(
-      maps:put(cmd,
-               iolist_to_binary(
-                 ["inotifywait -m",
-                  [[" ", File] || File <- Files]]),
-               Config));
 inotifywait(#{ cmd := Cmd, handle := _Handle } = Config) ->
     serv:start(
       {handler,
@@ -150,7 +143,18 @@ inotifywait(#{ cmd := Cmd, handle := _Handle } = Config) ->
                Port = open_port({spawn, Cmd}, Opts),
                maps:merge(Config, #{ port => Port })
        end,
-       fun reflection:inotifywait_handle/2}).
+       fun reflection:inotifywait_handle/2});
+
+inotifywait(#{ files := Files, handle := _Handle } = Config) ->
+    inotifywait(
+      maps:put(cmd,
+               iolist_to_binary(
+                 ["inotifywait -m",
+                  [[" ", File] || File <- Files]]),
+               Config)).
+
+
+
 inotifywait_handle({Port, {exit_status,_}=E}, _State = #{port := Port}) ->
     log:info("~p~n",[E]),
     exit(E);
