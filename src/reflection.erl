@@ -217,9 +217,12 @@ update_file(Node, RemoteFile, Bin) when is_atom(Node) and is_binary(Bin) ->
     RPC = fun (M,F,A) -> rpc:call(Node,M,F,A) end,
     {ok, FileInfo} = RPC(file,read_file_info,[RemoteFile]), 
     _ = RPC(file,delete,[RemoteFile]), %% For executables
-    ok = RPC(file,write_file,[RemoteFile,Bin]),
-    ok = RPC(file,write_file_info,[RemoteFile,FileInfo]),
-    ok.
+    case RPC(file,write_file,[RemoteFile,Bin]) of
+        ok ->
+            ok = RPC(file,write_file_info,[RemoteFile,FileInfo]), ok;
+        Err ->
+            throw({update_file,{Err,Node,RemoteFile}})
+    end.
 
 copy_file(LocalFile, Node, RemoteFile) ->
     {ok, FileInfo} = file:read_file_info(LocalFile),

@@ -16,7 +16,7 @@ function log_append(log, item, opts) {
 
         // FIXME: log's main element should reference its container div
         var div = document.getElementById("live_log_div");
-        div.scrollTop = div.scrollHeight;
+        if (div) div.scrollTop = div.scrollHeight;
     }
 }
 function append_text(log_el, text, opts) {

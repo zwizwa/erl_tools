@@ -114,7 +114,7 @@ repl(Cmd = {_, #{path := Path}}) ->
                 {'data-decoder',binary},
                 {'data-mixin',input}],
                []}]};
-        {serv_spec, #{ws := Ws} = Env} ->
+        {serv_spec, #{ ws := Ws } = Env} ->
             {handler,
              fun() ->
                      ws:call(Ws, ID, set, <<"">>),
@@ -210,6 +210,9 @@ kvstore_edit_handle({bad_value, {Path, Control}, Error}=E,
 
 
 
+
+
+
 %% Throughout the application, id attributes are assumed to be
 %% printable terms.  See ws.erl and type_base.erl pterm
 id(PTerm) ->
@@ -271,3 +274,5 @@ input(_Env = #{kvstore := _KVStore}, _Key) ->
 config(Fun,Env1) ->
     fun({Cmd,Env}) -> Fun({Cmd,maps:merge(Env,Env1)}) end.
             
+
+
