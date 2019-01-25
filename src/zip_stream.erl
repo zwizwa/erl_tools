@@ -1,43 +1,61 @@
 -module(zip_stream).
--export([test/0]).
+-export([test/1]).
 
 %% Bare-bones streaming zip file creation.
+%% https://users.cs.jmu.edu/buchhofp/forensics/formats/pkzip.html#datadescriptor
 
-%% TODO:
-%% - bit 3 of flags to allow for CRC and size append
+%% - Only supports STORE (no compression)
+%% - Uses data descriptors to support unknown file sizes
+
+
+%% STATE MACHINE
 
 %% Generalize this later.
 cmd({data, Bytes}=_Msg,
-    #{ iol    := IOL,
+    #{ out    := Out,
        offset := Offset } = State) when
       is_binary(Bytes) ->
+
     log:info("~p~n",[_Msg]),
+
+    %% Support a couple of output types here.
+    Out1 =
+        case Out of
+            {iolist, IOL} -> {iolist, [IOL|Bytes]};
+            {write, Write} -> Write(Bytes), Out
+        end,
+    
     maps:merge(
       State,
-      #{ iol    => [IOL,Bytes],
+      #{ out    => Out1,
          offset => Offset + size(Bytes) });
 
-cmd({file, #{ data := Data }=Info}, State) ->
+%% Chunk will keep track of size and incrementally compute CRC32.
+
+cmd({chunk, #{ name := Name, data := Data }}, State0) ->
+    Files0 = maps:get(files, State0),
+    Info0  = #{ crc32 := CRC32, size := Size } = maps:get(Name, Files0),
+    Info1 =
+        maps:merge(
+          Info0,
+          #{ crc32 => erlang:crc32(CRC32, Data),
+             size  => Size + size(Data) }),
     State1 =
-        cmd({local_file_header,
-             maps:merge(
-               Info,
-               #{ size => size(Data),
-                  crc32 => erlang:crc32(Data)})},
-            State),
+        maps:put(files,
+                 maps:put(Name, Info1, Files0),
+                 State0),
     cmd({data, Data}, State1);
-           
 
 cmd({local_file_header, 
-     #{ name   := Name,
-        size   := Size } = FileInfo},
+     #{ name   := Name } = FileInfo},
     #{ offset := Offset,
        files  := Files } = State) when
       is_binary(Name) ->
     Files1 =
       maps:put(
         Name,
-        #{ size   => Size,
+        #{ crc32 => 0,
+           size => 0,
            offset => Offset },
         Files),
     Header = local_file_header(FileInfo),
@@ -47,16 +65,24 @@ cmd({local_file_header,
           #{ files => Files1 }),
     cmd({data, Header}, State1);
 
+cmd({data_descriptor, #{ name   := Name }},
+    #{ files  := Files } = State) ->
+    Info = maps:get(Name, Files),
+    Header = data_descriptor(Info),
+    cmd({data, Header}, State);
+
 cmd(central_directory,
     #{ files := Files, offset := CDROffset} = State) ->
     FilesL = maps:to_list(Files),
     State1 = #{ offset := CDREndx } =
         lists:foldl(
           fun({File, #{ size   := Size,
+                        crc32  := CRC32,
                         offset := FileOffset }}, S) ->
                   CDR = 
                       central_directory_record(
                         #{ name => File,
+                           crc32 => CRC32,
                            size => Size,
                            offset => FileOffset }),
                   cmd({data, CDR}, S)
@@ -67,26 +93,21 @@ cmd(central_directory,
           #{ nb_entries => length(FilesL),
              offset => CDROffset, 
              size => CDREndx - CDROffset }),
-    cmd({data, EOCD}, State1).
+    cmd({data, EOCD}, State1);
+
+%% Composite command, when Data is known in advance.
+%% FIXME: Don't use data descriptor in this case?
+cmd({file, #{ name := Name, data := Data }}, State0) ->
+    State1 = cmd({local_file_header, #{ name => Name }}, State0),
+    State2 = cmd({chunk, #{name => Name, data => Data}}, State1),
+    State3 = cmd({data_descriptor, #{ name => Name }}, State2),
+    State3.
 
 
 
-%% https://users.cs.jmu.edu/buchhofp/forensics/formats/pkzip.html
 
+%% RECORDS
 
-
-
-test() ->
-    Bin = <<"123\n">>,
-    # { iol := IOL }
-        = lists:foldl(
-            fun cmd/2,
-            #{ offset => 0, files => #{}, iol => [] },
-            [{file, #{ name => <<"test1.txt">>, data => Bin }}
-            ,{file, #{ name => <<"test2.txt">>, data => Bin }}
-            ,central_directory
-            ]),
-    file:write_file("/tmp/test.zip", IOL).
 
 end_of_central_directory(
   #{ nb_entries := TotalEntries,
@@ -104,16 +125,16 @@ end_of_central_directory(
 central_directory_record(
   #{ name   := FileName,
      size   := Size,
+     crc32  := CRC32,
      offset := LocalHeaderOffset 
    } = Info) ->
-    CRC32 = maps:get(crc32, Info, 0),
     ModTime = maps:get(mod_time, Info, 0),
     ModDate = maps:get(mod_date, Info, 0),
     FileNameLen = size(FileName),
     <<16#504b0102: 32, %% Sig
       20: 16/little, %% Ver
       20: 16/little, %% VerNeed
-      0: 16/little, %% Flags
+      8: 16/little, %% Flags: data descriptor
       0: 16/little, %% Comp
       ModTime: 16/little,
       ModDate: 16/little,
@@ -130,16 +151,17 @@ central_directory_record(
       FileName/binary>>.
 
 local_file_header(
-  #{ name := FileName,
-     size := Size } = Info) when 
+  #{ name := FileName } = Info) when 
       is_binary(FileName) ->
-    CRC32 = maps:get(crc32, Info, 0),
+    Size = 0,
+    CRC32 = 0,
+    %% CRC32 = maps:get(crc32, Info, 0),
     ModTime = maps:get(mod_time, Info, 0),
     ModDate = maps:get(mod_date, Info, 0),
     FileNameLen = size(FileName),
     <<16#504b0304:32, %% Sig
       20:16/little, %% Ver
-      0:16/little, %% Flags
+      8:16/little, %% Flags: data descriptor
       0:16/little, %% Compression
       ModTime:16/little,
       ModDate:16/little,
@@ -149,9 +171,44 @@ local_file_header(
       FileNameLen:16/little,
       0:16/little, %% ExtraFieldLen
       FileName/binary>>.
-     
-     
+
+data_descriptor(
+  #{ crc32 := CRC32,
+     size  := Size }) ->
+    <<16#504b0708:32, %% Sig  (optional)
+      CRC32:32/little,
+      Size:32/little,   %% CSize
+      Size:32/little>>. %% USize
 
 
+
+
+%% TESTS
       
       
+test(simple) ->
+    Bin = <<"This is a DOS text file\r\n">>,
+    # { out := {iolist, IOL} }
+        = lists:foldl(
+            fun cmd/2,
+            #{ offset => 0, files => #{}, out => {iolist, []}},
+            [{file, #{ name => <<"test1.txt">>, data => Bin }}
+            ,{file, #{ name => <<"test2.txt">>, data => Bin }}
+            ,central_directory
+            ]),
+    file:write_file("/tmp/test.zip", IOL);
+test(chunks) ->
+    Name = <<"test1.txt">>,
+    Bin = <<"This is a DOS text file\r\n">>,
+    # { out := {iolist, IOL} }
+        = lists:foldl(
+            fun cmd/2,
+            #{ offset => 0, files => #{}, out => {iolist, []}},
+            [{local_file_header, #{ name => Name }},
+             {chunk, #{ name => Name, data => Bin}},
+             {chunk, #{ name => Name, data => Bin}},
+             {chunk, #{ name => Name, data => Bin}},
+             {data_descriptor, #{ name => Name }},
+             central_directory
+            ]),
+    file:write_file("/tmp/test.zip", IOL).
