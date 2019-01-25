@@ -55,6 +55,7 @@
          process_dictionary_get_value/2,
          reload_from_beam_list/1,
          transpose/1,
+         filename_extension/1,
          clean_filename/1,
          format_stacktrace/2
         ]).
@@ -912,6 +913,13 @@ format_stacktrace_line(FixPath, {Module, Function, Arity, PropList}) ->
 
 
     format("~s:~p: ~s~n", [FixPath(File), Line, FmtFun]).
+
+
+filename_extension(File) ->
+    binary_to_atom(
+      lists:last(re:split(filename:basename(File),"\\.")),
+      utf8).
+
                        
 
 

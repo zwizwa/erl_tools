@@ -154,12 +154,12 @@ inotifywait(#{ files := Files, handle := _Handle } = Config) ->
                Config)).
 
 
-
 inotifywait_handle({Port, {exit_status,_}=E}, _State = #{port := Port}) ->
     log:info("~p~n",[E]),
     exit(E);
 inotifywait_handle({Port, {data, {eol, Line}}},
                    State = #{port := Port, handle := Handle }) ->
+    %% log:info("~p~n",[Line]),
     %% FIXME: This assumes the file names have no spaces.  Since this
     %% is an ad-hoc tool, I'm not going to bother with handling that
     %% case.  If you have spaces in your path, you already know you're
@@ -214,6 +214,15 @@ push_erl_change(File, #{ path := Path, nodes := Nodes }) ->
         error ->
             ok
     end.
+
+%% While Erlang changes are simple because they can be made on a per
+%% module basis, this is usually not the case for other dependencies.
+%% How to properly build and upload multi-file components?  Needed:
+%% - map single file to final build product
+%% - call "make" on that build product
+%% - upload it
+%% - run the associated restart code
+
 
 %% FIXME: Do update time stamp.
 update_file(Node, RemoteFile, Bin) when is_atom(Node) and is_binary(Bin) ->
