@@ -23,7 +23,9 @@
          next/1,
          with_stop_exit/1,
          nchunks/3,
-         map/2
+         map/2,
+         %% from_receive/2, %% FIXME: not finished
+         from_gen/1
         ]).
          
 -export_type([update/1, chunk/0, sink/0, control/1, seq/0]).
@@ -136,6 +138,29 @@ with_stop_exit(Fold) ->
     end.
 
 
+%% %% Not sure what to call this: create a pfold from a data stream
+%% %% coming in as messages, while also propagating stop.
+%% from_receive(Pid,Ref) ->
+%%     fun(F,S) -> from_receive(F,S,Pid,Ref) end.
+%% from_receive(Fun,State,Pid,Ref) ->
+%%     receive
+%%         {Ref, eof} ->
+%%             %% When we receive eof, the process has already stopped,
+%%             %% so just return the fold state.
+%%             State;
+%%         {Ref, {data, Data}} ->
+%%             case Fun(Data, State) of
+%%                 {stop, State1} ->
+%%                     %% When foldee asks for termination, we need to
+%%                     %% tell the process.
+%%                     Pid ! stop, State1;
+%%                 {next, State1} ->
+%%                     from_receive(Fun, State1, Pid, Ref)
+%%             end
+%%     end.
+            
+
+
 %% pfold version of tools:nchunks/3
 nchunks(Offset, Endx, Max) ->
     fun(F,S) -> nchunks(Offset, Endx, Max, F, S) end.
@@ -171,4 +196,40 @@ map(MapFun, Fold, FoldFun, Init) ->
 %% Fold.  Or better: how to treat the fold as a stream + iterate a
 %% stateful I/O processor over the fold?
 
+
+
+%% Same as fold.erl, but using early stop.
+from_gen(Gen) ->
+    Pid = self(),
+    Sink =
+        fun(Msg) ->
+                Pid ! {self(), Msg},
+                receive
+                    {Pid, cont} ->
+                        ok;
+                    {Pid, stop} ->
+                        %% Assume that just exiting the process is
+                        %% enough.  Currently not really clear.
+                        exit(self(), normal)
+                end
+        end,
+    GenPid = spawn_link(fun() -> Gen(Sink) end),
+    fun(F, I) -> gen_fold(F,I,GenPid) end.
+
+gen_fold(Fun, Accu, GenPid) ->
+    receive
+        {GenPid, eof} ->
+            %% Generator function will return causing a normal process
+            %% exit, so we don't need to send stop.
+            Accu;
+        {GenPid, {data, El}} ->
+            case Fun(El, Accu) of
+                {next, NextAccu} ->
+                    GenPid ! {self(), cont},
+                    gen_fold(Fun, NextAccu, GenPid);
+                {stop, StopAccu} ->
+                    GenPid ! {self(), stop},
+                    StopAccu
+            end
+    end.
 

@@ -132,3 +132,13 @@ no_eof(_, eof) -> ignore;
 no_eof(S, M) -> S(M).
 no_eof(S) -> fun(M) -> no_eof(S, M) end.
 
+
+
+%% TODO: Create a "pipe" abstraction, where one end can use write
+%% (sink), and the other end can use read (e.g. implemented by message
+%% receive).  Easy enough, apart from the process management.  Closing
+%% the read end should kill the writing end.
+
+%% The trouble is really with pfold having early stop.  Decoupling
+%% through processes is easy.  Handling abort requires some effort.
+

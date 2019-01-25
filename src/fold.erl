@@ -212,6 +212,9 @@ filter_index(PredIndex, Fold) ->
     filter_map(fun({I, El}) -> {PredIndex(I), El} end,
                enumerate(Fold)).
 
+%% FIXME: Deduplicate: write this in terms of pfold:from_gen/1 using a
+%% generic pfold -> fold converter.
+
 %% Convert a Sink-parameterized generator to a Fold.  In general,
 %% prefer Folds, but in some cases it is easier to implement
 %% interation in terms of side-effecting sinks.  Note that some flow
@@ -226,7 +229,7 @@ from_gen(Gen) ->
     GenPid = spawn_link(fun() -> Gen(Sink) end),
     fun(F, I) -> gen_fold(F,I,GenPid) end.
 
-%% FIXME: can there be leaks when there are errors in current thread
+%% FIXME: can there be leaks when there are errors in current thread?
 
 %% Note: the above doesn't work if the generator makes calls to a port
 %% process, as that can only be done in-proces and we call the

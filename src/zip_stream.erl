@@ -1,30 +1,32 @@
 -module(zip_stream).
--export([test/1]).
+-export([test/1,init/1,cmd/2,cmds/2]).
 
 %% Bare-bones streaming zip file creation.
-%% https://users.cs.jmu.edu/buchhofp/forensics/formats/pkzip.html#datadescriptor
-
 %% - Only supports STORE (no compression)
 %% - Uses data descriptors to support unknown file sizes
 
 
+%% Some information about the zip file format
+%% https://users.cs.jmu.edu/buchhofp/forensics/formats/pkzip.html#datadescriptor
+%% https://en.wikipedia.org/wiki/Zip_(file_format)
+
+
 %% STATE MACHINE
 
-%% Generalize this later.
-cmd({data, Bytes}=_Msg,
+%% Push data into the output stream.
+cmd({data, Bytes},
     #{ out    := Out,
        offset := Offset } = State) when
       is_binary(Bytes) ->
-
-    log:info("~p~n",[_Msg]),
-
-    %% Support a couple of output types here.
     Out1 =
         case Out of
-            {iolist, IOL} -> {iolist, [IOL|Bytes]};
-            {write, Write} -> Write(Bytes), Out
+            {iolist, IOL} -> 
+                {iolist, [IOL|Bytes]};
+            {sink, Sink} ->
+                %% See sink.erl for protocol and conversions.
+                Sink({data, Bytes}),
+                Out
         end,
-    
     maps:merge(
       State,
       #{ out    => Out1,
@@ -72,7 +74,7 @@ cmd({data_descriptor, #{ name   := Name }},
     cmd({data, Header}, State);
 
 cmd(central_directory,
-    #{ files := Files, offset := CDROffset} = State) ->
+    #{ out := Out, files := Files, offset := CDROffset} = State) ->
     FilesL = maps:to_list(Files),
     State1 = #{ offset := CDREndx } =
         lists:foldl(
@@ -93,17 +95,27 @@ cmd(central_directory,
           #{ nb_entries => length(FilesL),
              offset => CDROffset, 
              size => CDREndx - CDROffset }),
-    cmd({data, EOCD}, State1);
+    State2 = cmd({data, EOCD}, State1),
+    case Out of
+        {sink, Sink} -> Sink(eof);
+        _ -> ok
+    end,
+    State2;
 
 %% Composite command, when Data is known in advance.
-%% FIXME: Don't use data descriptor in this case?
-cmd({file, #{ name := Name, data := Data }}, State0) ->
-    State1 = cmd({local_file_header, #{ name => Name }}, State0),
-    State2 = cmd({chunk, #{name => Name, data => Data}}, State1),
-    State3 = cmd({data_descriptor, #{ name => Name }}, State2),
-    State3.
+cmd({file, #{ name := _, data := _ } = Info}, State) ->
+    cmds([{local_file_header, Info},
+          {chunk, Info},
+          {data_descriptor, Info}],
+         State).
 
 
+cmds(List, State) ->
+    lists:foldl(fun cmd/2, State, List).
+
+
+init(iolist) -> init({iolist,[]});
+init(Out) -> #{ offset => 0, files => #{}, out => Out }.
 
 
 %% RECORDS
@@ -185,30 +197,43 @@ data_descriptor(
 
 %% TESTS
       
-      
-test(simple) ->
+%% zip_stream:test({simple,"/tmp/test.zip"}).      
+test({simple,Zip}) ->
     Bin = <<"This is a DOS text file\r\n">>,
     # { out := {iolist, IOL} }
-        = lists:foldl(
-            fun cmd/2,
-            #{ offset => 0, files => #{}, out => {iolist, []}},
+        = cmds(
             [{file, #{ name => <<"test1.txt">>, data => Bin }}
             ,{file, #{ name => <<"test2.txt">>, data => Bin }}
-            ,central_directory
-            ]),
-    file:write_file("/tmp/test.zip", IOL);
-test(chunks) ->
+            ,central_directory],
+            init(iolist)
+           ),
+    file:write_file(Zip, IOL);
+test({chunks,Zip}) ->
     Name = <<"test1.txt">>,
     Bin = <<"This is a DOS text file\r\n">>,
     # { out := {iolist, IOL} }
-        = lists:foldl(
-            fun cmd/2,
-            #{ offset => 0, files => #{}, out => {iolist, []}},
+        = cmds(
             [{local_file_header, #{ name => Name }},
              {chunk, #{ name => Name, data => Bin}},
              {chunk, #{ name => Name, data => Bin}},
              {chunk, #{ name => Name, data => Bin}},
              {data_descriptor, #{ name => Name }},
-             central_directory
-            ]),
-    file:write_file("/tmp/test.zip", IOL).
+             central_directory],
+            init(iolist)),
+    file:write_file(Zip, IOL);
+test({write,Zip}) ->
+    _ = file:delete(Zip),
+    Bin = <<"This is a DOS text file\r\n">>,
+    {ok, F} = file:open(Zip, [append]),
+    _ =  cmds(
+           [{file, #{ name => <<"test1.txt">>, data => Bin }}
+           ,{file, #{ name => <<"test2.txt">>, data => Bin }}
+           ,central_directory],
+           init({sink,
+                 fun({data,Data}) ->
+                         %% log:info("write: ~p~n", [Data]),
+                         file:write(F, Data);
+                    (eof) ->
+                         file:close(F)
+                 end})),
+    ok. 
