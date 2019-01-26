@@ -5,6 +5,9 @@
 %% - Only supports STORE (no compression)
 %% - Uses data descriptors to support unknown file sizes
 
+%% Caveats:
+%% - Empty files are not supported.
+
 
 %% Some information about the zip file format
 %% https://users.cs.jmu.edu/buchhofp/forensics/formats/pkzip.html#datadescriptor
@@ -21,7 +24,9 @@ cmd({data, Bytes},
     Out1 =
         case Out of
             {iolist, IOL} -> 
-                {iolist, [IOL|Bytes]};
+                %% For testing.  Typically {sink,_} is used for
+                %% production code.
+                {iolist, [IOL,Bytes]};
             {sink, Sink} ->
                 %% See sink.erl for protocol and conversions.
                 Sink({data, Bytes}),

@@ -210,6 +210,7 @@ from_gen(Gen) ->
                     {Pid, stop} ->
                         %% Assume that just exiting the process is
                         %% enough.  Currently not really clear.
+                        %% log:info("from_gen: exit~n"),
                         exit(self(), normal)
                 end
         end,
