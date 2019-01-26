@@ -13,6 +13,9 @@
 %% https://users.cs.jmu.edu/buchhofp/forensics/formats/pkzip.html#datadescriptor
 %% https://en.wikipedia.org/wiki/Zip_(file_format)
 
+%% Note that sink return values are asserted to be 'ok'.  If this
+%% fails, the entire zip file creation fails, so it needs to be
+%% handled in the code that calls cmd/2.
 
 %% STATE MACHINE
 
@@ -29,7 +32,7 @@ cmd({data, Bytes},
                 {iolist, [IOL,Bytes]};
             {sink, Sink} ->
                 %% See sink.erl for protocol and conversions.
-                Sink({data, Bytes}),
+                ok = Sink({data, Bytes}),
                 Out
         end,
     maps:merge(
@@ -37,9 +40,8 @@ cmd({data, Bytes},
       #{ out    => Out1,
          offset => Offset + size(Bytes) });
 
-%% Chunk will keep track of size and incrementally compute CRC32.
-
-cmd({chunk, #{ name := Name, data := Data }}, State0) ->
+%% Append will keep track of size and incrementally compute CRC32.
+cmd({append, #{ name := Name, data := Data }}, State0) ->
     Files0 = maps:get(files, State0),
     Info0  = #{ crc32 := CRC32, size := Size } = maps:get(Name, Files0),
     Info1 =
@@ -52,6 +54,20 @@ cmd({chunk, #{ name := Name, data := Data }}, State0) ->
                  maps:put(Name, Info1, Files0),
                  State0),
     cmd({data, Data}, State1);
+
+%% Also support fold, pfold over binary chunks.
+cmd({append, #{ name := Name, fold := Fold }}, State0) ->
+    Fold(
+      fun(Bin, State) ->
+              Info = #{ name => Name, data => Bin },
+              cmd({append, Info}, State)
+      end, State0);
+cmd({append, #{ name := Name, pfold := Fold }}, State0) ->
+    Fold(
+      fun(Bin, State) ->
+              Info = #{ name => Name, data => Bin },
+              {next, cmd({append, Info}, State)}
+      end, State0);
 
 cmd({local_file_header, 
      #{ name   := Name } = FileInfo},
@@ -72,6 +88,8 @@ cmd({local_file_header,
           #{ files => Files1 }),
     cmd({data, Header}, State1);
 
+%% FIXME: Empty files seem to generate corrupt ZIP files.  How to
+%% handle?  Maybe just rewrite the header without data descriptor bit?
 cmd({data_descriptor, #{ name   := Name }},
     #{ files  := Files } = State) ->
     Info = maps:get(Name, Files),
@@ -102,30 +120,17 @@ cmd(central_directory,
              size => CDREndx - CDROffset }),
     State2 = cmd({data, EOCD}, State1),
     case Out of
-        {sink, Sink} -> Sink(eof);
+        {sink, Sink} -> ok = Sink(eof);
         _ -> ok
     end,
     State2;
 
-%% Composite command, when Data is known in advance.
-cmd({file, #{ name := _, data := _ } = Info}, State) ->
+%% Composite command.
+cmd({file, Info}, State) ->
     cmds([{local_file_header, Info},
-          {chunk, Info},
+          {append, Info},
           {data_descriptor, Info}],
-         State);
-
-%% Composite command: data given as pfold
-cmd({file_pfold, #{ name := _, pfold := Fold } = Info}, S0) ->
-    S1 = cmd({local_file_header, Info}, S0),
-    S2 = Fold(fun(Bin, S) ->
-                      {next,
-                       zip_stream:cmd(
-                         {chunk,
-                          maps:put(data, Bin, Info)},
-                         S)}
-              end, S1),
-    S3 = cmd({data_descriptor, Info}, S2),
-    S3.
+         State).
 
 cmds(List, State) ->
     lists:foldl(fun cmd/2, State, List).
@@ -225,15 +230,15 @@ test({simple,Zip}) ->
             init(iolist)
            ),
     file:write_file(Zip, IOL);
-test({chunks,Zip}) ->
+test({appends,Zip}) ->
     Name = <<"test1.txt">>,
     Bin = <<"This is a DOS text file\r\n">>,
     # { out := {iolist, IOL} }
         = cmds(
             [{local_file_header, #{ name => Name }},
-             {chunk, #{ name => Name, data => Bin}},
-             {chunk, #{ name => Name, data => Bin}},
-             {chunk, #{ name => Name, data => Bin}},
+             {append, #{ name => Name, data => Bin}},
+             {append, #{ name => Name, data => Bin}},
+             {append, #{ name => Name, data => Bin}},
              {data_descriptor, #{ name => Name }},
              central_directory],
             init(iolist)),

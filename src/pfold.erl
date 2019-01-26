@@ -197,21 +197,25 @@ map(MapFun, Fold, FoldFun, Init) ->
 %% stateful I/O processor over the fold?
 
 
+%% Some requirements on the generator:
 
-%% Same as fold.erl, but using early stop.
+%% - When the sink returns {error,stop}, the generator can no longer
+%%   call the sink.  The only things it can do is: return or exit.
+%%
+%% 
+
+
+
+%% Same as fold.erl, but using early stop.  Note that the generator
+%% needs to be able to handle the {error,_} case.
 from_gen(Gen) ->
     Pid = self(),
     Sink =
         fun(Msg) ->
                 Pid ! {self(), Msg},
                 receive
-                    {Pid, cont} ->
-                        ok;
-                    {Pid, stop} ->
-                        %% Assume that just exiting the process is
-                        %% enough.  Currently not really clear.
-                        %% log:info("from_gen: exit~n"),
-                        exit(self(), normal)
+                    {Pid, cont} -> ok;
+                    {Pid, stop} -> {error, stop}
                 end
         end,
     GenPid = spawn_link(fun() -> Gen(Sink) end),
