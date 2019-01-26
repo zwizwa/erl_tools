@@ -112,8 +112,20 @@ cmd({file, #{ name := _, data := _ } = Info}, State) ->
     cmds([{local_file_header, Info},
           {chunk, Info},
           {data_descriptor, Info}],
-         State).
+         State);
 
+%% Composite command: data given as pfold
+cmd({file_pfold, #{ name := _, pfold := Fold } = Info}, S0) ->
+    S1 = cmd({local_file_header, Info}, S0),
+    S2 = Fold(fun(Bin, S) ->
+                      {next,
+                       zip_stream:cmd(
+                         {chunk,
+                          maps:put(data, Bin, Info)},
+                         S)}
+              end, S1),
+    S3 = cmd({data_descriptor, Info}, S2),
+    S3.
 
 cmds(List, State) ->
     lists:foldl(fun cmd/2, State, List).
