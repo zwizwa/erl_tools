@@ -19,8 +19,8 @@
          from_list/1,
          to_list/1, to_rlist/1,
          to_list/2, to_rlist/2,
+         to_fold/1, next/1,
          take/2,
-         next/1,
          with_stop_exit/1,
          nchunks/3,
          map/2,
@@ -38,6 +38,12 @@
 %% Wrap an ordinary foldee so it can be used with a folder that
 %% expects the early stop protocol, by not stoping.
 next(F) -> fun(E,S) -> {next, F(E,S)} end.
+
+%% Some more elaborate abstractions are better implemented as more
+%% general pfolds.
+to_fold(PFold) -> fun(F,S) -> PFold(next(F), S) end.
+                          
+    
     
 
 range(F,State,N,I) ->
@@ -192,22 +198,25 @@ map(MapFun, Fold, FoldFun, Init) ->
                  
 
                  
-%% How to "fold over a fold"?  E.g. given a Fold, how to create a new
-%% Fold.  Or better: how to treat the fold as a stream + iterate a
-%% stateful I/O processor over the fold?
 
-
-%% Some requirements on the generator:
-
+%% A Generator is a function that is parameterized by a sink.
+%% In general, fold or pfold is the preferrable interface, but for
+%% many data producing tasks, a generator is simpler to write.
+%%
+%% Converting a generator to a pfold needs a helper process.  Note
+%% that some flow control is necessary, otherwise generator process
+%% will just fill up the message buffer.
+%%
+%% Note: this doesn't work if the generator makes calls to a port
+%% process, as that can only be done in-proces and we call the
+%% generator in a new process.  See tools:gen_to_list/1
+%%
+%% Requirements on the generator:
+%%
 %% - When the sink returns {error,stop}, the generator can no longer
 %%   call the sink.  The only things it can do is: return or exit.
 %%
-%% 
 
-
-
-%% Same as fold.erl, but using early stop.  Note that the generator
-%% needs to be able to handle the {error,_} case.
 from_gen(Gen) ->
     Pid = self(),
     Sink =
@@ -238,3 +247,7 @@ gen_fold(Fun, Accu, GenPid) ->
             end
     end.
 
+
+%% How to "fold over a fold"?  E.g. given a Fold, how to create a new
+%% Fold.  Or better: how to treat the fold as a stream + iterate a
+%% stateful I/O processor over the fold?
