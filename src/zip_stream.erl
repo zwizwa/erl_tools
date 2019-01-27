@@ -53,7 +53,9 @@ cmd({append, #{ name := Name, data := Data }}, State0) ->
         maps:put(files,
                  maps:put(Name, Info1, Files0),
                  State0),
-    cmd({data, Data}, State1);
+    cmd({data, Data}, 
+        %% Ref is no longer needed in state.
+        maps:remove(data, State1));
 
 %% Also support fold, pfold over binary chunks.
 cmd({append, #{ name := Name, fold := Fold }}, State0) ->

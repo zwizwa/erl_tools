@@ -233,8 +233,9 @@ from_gen(Gen) ->
 gen_fold(Fun, Accu, GenPid) ->
     receive
         {GenPid, eof} ->
-            %% Generator function will return causing a normal process
-            %% exit, so we don't need to send stop.
+            %% Sink call will return ok.  Generator function calling
+            %% Sink is then expected to exit.
+            GenPid ! {self(), cont},
             Accu;
         {GenPid, {data, El}} ->
             case Fun(El, Accu) of
