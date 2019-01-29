@@ -4,7 +4,8 @@
          layout/2,
          supervisor/2,
          %% Layout renderers
-         button/2, table/2, input/2,
+         button/2, button/3,
+         table/2, input/2,
          %% Widgets
          kvstore_edit/1,
          repl/1,
@@ -226,18 +227,23 @@ id(PTerm) ->
 %% as {layout, Env}.
 
 %% Layout.  Move this somewhere else.
-button(#{ send := Send }, ID, Text) ->
-    ID_enc = ws:encode_id(ID),
-    {button,
-     [{onclick, Send},
-      {'data-decoder', button},  %% Type conversion for js->erl messages.
-      {'data-mixin', cell},      %% DOM behavior for erl->js messages
-      {id, ID_enc}],             %% erl<->js messages
-     [[Text]]}.
+
+%% FIXME: Why is this here?  Replaced with button/3 below
+%% button(#{ send := Send }, ID, Text) ->
+%%     ID_enc = ws:encode_id(ID),
+%%     {button,
+%%      [{onclick, Send},
+%%       {'data-decoder', button},  %% Type conversion for js->erl messages.
+%%       {'data-mixin', cell},      %% DOM behavior for erl->js messages
+%%       {id, ID_enc}],             %% erl<->js messages
+%%      [[Text]]}.
 
 %% For use in widget startup.
-button(#{path := Path, send := Send}, Tag) ->
+button(Env, Tag) ->
     Text = tools:format_binary("~p",[Tag]),
+    button(Env, Tag, Text).
+
+button(#{path := Path, send := Send}, Tag, Text) ->
     {button,
      [{onclick, Send},
       {'data-decoder', button},  %% Type conversion for js->erl messages.
