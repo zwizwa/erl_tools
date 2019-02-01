@@ -159,7 +159,10 @@ module.exports = {
         set_attribute: function(el, args) {
             var name = args[0];
             var val  = args[1];
-            el.setAttribute(name, val)
+            el.setAttribute(name, val);
+        },
+        set_display: function(el, arg) {
+            el.style.display = arg;
         },
         add_class: function(el, arg) {
             if (typeof(arg) == 'object') {
