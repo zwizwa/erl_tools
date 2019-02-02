@@ -197,7 +197,8 @@ sync_file(LocalFile, Node, RemoteFile) ->
 
 %% Compile the file inside the VM.  Note this requires that the paths
 %% are set properly to allow for include files.
-push_erl_change(File, #{ path := Path, nodes := Nodes }) ->
+push_erl_change(File, #{ nodes := Nodes } = Env) ->
+    Path = maps:get(path, Env, fun(F) -> F end),
     Opts = [verbose,report_errors,report_warnings,binary],
     case compile:file(Path(File), Opts) of
         {ok, Mod, Bin} ->
