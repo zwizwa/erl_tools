@@ -34,6 +34,14 @@
 %% When in doubt, implement a loop as a left and right fold, and use
 %% fold:iterate to abstract a number of iteration patterns.
 
+%% Return values:
+%% - ok
+%% - {error, _}: Sink went bad for some reason.  It's illegal to call
+%%               Sink after that.
+%%
+%% If there is no explicit handler, it is best to assert 'ok' when
+%% calling a sink, so at least errors are loud.
+
 map(Fun, Sink) -> fun(Msg) -> Sink(map_msg(Msg, Fun)) end.
 map_msg({data, Data}, Fun) -> {data, Fun(Data)};
 map_msg(eof,_) -> eof.
@@ -131,4 +139,14 @@ line_assembler(BinInput, Last, Sink) ->
 no_eof(_, eof) -> ignore;
 no_eof(S, M) -> S(M).
 no_eof(S) -> fun(M) -> no_eof(S, M) end.
+
+
+
+%% TODO: Create a "pipe" abstraction, where one end can use write
+%% (sink), and the other end can use read (e.g. implemented by message
+%% receive).  Easy enough, apart from the process management.  Closing
+%% the read end should kill the writing end.
+
+%% The trouble is really with pfold having early stop.  Decoupling
+%% through processes is easy.  Handling abort requires some effort.
 

@@ -4,10 +4,12 @@
          layout/2,
          supervisor/2,
          %% Layout renderers
-         button/2, table/2, input/2,
+         button/2, button/3,
+         table/2, input/2,
          %% Widgets
          kvstore_edit/1,
          repl/1,
+         config/2,
          example/1]).
 
 %% Widgets are constructed out of HTML layout, client side behavior
@@ -82,7 +84,7 @@ example(Cmd = {_, #{path := Path}}) ->
         {layout, Env} ->
             {'div',[],
              [{pre,[],[[<<"Example Widget">>]]},
-              button(Env, ID, <<"Example123">>)]};
+              button(Env, ID, <<"Click Me">>)]};
         {serv_spec, #{ws := Ws} = Env} ->
             {handler,
              fun() -> maps:put(count, 1, Env) end,
@@ -113,7 +115,7 @@ repl(Cmd = {_, #{path := Path}}) ->
                 {'data-decoder',binary},
                 {'data-mixin',input}],
                []}]};
-        {serv_spec, #{ws := Ws} = Env} ->
+        {serv_spec, #{ ws := Ws } = Env} ->
             {handler,
              fun() ->
                      ws:call(Ws, ID, set, <<"">>),
@@ -209,6 +211,9 @@ kvstore_edit_handle({bad_value, {Path, Control}, Error}=E,
 
 
 
+
+
+
 %% Throughout the application, id attributes are assumed to be
 %% printable terms.  See ws.erl and type_base.erl pterm
 id(PTerm) ->
@@ -222,18 +227,23 @@ id(PTerm) ->
 %% as {layout, Env}.
 
 %% Layout.  Move this somewhere else.
-button(#{ send := Send }, ID, Text) ->
-    ID_enc = ws:encode_id(ID),
-    {button,
-     [{onclick, Send},
-      {'data-decoder', button},  %% Type conversion for js->erl messages.
-      {'data-mixin', cell},      %% DOM behavior for erl->js messages
-      {id, ID_enc}],             %% erl<->js messages
-     [[Text]]}.
+
+%% FIXME: Why is this here?  Replaced with button/3 below
+%% button(#{ send := Send }, ID, Text) ->
+%%     ID_enc = ws:encode_id(ID),
+%%     {button,
+%%      [{onclick, Send},
+%%       {'data-decoder', button},  %% Type conversion for js->erl messages.
+%%       {'data-mixin', cell},      %% DOM behavior for erl->js messages
+%%       {id, ID_enc}],             %% erl<->js messages
+%%      [[Text]]}.
 
 %% For use in widget startup.
-button(#{path := Path, send := Send}, Tag) ->
+button(Env, Tag) ->
     Text = tools:format_binary("~p",[Tag]),
+    button(Env, Tag, Text).
+
+button(#{path := Path, send := Send}, Tag, Text) ->
     {button,
      [{onclick, Send},
       {'data-decoder', button},  %% Type conversion for js->erl messages.
@@ -261,4 +271,14 @@ input(Env = #{kvstore := KVStore, input := Input}, Key) ->
 input(_Env = #{kvstore := _KVStore}, _Key) ->
     throw('FIXME_implement_input').
     
+
+%% Create a new widget by extending the environment.  Note that while
+%% this appears a a little inefficient -- a merge operation is
+%% executed for each widget call -- this is not really a problem since
+%% the function is called only twice: once for layout and once to
+%% start the event handler.
+config(Fun,Env1) ->
+    fun({Cmd,Env}) -> Fun({Cmd,maps:merge(Env,Env1)}) end.
+            
+
 

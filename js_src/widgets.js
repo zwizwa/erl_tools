@@ -16,7 +16,7 @@ function log_append(log, item, opts) {
 
         // FIXME: log's main element should reference its container div
         var div = document.getElementById("live_log_div");
-        div.scrollTop = div.scrollHeight;
+        if (div) div.scrollTop = div.scrollHeight;
     }
 }
 function append_text(log_el, text, opts) {
@@ -159,7 +159,10 @@ module.exports = {
         set_attribute: function(el, args) {
             var name = args[0];
             var val  = args[1];
-            el.setAttribute(name, val)
+            el.setAttribute(name, val);
+        },
+        set_display: function(el, arg) {
+            el.style.display = arg;
         },
         add_class: function(el, arg) {
             if (typeof(arg) == 'object') {

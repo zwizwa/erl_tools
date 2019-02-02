@@ -212,40 +212,15 @@ filter_index(PredIndex, Fold) ->
     filter_map(fun({I, El}) -> {PredIndex(I), El} end,
                enumerate(Fold)).
 
-%% Convert a Sink-parameterized generator to a Fold.  In general,
-%% prefer Folds, but in some cases it is easier to implement
-%% interation in terms of side-effecting sinks.  Note that some flow
-%% control is necessary.  Otherwise generator process will just fill
-%% up the message buffer.
+
 from_gen(Gen) ->
-    Pid = self(),
-    Sink = fun(Msg) ->
-                   Pid ! {self(), Msg},
-                   receive {Pid, cont} -> ok end
-           end,
-    GenPid = spawn_link(fun() -> Gen(Sink) end),
-    fun(F, I) -> gen_fold(F,I,GenPid) end.
+    pfold:to_fold(pfold:from_gen(Gen)).
 
-%% FIXME: can there be leaks when there are errors in current thread
-
-%% Note: the above doesn't work if the generator makes calls to a port
-%% process, as that can only be done in-proces and we call the
-%% generator in a new process.  See tools:gen_to_list/1
-
-
-gen_fold(Fun, Accu, GenPid) ->
-    receive
-        {GenPid, eof} -> Accu;
-        {GenPid, {data, El}} ->
-            NextAccu = Fun(El, Accu),
-            GenPid ! {self(), cont},
-            gen_fold(Fun, NextAccu, GenPid)
-    end.
 
 %% FIXME: evaluating a generator fold twice will hang.  Annoying, but
 %% in general, folds are instances i.e. single use iterators.
                     
-
+%% FIXME: Is this wrapper really necessary?
 %% gen/2 assumes the generator argument is passed last.
 from_gen(Fun, Args) ->
     from_gen(fun(Sink) -> apply(Fun, Args ++ [Sink]) end).
@@ -393,3 +368,11 @@ from_port(Port, TimeOut, Fun, State) ->
         
         
             
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-include("../test/fold.expect").
+expect_test() ->
+    expect:run_form(
+      filename:dirname(?FILE)++"/../test/fold.expect",
+      fun fold_expect/0).
+-endif.

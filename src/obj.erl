@@ -19,7 +19,7 @@
 %% it doesn't punish the construction of processes with complicated
 %% state.  Keep it small!
 
--export_type([handle/1]).
+-export_type([handle/1,obj_timeout/0]).
 
 
 init() -> #{}.
@@ -43,18 +43,25 @@ handle({Pid, {find, K}}, Map)      -> ok=reply(Pid, maps:find(K, Map)), Map;
 handle({Pid, {set, K, V}}, Map)    -> reply(Pid, ok), maps:put(K, V, Map);
 handle({Pid, {update, K, F}}, Map) -> V = F(maps:get(K, Map)), ok=reply(Pid, V), maps:put(K, V, Map);
 handle({Pid, {update, F}}, Map)    -> {V,S} = F(Map), ok=reply(Pid, V), S;
-handle(shutdown, _)                -> exit(shutdown);
+handle(shutdown, _)                -> exit(shutdown).
 
-handle(Msg, State) ->
-    %% tools:info("obj:handle: bad request ~p~n",[Msg]), State.
-    throw({obj_handle, {Msg, State}}).
+%% DON'T DO THIS: catch-all clauses limit dialyzer view
+%% handle(Msg, State) ->
+%%     %% tools:info("obj:handle: bad request ~p~n",[Msg]), State.
+%%     throw({obj_handle, {Msg, State}}).
 
 resolve(Pid) when is_pid(Pid) ->
     Pid;
-resolve(Name) ->
+resolve(Name) when is_atom(Name) ->
     case whereis(Name) of
         undefined -> exit({obj_call_undefined, Name});
-        Pid -> Pid
+        Pid when is_pid(Pid) -> Pid
+    end;
+resolve({Name,Node}=NN) when is_atom(Name) and is_atom(Node) ->
+    case rpc:call(Node, erlang, whereis, [Name]) of
+        undefined -> exit({obj_call_undefined, Name});
+        {badrpc, nodedown} -> exit({obj_call_nodedown, NN});
+        Pid when is_pid(Pid) -> Pid
     end.
 
 call(Obj, Req, Timeout, Warn) ->
@@ -76,6 +83,8 @@ wait_reply(Pid, Req, Timeout, Warn, Ref) ->
             Warn(),
             wait_reply(Pid, Req, Timeout, Warn, Ref)
     end.
+
+-type obj_timeout() :: {'warn', timeout()} | timeout().
 
 call(Obj, Req, {warn, Timeout}) ->
     call(Obj, Req, Timeout,

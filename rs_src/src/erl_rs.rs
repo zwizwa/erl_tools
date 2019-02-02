@@ -79,7 +79,13 @@ pub fn as_i32(arg: &Term) -> Option<i32> {
 }
 pub fn as_str(arg: &Term) -> Option<&str> {
     match arg {
-        &Term::Atom(Atom {name: ref str}) => Some(str),
+        &Term::Atom(Atom {name: ref str}) =>
+            Some(str),
+        &Term::Binary(Binary {bytes: ref vec}) =>
+            match std::str::from_utf8(&vec[..]) {
+                Ok(a) => Some(a),
+                Err(_) => None
+            },
         _ => None
     }
 }

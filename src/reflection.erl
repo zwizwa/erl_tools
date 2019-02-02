@@ -1,6 +1,8 @@
 -module(reflection).
 -export([module_has_export/2,
          module_source/1, module_source_unpack/1, module_source_raw/1,
+         sync_file/3, update_file/3,
+         inotifywait/1, inotifywait_handle/2, push_erl_change/2,
          load_erl/3, run_erl/1, run_beam/3]).
 
 %% The point of the code below is to have "immediate" code
@@ -92,4 +94,155 @@ run_beam(StrModule, ErlFile, BeamFile) ->
     apply(Module,run,[]).
 
 
+%% 2019-01-18: Another attempt to get proper "immediate updates".  The
+%% current project's incremental update scripts are getting too slow,
+%% so here's another approach.
+%%
+%% Components:
+%%
+%% - inotifywatch wrapper
+%%
+%% - rsync-like file copy in Erlang
+%%
+%% There is no point in doing this unless it is fast, so what about
+%% properly designing it that way.  One important optimization is to
+%% eliminate connection overhead.  To do this, run a daemon on an
+%% Erlang node on the development machine, let it watch file
+%% modifications, and let it compile and upload code without leaving
+%% the Erlang VM.
+
+%% Note that the point of this is to make Erlang code updates fast.
+%% However, the tool should also handle other file types and run an
+%% external compiler.
+
+%% In addition to compilation and file transfer, the tool should also
+%% perform smart reloads.  This logic needs to be part of the project.
+%% This module only contains library tools.
+
+
+
+%% FIXME: This preserves attributes, while for some installs the
+%% target should be root:root
+
+%% FIXME: Getting the list of attributes can be done in parallel on
+%% host and target.
+
+
+
+%% Instead of syncing, use an event-based approach.  Start from a
+%% synced state, then use file watches.  This is probably more useful.
+
+%% There is a C extension for inotify, but it seems more useful to
+%% just use inotifywait from the inotify-tools Debian package.
+
+inotifywait(#{ cmd := Cmd, handle := _Handle } = Config) ->
+    serv:start(
+      {handler,
+       fun() ->
+               Opts = [{line, 1000}, binary, use_stdio, exit_status],
+               Port = open_port({spawn, Cmd}, Opts),
+               maps:merge(Config, #{ port => Port })
+       end,
+       fun reflection:inotifywait_handle/2});
+
+inotifywait(#{ files := Files, handle := _Handle } = Config) ->
+    inotifywait(
+      maps:put(cmd,
+               iolist_to_binary(
+                 ["inotifywait -m",
+                  [[" ", File] || File <- Files]]),
+               Config)).
+
+
+inotifywait_handle({Port, {exit_status,_}=E}, _State = #{port := Port}) ->
+    log:info("~p~n",[E]),
+    exit(E);
+inotifywait_handle({Port, {data, {eol, Line}}},
+                   State = #{port := Port, handle := Handle }) ->
+    %% log:info("~p~n",[Line]),
+    %% FIXME: This assumes the file names have no spaces.  Since this
+    %% is an ad-hoc tool, I'm not going to bother with handling that
+    %% case.  If you have spaces in your path, you already know you're
+    %% asking for trouble.
+    case re:split(Line, " ") of
+        [File, EventsC | _] ->
+            %% It seems convenient to unpack multiple events here.
+            %% It's not clear why inotifywait doesn't do this.
+            lists:foldl(
+              Handle, State,
+              [{inotify, {File, Event}}
+               || Event <- re:split(EventsC, ",")]);
+
+        _ ->
+            %% log:info("WARNING: inotifywait_handle: ~p~n", [Line]),
+            ok
+    end,
+    State;
+inotifywait_handle(Msg, State) ->
+    obj:handle(Msg, State).
+
+
+
+
+sync_file(LocalFile, Node, RemoteFile) ->
+    case filelib:last_modified(LocalFile) of
+        0 -> throw({no_such_file, LocalFile});
+        Modified ->
+            case rpc:call(Node, filelib, last_modified, [RemoteFile]) of
+                Modified -> same;
+                {badrpc, nodedown}=E -> throw(E);
+                _ -> copy_file(LocalFile, Node, RemoteFile), copied
+            end
+    end.
+
+%% Compile the file inside the VM.  Note this requires that the paths
+%% are set properly to allow for include files.
+push_erl_change(File, #{ path := Path, nodes := Nodes }) ->
+    Opts = [verbose,report_errors,report_warnings,binary],
+    case compile:file(Path(File), Opts) of
+        {ok, Mod, Bin} ->
+            _ = tools:pmap(
+                  fun(Node) ->
+                          RPC = fun (M,F,A) -> rpc:call(Node,M,F,A) end,
+                          RemoteFile = RPC(code,which,[Mod]),
+                          %% log:info("pushing ~p to ~p, ~s~n", [Mod, Node, RemoteFile]),
+                          reflection:update_file(Node, RemoteFile, Bin),
+                          RPC(code,purge,[Mod]),
+                          RPC(code,load_file,[Mod])
+                  end,
+                  Nodes);
+        error ->
+            ok
+    end.
+
+%% While Erlang changes are simple because they can be made on a per
+%% module basis, this is usually not the case for other dependencies.
+%% How to properly build and upload multi-file components?  Needed:
+%% - map single file to final build product
+%% - call "make" on that build product
+%% - upload it
+%% - run the associated restart code
+
+
+%% FIXME: Do update time stamp.
+update_file(Node, RemoteFile, Bin) when is_atom(Node) and is_binary(Bin) ->
+    %% log:info("update_file ~p~n",[{Node,RemoteFile,size(Bin)}]),
+    RPC = fun (M,F,A) -> rpc:call(Node,M,F,A) end,
+    {ok, FileInfo} = RPC(file,read_file_info,[RemoteFile]), 
+    _ = RPC(file,delete,[RemoteFile]), %% For executables
+    case RPC(file,write_file,[RemoteFile,Bin]) of
+        ok ->
+            ok = RPC(file,write_file_info,[RemoteFile,FileInfo]), ok;
+        Err ->
+            throw({update_file,{Err,Node,RemoteFile}})
+    end.
+
+copy_file(LocalFile, Node, RemoteFile) ->
+    {ok, FileInfo} = file:read_file_info(LocalFile),
+    RPC = fun (M,F,A) -> rpc:call(Node,M,F,A) end,
+    _ = RPC(file,delete,[RemoteFile]), %% For executables
+    {ok, Bin} = file:read_file(LocalFile),
+    ok = RPC(file,write_file,[RemoteFile,Bin]),
+    ok = RPC(file,write_file_info,[RemoteFile,FileInfo]),
+    ok.
 

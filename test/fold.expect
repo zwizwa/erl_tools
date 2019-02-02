@@ -1,0 +1,21 @@
+%% -*- erlang -*-
+fold_expect() ->
+[
+{ %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+fun () ->
+	_ = "One of the most useful forms of control "
+	    "inversion, turning a sequential program "
+	    "into a fold.",
+	Gen = fun (Sink) ->
+		      ok = Sink({data, 1}),
+		      ok = Sink({data, 2}),
+		      ok = Sink({data, 3}),
+		      ok = Sink(eof)
+	      end,
+	Fold = from_gen(Gen),
+	to_list(Fold)
+end
+, %% =>
+[1,2,3]
+}
+].

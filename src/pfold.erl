@@ -19,11 +19,13 @@
          from_list/1,
          to_list/1, to_rlist/1,
          to_list/2, to_rlist/2,
+         to_fold/1, next/1,
          take/2,
-         next/1,
          with_stop_exit/1,
          nchunks/3,
-         map/2
+         map/2,
+         %% from_receive/2, %% FIXME: not finished
+         from_gen/1
         ]).
          
 -export_type([update/1, chunk/0, sink/0, control/1, seq/0]).
@@ -36,6 +38,12 @@
 %% Wrap an ordinary foldee so it can be used with a folder that
 %% expects the early stop protocol, by not stoping.
 next(F) -> fun(E,S) -> {next, F(E,S)} end.
+
+%% Some more elaborate abstractions are better implemented as more
+%% general pfolds.
+to_fold(PFold) -> fun(F,S) -> PFold(next(F), S) end.
+                          
+    
     
 
 range(F,State,N,I) ->
@@ -136,6 +144,29 @@ with_stop_exit(Fold) ->
     end.
 
 
+%% %% Not sure what to call this: create a pfold from a data stream
+%% %% coming in as messages, while also propagating stop.
+%% from_receive(Pid,Ref) ->
+%%     fun(F,S) -> from_receive(F,S,Pid,Ref) end.
+%% from_receive(Fun,State,Pid,Ref) ->
+%%     receive
+%%         {Ref, eof} ->
+%%             %% When we receive eof, the process has already stopped,
+%%             %% so just return the fold state.
+%%             State;
+%%         {Ref, {data, Data}} ->
+%%             case Fun(Data, State) of
+%%                 {stop, State1} ->
+%%                     %% When foldee asks for termination, we need to
+%%                     %% tell the process.
+%%                     Pid ! stop, State1;
+%%                 {next, State1} ->
+%%                     from_receive(Fun, State1, Pid, Ref)
+%%             end
+%%     end.
+            
+
+
 %% pfold version of tools:nchunks/3
 nchunks(Offset, Endx, Max) ->
     fun(F,S) -> nchunks(Offset, Endx, Max, F, S) end.
@@ -167,3 +198,57 @@ map(MapFun, Fold, FoldFun, Init) ->
                  
 
                  
+
+%% A Generator is a function that is parameterized by a sink.
+%% In general, fold or pfold is the preferrable interface, but for
+%% many data producing tasks, a generator is simpler to write.
+%%
+%% Converting a generator to a pfold needs a helper process.  Note
+%% that some flow control is necessary, otherwise generator process
+%% will just fill up the message buffer.
+%%
+%% Note: this doesn't work if the generator makes calls to a port
+%% process, as that can only be done in-proces and we call the
+%% generator in a new process.  See tools:gen_to_list/1
+%%
+%% Requirements on the generator:
+%%
+%% - When the sink returns {error,stop}, the generator can no longer
+%%   call the sink.  The only things it can do is: return or exit.
+%%
+
+from_gen(Gen) ->
+    Pid = self(),
+    Sink =
+        fun(Msg) ->
+                Pid ! {self(), Msg},
+                receive
+                    {Pid, cont} -> ok;
+                    {Pid, stop} -> {error, stop}
+                end
+        end,
+    GenPid = spawn_link(fun() -> Gen(Sink) end),
+    fun(F, I) -> gen_fold(F,I,GenPid) end.
+
+gen_fold(Fun, Accu, GenPid) ->
+    receive
+        {GenPid, eof} ->
+            %% Sink call will return ok.  Generator function calling
+            %% Sink is then expected to exit.
+            GenPid ! {self(), cont},
+            Accu;
+        {GenPid, {data, El}} ->
+            case Fun(El, Accu) of
+                {next, NextAccu} ->
+                    GenPid ! {self(), cont},
+                    gen_fold(Fun, NextAccu, GenPid);
+                {stop, StopAccu} ->
+                    GenPid ! {self(), stop},
+                    StopAccu
+            end
+    end.
+
+
+%% How to "fold over a fold"?  E.g. given a Fold, how to create a new
+%% Fold.  Or better: how to treat the fold as a stream + iterate a
+%% stateful I/O processor over the fold?

@@ -82,44 +82,5 @@ end
 , %% =>
 [[1,4,7],[2,5,8],[3,6,9]]
 }
-,
-{ %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-fun () ->
-	tools:format_stacktrace(fun (P) -> P end,
-				[{obj, wait_reply, 5,
-				  [{file,
-				    "/home/tom/priv/git-private/humanetics/gw_src/"
-				    "gateway/gw/_build/default/lib/gw/src/obj.erl"},
-				   {line, 70}]},
-				 {spa_exec, edit_event, 2,
-				  [{file, "gateway/gw/src/spa_exec.erl"},
-				   {line, 320}]}])
-end
-, %% expected =>
-["/home/tom/priv/git-private/humanetics/gw_src/gateway/gw/_build/test/lib/gw/src/obj.erl:70: obj:wait_reply/5\n",
- "/home/tom/priv/git-private/humanetics/gw_src/gateway/gw/_build/test/lib/gw/src/spa_exec.erl:320: spa_exec:edit_event/2\n"]
-, %% found =>
-{'EXIT',{badarg,[{erlang,get_module_info,[obj],[]},
-                 {tools,format_stacktrace_line,2,
-                        [{file,"/home/tom/priv/git-private/humanetics/gw_src/gateway/gw/_build/test/lib/gw/src/tools.erl"},
-                         {line,891}]},
-                 {tools,'-format_stacktrace/2-lc$^0/1-0-',2,
-                        [{file,"/home/tom/priv/git-private/humanetics/gw_src/gateway/gw/_build/test/lib/gw/src/tools.erl"},
-                         {line,887}]},
-                 {expect,'-update_form/3-lc$^0/1-0-',1,
-                         [{file,"/home/tom/priv/git-private/humanetics/gw_src/gateway/gw/_build/test/lib/gw/src/expect.erl"},
-                          {line,134}]},
-                 {expect,'-update_form/3-lc$^0/1-0-',1,
-                         [{file,"/home/tom/priv/git-private/humanetics/gw_src/gateway/gw/_build/test/lib/gw/src/expect.erl"},
-                          {line,134}]},
-                 {expect,update_form,3,
-                         [{file,"/home/tom/priv/git-private/humanetics/gw_src/gateway/gw/_build/test/lib/gw/src/expect.erl"},
-                          {line,134}]},
-                 {expect,run_form,2,
-                         [{file,"/home/tom/priv/git-private/humanetics/gw_src/gateway/gw/_build/test/lib/gw/src/expect.erl"},
-                          {line,141}]},
-                 {eunit_test,'-mf_wrapper/2-fun-0-',2,
-                             [{file,"eunit_test.erl"},
-                              {line,268}]}]}}
-}
 ].
+

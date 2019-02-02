@@ -32,7 +32,7 @@ http_reply(Req, State, Reply) ->
                          case cowboy_req:chunk(Data, Req2) of
                              ok -> {next, ok};
                              Error -> 
-                                 log:info("chunked_reply: ~p~n",[Error]),
+                                 log:info("cowboy_req:chunk: ~p~n",[Error]),
                                  {stop, Error}
                          end
                  end, ok),

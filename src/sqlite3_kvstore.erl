@@ -8,7 +8,7 @@
          ]).
 
 
--spec sql(fun(() -> pid()),
+-spec sql(sqlite3:db_spec(),
           binary(),
           [{'blob',binary()} | 
            {'text',binary()}]) -> [[binary()]].

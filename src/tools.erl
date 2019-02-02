@@ -14,6 +14,7 @@
          not_false/1,
          mid/2, mid/3,
          csv_read/1,
+         pad/3,
          padded_at/2, padded_range/3, padded_insert/4,
          enumerate/2,
          list_at/2, list_update_with/3,
@@ -55,6 +56,7 @@
          process_dictionary_get_value/2,
          reload_from_beam_list/1,
          transpose/1,
+         filename_extension/1,
          clean_filename/1,
          format_stacktrace/2
         ]).
@@ -681,7 +683,14 @@ padded_insert({Pad, Original}, Offset, Replacement, MaxLen) ->
      end || N <- lists:seq(0, min(End,MaxLen)-1)].
 
 
-
+%% Similar, more straightforward.
+pad(IOList, N, Fill) ->
+    binary_part(
+      iolist_to_binary(
+        [IOList,
+         binary:copy(Fill, N)]),
+      {0,N}).
+         
     
 
 %% Signed to Unsigned, 16-bit
@@ -921,6 +930,13 @@ format_stacktrace_line(FixPath, {Module, Function, Arity, PropList}) ->
 
 
     format("~s:~p: ~s~n", [FixPath(File), Line, FmtFun]).
+
+
+filename_extension(File) ->
+    binary_to_atom(
+      lists:last(re:split(filename:basename(File),"\\.")),
+      utf8).
+
                        
 
 
