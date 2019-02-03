@@ -205,11 +205,17 @@ push_erl_change(File, #{ nodes := Nodes } = Env) ->
             _ = tools:pmap(
                   fun(Node) ->
                           RPC = fun (M,F,A) -> rpc:call(Node,M,F,A) end,
-                          RemoteFile = RPC(code,which,[Mod]),
-                          %% log:info("pushing ~p to ~p, ~s~n", [Mod, Node, RemoteFile]),
-                          reflection:update_file(Node, RemoteFile, Bin),
-                          RPC(code,purge,[Mod]),
-                          RPC(code,load_file,[Mod])
+                          case RPC(code,which,[Mod]) of
+                              non_existing ->
+                                  log:info("Node ~p doesn't have module ~p~n", [Node,Mod]);
+                              RemoteFile ->
+                                  %% log:info("pushing ~p to ~p, ~s~n", [Mod, Node, RemoteFile]),
+                                  reflection:update_file(Node, RemoteFile, Bin),
+                                  _ = RPC(code,purge,[Mod]),
+                                  _ = RPC(code,load_file,[Mod]),
+                                  _ = RPC(log,info,["load: ~p~n",[Mod]]),
+                                  ok
+                          end
                   end,
                   Nodes);
         error ->
@@ -226,16 +232,25 @@ push_erl_change(File, #{ nodes := Nodes } = Env) ->
 
 
 %% FIXME: Do update time stamp.
+%% FIXME: Define a better error handling strategy.
+
 update_file(Node, RemoteFile, Bin) when is_atom(Node) and is_binary(Bin) ->
     %% log:info("update_file ~p~n",[{Node,RemoteFile,size(Bin)}]),
     RPC = fun (M,F,A) -> rpc:call(Node,M,F,A) end,
-    {ok, FileInfo} = RPC(file,read_file_info,[RemoteFile]), 
-    _ = RPC(file,delete,[RemoteFile]), %% For executables
-    case RPC(file,write_file,[RemoteFile,Bin]) of
-        ok ->
-            ok = RPC(file,write_file_info,[RemoteFile,FileInfo]), ok;
-        Err ->
-            throw({update_file,{Err,Node,RemoteFile}})
+
+    case RPC(file,read_file_info,[RemoteFile]) of
+        {badrpc,nodedown}=E ->
+            log:info("Node ~p is down.~n",[Node]),{error,E};
+        {error, enoent}=E ->
+            log:info("Node ~p doesn't have ~s~n",[Node,RemoteFile]), E;
+        {ok, FileInfo} ->
+            _ = RPC(file,delete,[RemoteFile]), %% For executables
+            case RPC(file,write_file,[RemoteFile,Bin]) of
+                ok ->
+                    ok = RPC(file,write_file_info,[RemoteFile,FileInfo]), ok;
+                Err ->
+                    throw({update_file,{Err,Node,RemoteFile}})
+            end
     end.
 
 copy_file(LocalFile, Node, RemoteFile) ->
