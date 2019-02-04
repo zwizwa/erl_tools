@@ -261,7 +261,7 @@ table(Env, TableList) ->
                  {td,[],[input(Env, Key)]}]}
        end,
        TableList)}.
-%% FIXME: this indirection to the "input" renderer should be rempoved.
+%% FIXME: this indirection to the "input" renderer should be removed.
 %% It is here to gradually refactor application code.
 input(Env = #{kvstore := KVStore, input := Input}, Key) ->
     %% Initialize from KVStore, set callback to 'handle' method.
