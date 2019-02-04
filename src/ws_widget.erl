@@ -4,6 +4,7 @@
          layout/2,
          supervisor/2,
          %% Widgets
+         kvstore_init/1,
          kvstore_edit/1,
          repl/1,
          config/2,
@@ -219,4 +220,9 @@ config(Fun,Env1) ->
     fun({Cmd,Env}) -> Fun({Cmd,maps:merge(Env,Env1)}) end.
             
 
+%% Persistent state is supported through the kvstore interface.  This
+%% is used for initializing widget state.
+kvstore_init(_Env = #{defaults := Defaults, kvstore := KVStore}) ->
+    {ok, kvstore:init(KVStore, Defaults)}.
 
+    
