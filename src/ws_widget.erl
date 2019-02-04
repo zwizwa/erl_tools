@@ -3,22 +3,20 @@
          %% Convert collection of widgets to initial page template
          layout/2,
          supervisor/2,
-         %% Layout renderers
-         button/2, button/3,
-         table/2, input/2,
          %% Widgets
          kvstore_edit/1,
          repl/1,
          config/2,
          example/1]).
 
-%% Widgets are constructed out of HTML layout, client side behavior
-%% implemented in JavaScript (mixins), and a server side process.
+%% Widgets are constructed out of HTML layout, client side
+%% functionality implemented in JavaScript (associating behavior to
+%% DOM nodes through mixins), and a server side process.
 %%
-%% Widgets do not know where they are located in a page.  They are
-%% associated with a Path.  This is a tag that is used for creating
-%% HTML id attributes, and, and dispatching data back to Erlang (by
-%% using the tag to look up a child inside a supervisor).
+%% Widgets refer to their place in a page through a Path variable.
+%% This is a tag that is used for creating HTML id attributes, and
+%% dispatching data back to Erlang (by using the tag to look up a
+%% child of a supervisor associated to the websocket process).
 %%
 %% Widgets follow the 2-phase startup process used in single page
 %% applications:
@@ -84,7 +82,7 @@ example(Cmd = {_, #{path := Path}}) ->
         {layout, Env} ->
             {'div',[],
              [{pre,[],[[<<"Example Widget">>]]},
-              button(Env, ID, <<"Click Me">>)]};
+              ws_layout:button(Env, ID, <<"Click Me">>)]};
         {serv_spec, #{ws := Ws} = Env} ->
             {handler,
              fun() -> maps:put(count, 1, Env) end,
@@ -148,7 +146,7 @@ kvstore_edit({layout,
                   {'data-mixin',cell}],
            [] %% [[<<"<error goes here>">>]]
           },
-          {'div', [], [table(Env, Labels)]}]},
+          {'div', [], [ws_layout:table(Env, Labels)]}]},
     %% exml:validate(Body),  %% Assertion
     Body;
 kvstore_edit({serv_spec, 
@@ -210,72 +208,12 @@ kvstore_edit_handle({bad_value, {Path, Control}, Error}=E,
     State.
 
 
-
-
-
-
-%% Throughout the application, id attributes are assumed to be
-%% printable terms.  See ws.erl and type_base.erl pterm
-id(PTerm) ->
-    {id, ws:encode_id(PTerm)}.
-
-
-
-%% Layout templates for widgets.
-
-%% First argument is Env that is passed to a widget's layout function
-%% as {layout, Env}.
-
-%% Layout.  Move this somewhere else.
-
-%% FIXME: Why is this here?  Replaced with button/3 below
-%% button(#{ send := Send }, ID, Text) ->
-%%     ID_enc = ws:encode_id(ID),
-%%     {button,
-%%      [{onclick, Send},
-%%       {'data-decoder', button},  %% Type conversion for js->erl messages.
-%%       {'data-mixin', cell},      %% DOM behavior for erl->js messages
-%%       {id, ID_enc}],             %% erl<->js messages
-%%      [[Text]]}.
-
-%% For use in widget startup.
-button(Env, Tag) ->
-    Text = tools:format_binary("~p",[Tag]),
-    button(Env, Tag, Text).
-
-button(#{path := Path, send := Send}, Tag, Text) ->
-    {button,
-     [{onclick, Send},
-      {'data-decoder', button},  %% Type conversion for js->erl messages.
-      {'data-mixin', cell},      %% DOM behavior for erl->js messages
-      id({Path,Tag})],           %% erl<->js messages
-     [[Text]]}.
-
-%% Table, using kvstore for initialization.
-table(Env, TableList) ->
-    {table, [],
-     lists:map(
-       fun({Key, Name}) when is_binary(Name) ->
-               {tr,[],
-                [{td,[],[[Name]]},
-                 {td,[],[input(Env, Key)]}]}
-       end,
-       TableList)}.
-%% FIXME: this indirection to the "input" renderer should be removed.
-%% It is here to gradually refactor application code.
-input(Env = #{kvstore := KVStore, input := Input}, Key) ->
-    %% Initialize from KVStore, set callback to 'handle' method.
-    Input(Env, {Key, kvstore:get(KVStore, Key), handle});
-
-%% Newer code can leave out "input"
-input(_Env = #{kvstore := _KVStore}, _Key) ->
-    throw('FIXME_implement_input').
     
 
 %% Create a new widget by extending the environment.  Note that while
 %% this appears a a little inefficient -- a merge operation is
 %% executed for each widget call -- this is not really a problem since
-%% the function is called only twice: once for layout and once to
+%% the function is called only twice: once for layout andonce to
 %% start the event handler.
 config(Fun,Env1) ->
     fun({Cmd,Env}) -> Fun({Cmd,maps:merge(Env,Env1)}) end.
