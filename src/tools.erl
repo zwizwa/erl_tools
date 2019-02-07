@@ -58,7 +58,9 @@
          transpose/1,
          filename_extension/1,
          clean_filename/1,
-         format_stacktrace/2
+         format_stacktrace/2,
+         intersperse/2,
+         node_to_host/1
         ]).
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -937,7 +939,11 @@ filename_extension(File) ->
       lists:last(re:split(filename:basename(File),"\\.")),
       utf8).
 
-                       
+intersperse(List, Sep) ->
+    tl(lists:append([[Sep, El] || El <- List])).
+node_to_host(Node) ->                
+    [_,IP] = re:split(atom_to_list(Node),"@"), IP.
+    
 
 
 -ifdef(TEST).
