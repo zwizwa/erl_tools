@@ -210,7 +210,19 @@ push_erl_change(File, #{ nodes := Nodes } = Env) ->
                                   log:info("Node ~p doesn't have module ~p~n", [Node,Mod]);
                               RemoteFile ->
                                   %% log:info("pushing ~p to ~p, ~s~n", [Mod, Node, RemoteFile]),
-                                  reflection:update_file(Node, RemoteFile, Bin),
+                                  try 
+                                      reflection:update_file(Node, RemoteFile, Bin)
+                                  catch
+                                      %% Do this as error recovery.
+                                      %% Doing it every time is too
+                                      %% expensive.
+                                      {update_file,{{error,erofs},_,_}} ->
+                                          case maps:find(remount_rw, Env) of
+                                              {ok, RemountRw} ->
+                                                  RemountRw(Node),
+                                                  reflection:update_file(Node, RemoteFile, Bin)
+                                          end
+                                  end,
                                   _ = RPC(code,purge,[Mod]),
                                   _ = RPC(code,load_file,[Mod]),
                                   _ = RPC(log,info,["load: ~p~n",[Mod]]),
@@ -233,8 +245,8 @@ push_erl_change(File, #{ nodes := Nodes } = Env) ->
 
 %% FIXME: Do update time stamp.
 %% FIXME: Define a better error handling strategy.
-
 update_file(Node, RemoteFile, Bin) when is_atom(Node) and is_binary(Bin) ->
+
     %% log:info("update_file ~p~n",[{Node,RemoteFile,size(Bin)}]),
     RPC = fun (M,F,A) -> rpc:call(Node,M,F,A) end,
 
