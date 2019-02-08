@@ -195,6 +195,19 @@ sync_file(LocalFile, Node, RemoteFile) ->
             end
     end.
 
+
+%% Let it fail asap if node is bad.
+make_rpc(Node) ->
+    fun(M,F,A) ->
+            case rpc:call(Node,M,F,A) of
+                {badrpc,_}=E ->
+                    throw(E);
+                Rv ->
+                    Rv
+            end
+    end.
+
+
 %% Compile the file inside the VM.  Note this requires that the paths
 %% are set properly to allow for include files.
 push_erl_change(File, #{ nodes := Nodes } = Env) ->
@@ -204,13 +217,13 @@ push_erl_change(File, #{ nodes := Nodes } = Env) ->
         {ok, Mod, Bin} ->
             _ = tools:pmap(
                   fun(Node) ->
-                          RPC = fun (M,F,A) -> rpc:call(Node,M,F,A) end,
-                          case RPC(code,which,[Mod]) of
+                          RPC = make_rpc(Node),
+                          _ = case RPC(code,which,[Mod]) of
                               non_existing ->
                                   log:info("Node ~p doesn't have module ~p~n", [Node,Mod]);
                               RemoteFile ->
                                   %% log:info("pushing ~p to ~p, ~s~n", [Mod, Node, RemoteFile]),
-                                  try 
+                                  _ = try 
                                       reflection:update_file(Node, RemoteFile, Bin)
                                   catch
                                       %% Do this as error recovery.
