@@ -238,7 +238,8 @@ push_erl_change(File, #{ nodes := Nodes } = Env) ->
                                   end,
                                   _ = RPC(code,purge,[Mod]),
                                   _ = RPC(code,load_file,[Mod]),
-                                  _ = RPC(log,info,["load: ~p~n",[Mod]]),
+                                  %% _ = RPC(log,info,["load: ~p~n",[Mod]]),
+                                  _ = RPC(log,info,["load: ~p~n",[{Mod,RemoteFile}]]),
                                   ok
                           end
                   end,
