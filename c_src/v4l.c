@@ -80,9 +80,12 @@ struct buffer {
 
 int MAIN(int argc, char **argv) {
 
-    char *dev = "/dev/video0";
+    const char *dev = "/dev/video0";
+    const char *ssh_dev = getenv("SSH_ORIGINAL_COMMAND");
+    if (ssh_dev) { dev = ssh_dev; }
     if (argc == 2) { dev = argv[1]; };
     int fd;
+    LOG("dev = %s\n", dev);
     ASSERT_ERRNO(fd = open(dev, O_RDWR, 0));
 
     struct v4l2_capability cap = {};

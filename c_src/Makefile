@@ -78,3 +78,15 @@ build/nexx/%.elf: %.c Makefile
 	. $(CROSS)/env-nexx.sh ; mipsel-openwrt-linux-gcc -Os -o $@ $< -I../include -DMAIN=main -Wall -Werror -ljpeg
 	file $@
 
+
+
+
+# Create a list of build targets to push.  As a side effect, this
+# should rebuild the files if necessary.
+PUSH_LIST := build/host/v4l.elf
+push.list: $(PUSH_LIST)
+	echo $(PUSH_LIST) >$@
+# Perform individual file deployment
+%.push: %
+	[ ! -z "$$DST" ]
+	../../../apps/exo/priv/ssh/exo_ssh.sh $$DST update bin/$$(basename $*) <$<
