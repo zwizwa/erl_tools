@@ -72,8 +72,9 @@ build/host/%.elf: %.c Makefile
 
 # OpenWRT SDK for nexx router.  This assumes cross project is
 # available under:
+CROSS := /i/cross
 build/nexx/%.elf: %.c Makefile
-	[ ! -z "$$CROSS" ]
+	[ ! -z "$(CROSS)" ]
 	mkdir -p $$(dirname $@)
 	. $(CROSS)/env-nexx.sh ; mipsel-openwrt-linux-gcc -Os -o $@ $< -I../include -DMAIN=main -Wall -Werror -ljpeg
 	file $@
@@ -83,7 +84,7 @@ build/nexx/%.elf: %.c Makefile
 
 # Create a list of build targets to push.  As a side effect, this
 # should rebuild the files if necessary.
-PUSH_LIST := build/host/v4l.elf
+PUSH_LIST := build/host/v4l.elf build/nexx/v4l.elf
 push.list: $(PUSH_LIST)
 	echo $(PUSH_LIST) >$@
 # Perform individual file deployment
