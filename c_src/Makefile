@@ -70,17 +70,14 @@ build/host/%.elf: %.c Makefile
 	mkdir -p $$(dirname $@)
 	gcc -o $@ $< -I../include -DMAIN=main -Wall -ljpeg -g
 
-# OpenWRT SDK for nexx router.  This assumes cross project is
-# available under:
-CROSS := /i/cross
-build/nexx/%.elf: %.c Makefile
-	[ ! -z "$(CROSS)" ]
+# Abstract cross-compilation.  Top level Makefile will set TARGET and
+# TARGET_BUILD to provide a build mechanism.  We call that with
+# proper C flags.
+build/$(TARGET)/%.elf: %.c
+	[ ! -z "$(TARGET_BUILD)" ]
 	mkdir -p $$(dirname $@)
-	. $(CROSS)/env-nexx.sh ; mipsel-openwrt-linux-gcc -Os -o $@ $< -I../include -DMAIN=main -Wall -Werror -ljpeg
-	file $@
-
-
-
+	$(TARGET_BUILD) gcc -o $@ $< -I../include -DMAIN=main -Wall -ljpeg -g
+	$(TARGET_BUILD) strip $@
 
 # Create a list of build targets to push.  As a side effect, this
 # should rebuild the files if necessary.
