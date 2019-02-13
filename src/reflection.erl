@@ -201,46 +201,69 @@ make_rpc(Node) ->
     fun(M,F,A) -> rpc:call(Node,M,F,A) end.
 
 
+%% FIXME: Return compiler output so it can be sent to a compilation
+%% buffer.
+
 %% Compile the file inside the VM.  Note this requires that the paths
 %% are set properly to allow for include files.
 push_erl_change(File, #{ nodes := Nodes } = Env) ->
     Path = maps:get(path, Env, fun(F) -> F end),
-    Opts = [verbose,report_errors,report_warnings,binary],
+    Opts = [verbose,
+            %% report_errors,report_warnings,
+            return_errors, return_warnings,
+            binary],
     case compile:file(Path(File), Opts) of
-        {ok, Mod, Bin} ->
+        %% FIXME: Warnings are ignored.
+        {ok, Mod, Bin, _Warnings} ->
             _ = tools:pmap(
-                  fun(Node) ->
-                          RPC = make_rpc(Node),
-                          _ = case RPC(code,which,[Mod]) of
-                              {badrpc,nodedown} ->
-                                  log:info("Node ~p is down~n", [Node]);
-                              non_existing ->
-                                  log:info("Node ~p doesn't have module ~p~n", [Node,Mod]);
-                              RemoteFile ->
-                                  %% log:info("pushing ~p to ~p, ~s~n", [Mod, Node, RemoteFile]),
-                                  _ = try 
-                                      reflection:update_file(Node, RemoteFile, Bin)
-                                  catch
-                                      %% Do this as error recovery.
-                                      %% Doing it every time is too
-                                      %% expensive.
-                                      {update_file,{{error,erofs},_,_}} ->
-                                          case maps:find(remount_rw, Env) of
-                                              {ok, RemountRw} ->
-                                                  RemountRw(Node),
-                                                  reflection:update_file(Node, RemoteFile, Bin)
-                                          end
-                                  end,
-                                  _ = RPC(code,purge,[Mod]),
-                                  _ = RPC(code,load_file,[Mod]),
-                                  %% _ = RPC(log,info,["load: ~p~n",[Mod]]),
-                                  _ = RPC(log,info,["load: ~p~n",[{Mod,RemoteFile}]]),
-                                  ok
-                          end
-                  end,
-                  Nodes);
-        error ->
-            ok
+                  fun(Node) -> _ = push_erl_beam(Env, Node, Mod, Bin) end,
+                  Nodes),
+            %% FIXME: make a proper report
+            {ok, File, Nodes};
+        {error, Errors, _Warnings} ->
+            {error,
+             {see_compiler_output, 
+              iolist_to_binary(
+                ["reflection:push_erl_change:\n",
+                 lists:map(fun format_error/1, Errors)])}}
+    end.
+
+format_error({File,ErrorInfos}) ->
+    [[File,": ",integer_to_list(Line),": ",
+      %% FIXME: this should be done by compile module somehow
+      try io_lib:format("~s",[ErrorDescriptor])
+      catch _:_ -> io_lib:format("~p",[ErrorDescriptor]) end,
+     "\n"]
+     %% Can this be more than one, or always signleton list?
+     || {Line,_Mod,ErrorDescriptor} <- ErrorInfos].
+
+push_erl_beam(Env, Node, Mod, Bin) ->
+    RPC = make_rpc(Node),
+    case RPC(code,which,[Mod]) of
+        {badrpc,nodedown} ->
+            log:info("Node ~p is down~n", [Node]);
+        non_existing ->
+            log:info("Node ~p doesn't have module ~p~n", [Node,Mod]);
+        RemoteFile ->
+            %% log:info("pushing ~p to ~p, ~s~n", [Mod, Node, RemoteFile]),
+            _ = try 
+                    reflection:update_file(Node, RemoteFile, Bin)
+                catch
+                    %% Do this as error recovery.
+                    %% Doing it every time is too
+                    %% expensive.
+                    {update_file,{{error,erofs},_,_}} ->
+                        case maps:find(remount_rw, Env) of
+                            {ok, RemountRw} ->
+                                RemountRw(Node),
+                                reflection:update_file(Node, RemoteFile, Bin)
+                        end
+                end,
+            _ = RPC(code,purge,[Mod]),
+            _ = RPC(code,load_file,[Mod]),
+            %% _ = RPC(log,info,["load: ~p~n",[Mod]]),
+            _ = RPC(log,info,["load: ~p~n",[{Mod,RemoteFile}]]),
+                ok
     end.
 
 %% While Erlang changes are simple because they can be made on a per
