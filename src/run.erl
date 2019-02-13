@@ -82,8 +82,8 @@ port_print({exit_status, Stat},_) -> io:format("exit ~p~n",[Stat]), {done, Stat}
 
 port_cons({data, {eol, Data}}, L) -> {cont, [Data|L]}; %% line mode, e.g. opts=(#(line 1024))
 port_cons({data, Data},        L) -> {cont, [Data|L]}; %% chunk/packet mode, e.g. opts=()
-port_cons({exit_status, 0},    L) -> {done ,L};
-port_cons({exit_status, _}=E,  _) -> {error ,E}.
+port_cons({exit_status, 0},    L) -> {done, L};
+port_cons({exit_status, _}=E,  L) -> {error, {E, L}}.
 
 fold_port(Port, Fun, State, Timeout) ->
     receive
@@ -108,13 +108,13 @@ fold_script(Cmd, Fun, State, Timeout, Opts) ->
 script_lines(Cmd, Timeout) ->
     case fold_script(Cmd, fun port_cons/2, [], Timeout, [{line, 1024}]) of
         {ok, List} -> {ok, lists:reverse(List)};
-        E -> E
+        {error, {E, List}} -> {error, {E, lists:reverse(List)}}
     end.
 %% Full output string, flattened.
 script_output(Cmd, Timeout) ->
     case fold_script(Cmd, fun port_cons/2, [], Timeout, []) of
         {ok, List} -> {ok, lists:flatten(lists:reverse(List))};
-        E -> E
+        {error, {E, List}} -> {error, {E, lists:flatten(lists:reverse(List))}}
     end.
 
 %% Full output as parsed xml

@@ -198,14 +198,7 @@ sync_file(LocalFile, Node, RemoteFile) ->
 
 %% Let it fail asap if node is bad.
 make_rpc(Node) ->
-    fun(M,F,A) ->
-            case rpc:call(Node,M,F,A) of
-                {badrpc,_}=E ->
-                    throw(E);
-                Rv ->
-                    Rv
-            end
-    end.
+    fun(M,F,A) -> rpc:call(Node,M,F,A) end.
 
 
 %% Compile the file inside the VM.  Note this requires that the paths
@@ -219,6 +212,8 @@ push_erl_change(File, #{ nodes := Nodes } = Env) ->
                   fun(Node) ->
                           RPC = make_rpc(Node),
                           _ = case RPC(code,which,[Mod]) of
+                              {badrpc,nodedown} ->
+                                  log:info("Node ~p is down~n", [Node]);
                               non_existing ->
                                   log:info("Node ~p doesn't have module ~p~n", [Node,Mod]);
                               RemoteFile ->
