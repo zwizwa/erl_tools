@@ -97,7 +97,7 @@ pub fn as_u8_slice(arg: &Term) -> Option<&[u8]> {
 }
 
 /* Dispatcher for {atom(),_} commands */
-pub fn apply_etf(f: &Fn(&Term) -> Option<Term>, in_bin: &[u8]) -> Vec<u8>
+pub fn apply_etf(f: &mut FnMut(&Term) -> Option<Term>, in_bin: &[u8]) -> Vec<u8>
 {
     /* Decode and dispatch */
     let in_term = Term::decode(Cursor::new(in_bin)).unwrap();
@@ -115,7 +115,7 @@ pub fn apply_etf(f: &Fn(&Term) -> Option<Term>, in_bin: &[u8]) -> Vec<u8>
 // stdio needs 2, while sockets need 1.
 
 pub fn loop_apply_etf_2<In: Read, Out: Write>(
-    f: &Fn(&Term) -> Option<Term>,
+    f: &mut FnMut(&Term) -> Option<Term>,
     i: &mut In,
     o: &mut Out
 ) -> Result<()>
@@ -128,7 +128,7 @@ pub fn loop_apply_etf_2<In: Read, Out: Write>(
 }
 
 pub fn loop_apply_etf_1<IO: Read+Write> (
-    f: &Fn(&Term) -> Option<Term>,
+    f: &mut FnMut(&Term) -> Option<Term>,
     io: &mut IO, 
 ) -> Result<()>
 {
