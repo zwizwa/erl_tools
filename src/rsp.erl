@@ -7,7 +7,7 @@
          send/2,
          hex_csv/3,
          assemble/1,
-         recv/1,
+         recv/1, recv_port/2,
          watch/2,
          gather/2,
          update/2,
@@ -114,35 +114,39 @@ gather(Data, Accu) ->
         _ -> {busy, NextAccu}
     end.
     
-singleshot({In, Out}=Env, Accu) ->
-    Data = In(),
+singleshot({GetChunk, Out}=Env, Accu) ->
+    Data = GetChunk(),
     {Result,NextAccu} = gather(Data, Accu),
     case Result of
         {ok, Msg} -> Out(Msg);
-        _ -> singleshot(Env, NextAccu)
+        busy -> singleshot(Env, NextAccu)
     end.
 
 singleshot(Env) ->
     singleshot(Env, "").
 
-loop({In,Out}=Env) ->
+loop({GetChunk,Out}=Env) ->
     singleshot(
-      {In,
+      {GetChunk,
        fun(Msg) -> 
                {_,_} = Out(Msg),
                loop(Env)
        end}).
 
+                 
+        
 
-%% Process body for separate assembler task.
+%% Receive chunks from current mailbox and send them out to a separate
+%% process.
 assemble(Receiver) ->
-    loop({fun() -> receive {rsp_chunk, Data} -> Data end end,
-          fun(Data) -> Receiver ! {rsp_recv, Data} end}).
+    loop(
+      {fun() -> receive {rsp_chunk, Data} -> Data end end,
+       fun(Data) -> Receiver ! {rsp_recv, Data} end}).
 
 
 
 
-%% Synchronous send/receive.
+%% Synchronous send/receive to socket.
 send(Sock, Request) ->
     case gen_tcp:send(Sock, Request) of
         ok -> ok;
@@ -156,6 +160,19 @@ recv(Sock) ->
                 end
        end,
        fun(Data) -> Data end}).
+
+%% Similar, but for a port.
+recv_port(Port, Timeout) ->
+    singleshot(
+      {fun() -> 
+               receive {Port, {data, Data}} -> Data
+               after Timeout -> exit({timeout, Timeout})
+               end 
+       end,
+       fun(Data) -> Data end}).
+                 
+       
+
 
 %% Run this in a linked process.  It blocks in read, to also trap
 %% connection close and terminating the device process tree.
