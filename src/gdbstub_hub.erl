@@ -3,12 +3,13 @@
          dev/1,
          %% Some high level calls
          info/1,
-         %% Attach gdb-mi
-         gdb_mi/1,
 
-         %% Internal
-         dev_start/1,
-         hub_handle/2, dev_handle/2, devpath_port/1
+         %% Debug
+         devpath_usb_port/1,
+
+         %% Internal, for reloads
+         dev_start/1, dev_handle/2,
+         hub_handle/2
 ]).
 
 %% This module is a hub for uc_tools gdbstub-based devices.  See also
@@ -44,13 +45,17 @@ start_link() ->
 
 %% Udev events will eventuall propagate to here.
 
+%% Add a TTY device, most likely USB.
 %% DevPath is used to uniquely identify the device, based on the
 %% physical USB port location.
-hub_handle({add,Host,TTYDev,DevPath}=_Msg, State)
-  when is_atom(Host) and is_binary(TTYDev) ->
+hub_handle({add_tty,BHost,TTYDev,DevPath}=_Msg, State)
+  when is_binary(BHost) and is_binary(TTYDev) ->
+    Host = binary_to_atom(BHost, utf8),
     log:info("~p~n", [_Msg]),
-    {ok, UsbPort} = devpath_port(DevPath),
-    ID = {Host,UsbPort},
+    ID = case devpath_usb_port(DevPath) of
+             {ok, UsbPort} -> {Host,UsbPort};
+             _ -> {Host,{tty,TTYDev}}
+         end,
     case maps:find(ID, State) of
         {ok, Pid} ->
             log:info("already have ~p~n", [{ID,Pid}]),
@@ -61,8 +66,8 @@ hub_handle({add,Host,TTYDev,DevPath}=_Msg, State)
             Hub = self(),
             Pid = gdbstub_hub:dev_start(
                     #{ hub => Hub,
-                       %% log => fun(_) -> ok end,
-                       log => fun(Msg) -> log:info("~p~n",[Msg]) end,
+                       log => fun(_) -> ok end,
+                       %% log => fun(Msg) -> log:info("~p~n",[Msg]) end,
                        host => Host,
                        tty => TTYDev,
                        devpath => DevPath,
@@ -71,6 +76,8 @@ hub_handle({add,Host,TTYDev,DevPath}=_Msg, State)
             log:info("adding ~p~n", [{ID,Pid}]),
             maps:put(ID, Pid, State)
     end;
+
+
 
 hub_handle({'EXIT',Pid,_Reason}=_Msg,State) ->
     log:info("~p~n", [_Msg]),
@@ -92,41 +99,45 @@ hub_handle(Msg, State) ->
 
 
 %% The main purpose of this process is to provide mutually exclusive
-%% access to the GDB port.
-        
+%% access to the GDB port.  Two cases are supported.
+
 dev_start(#{ tty := Dev, id := {Host, _} } = Init) ->      
     serv:start(
       {handler,
        fun() ->
+               log:info("connecting ~p~n", [{Host,Dev}]),
                Port = exo:open_ssh_port(Host, "gdbstub_connect", Dev, []),
+               log:info("connected ~p~n",[Port]),
                Gdb = gdb_start(maps:merge(Init, #{ pid => self() })),
                maps:merge(
                  Init,
-                 #{ gdb => Gdb, port => Port })
+                 #{ gdb => Gdb,
+                    port => Port,
+                    recv => fun rsp:recv_port/2 })
        end,
        fun gdbstub_hub:dev_handle/2}).
 
+dev_handle(Msg,State) ->
+    %% Tap point
+    log:info("~p~",[{Msg,State}]),
+    dev_handle_(Msg,State).
 
-dev_handle(Msg={_,dump},State) ->
+dev_handle_(Msg={_,dump},State) ->
     obj:handle(Msg, State);
-
-dev_handle({Pid, {rsp_call, Request}}, 
-           #{ port := Port } = State) ->
+dev_handle_({Pid, {rsp_call, Request}}, 
+            #{ port := Port, recv := Recv } = State) ->
     true = port_command(Port, Request),
     obj:reply(
       Pid,
       case Request of
           "+" -> "";
-          _   -> rsp:recv_port(Port, 3000)
+          _   -> Recv(Port, 300)
       end),
     State;
-
-dev_handle({Port, Msg}, #{ port := Port} = _State) ->
+dev_handle_({Port, Msg}, #{ port := Port} = _State) ->
     %% All {data,_} messages should arrive in the receive above.
     log:info("exit or bad protocol: ~p~n",[Msg]),
     exit(Msg).
-
-
 
 
 
@@ -165,10 +176,10 @@ gdb_loop(State = #{ sock := Sock, log := Log }) ->
 gdb_dispatch(#{ pid := Pid}, Request) ->
     obj:call(Pid, {rsp_call, Request}).
 
-%%devpath_port(test) ->
-%%    devpath_port(
+%%devpath_usb_port(test) ->
+%%    devpath_usb_port(
 %%      <<"/devices/pci0000:00/0000:00:16.0/usb9/9-2/9-2.4/9-2.4:1.0/tty/ttyACM1\n">>);
-devpath_port(Bin) ->
+devpath_usb_port(Bin) ->
     case lists:reverse(re:split(Bin,"/")) of
         [_ttyACMx,<<"tty">>,_,UsbPort|_] ->
             case re:split(UsbPort,"-") of
@@ -219,14 +230,3 @@ info(ID) ->
     end.
             
 
-%% Attach gdb-mi
-
-gdb_mi(_ID) ->
-    %% FIXME: hardcoded
-    GdbMi = "/usr/local/bin/arm-eabi-gdb-7.8.1",
-    TargetHost = "10.1.3.29",
-    TargetPort = 1234,
-    Elf = "/home/tom/exo/deps/uc_tools/gdb/relay_board.x8.elf",
-    Sink = fun sink:print/1,
-    gdb:open(GdbMi, TargetHost, TargetPort, Elf, Sink),
-    ok.
