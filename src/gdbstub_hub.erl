@@ -9,7 +9,7 @@
          devpath_usb_port/1,
 
          %% Internal, for reloads
-         ignore/2, print/2,
+         ignore/2, print/2, print_etf/2,
          dev_start/1, dev_handle/2,
          hub_handle/2
 ]).
@@ -126,7 +126,7 @@ dev_start(#{ tty := Dev, id := {Host, _}, hub := Hub } = Init) ->
                maps:merge(
                  Init,
                  #{ gdb => Gdb,
-                    handler => fun gdbstub_hub:print/2,
+                    handler => fun gdbstub_hub:print_etf/2,
                     port => Port })
        end,
        fun gdbstub_hub:dev_handle/2}).
@@ -166,10 +166,18 @@ dev_handle_({Port, Msg}, #{ port := Port, handler := Handle} = State) ->
             exit(Msg)
     end.
 
-ignore(_Msg, State) -> State.
+ignore(_Msg, State) ->
+    State.
 print(Msg, State) -> 
     log:info("~p~n", [Msg]),
     State.
+print_etf(Msg, State) -> 
+    case Msg of
+        {data, Bin = <<131, _/binary>>} ->
+            log:info("~p~n", [binary_to_term(Bin)]), State;
+        _ ->
+            print(Msg, State)
+    end.
     
 
 
