@@ -7,7 +7,7 @@
          send/2,
          hex_csv/3,
          assemble/1,
-         recv/1, recv_port/2,
+         recv/1, recv_port/2, recv_sock/2,
          watch/2,
          gather/2,
          update/2,
@@ -171,6 +171,17 @@ recv_port(Port, Timeout) ->
        end,
        fun(Data) -> Data end}).
                  
+
+%% Similar, but for an active socket.
+recv_sock(Sock, Timeout) ->
+    singleshot(
+      {fun() -> 
+               receive {Sock, {data, Data}} -> Data
+               after Timeout -> exit({timeout, Timeout})
+               end 
+       end,
+       fun(Data) -> Data end}).
+
        
 
 

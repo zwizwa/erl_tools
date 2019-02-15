@@ -8,7 +8,7 @@
          reset/1,
          uid/1,
          %% uc_tools gdbstub code
-         config/1,company/1,product/1,serial/1,firmware_/1,version/1,config_start/0]).
+         config/1,company/1,product/1,serial/1,firmware/1,version/1,config_start/0]).
 
 %% All binding goes through dev/1.  Devices identified with a process
 %% id are supposed to support the {rsp_call,_} protocol.  Otherwise,
@@ -140,11 +140,11 @@ reset(ID) -> set_word(ID, 16#E000ED0C, 16#05FA0004).
 
 %% See gdbstub_api.h for struct gdbstub_config layout.
 config(Word)  -> 16#8002800 + 4*Word.
-company(ID)   -> stringp(ID, config(0), 20, "Zwizwa LLC").
-product(ID)   -> stringp(ID, config(1), 40, "Empty").
-serial(ID)    -> stringp(ID, config(2), 10, ".....").
-firmware_(ID) -> stringp(ID, config(8), 80, "unknown").
-version(ID)   -> stringp(ID, config(9), 80, ".....").
+company(ID)   -> stringp(ID, config(0), 20, "unknown").
+product(ID)   -> stringp(ID, config(1), 40, "unknown").
+serial(ID)    -> stringp(ID, config(2), 10, "unknown").
+firmware(ID)  -> stringp(ID, config(8), 80, "unknown").
+version(ID)   -> stringp(ID, config(9), 80, "unknown").
     
 config_start() -> config(3). 
 

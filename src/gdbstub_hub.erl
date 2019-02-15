@@ -1,5 +1,6 @@
 -module(gdbstub_hub).
--export([start_link/0,send/1,call/1,
+-export([start_link/0, start_link/1,
+         send/1, call/1,
          dev/1,
          %% Some high level calls
          info/1,
@@ -8,6 +9,7 @@
          devpath_usb_port/1,
 
          %% Internal, for reloads
+         ignore/2, print/2,
          dev_start/1, dev_handle/2,
          hub_handle/2
 ]).
@@ -33,15 +35,17 @@
 %% of the device.
 
 start_link() ->
+    start_link(fun gdbstub_hub:hub_handle/2).
+start_link(HubHandle) ->
     {ok,
      serv:start(
        {handler,
         fun() ->
                 process_flag(trap_exit, true),
                 register(gdbstub_hub, self()),
-                #{}
+                #{ }
         end,
-        fun gdbstub_hub:hub_handle/2})}.
+        HubHandle})}.
 
 %% Udev events will eventuall propagate to here.
 
@@ -66,7 +70,7 @@ hub_handle({add_tty,BHost,TTYDev,DevPath}=_Msg, State)
             Hub = self(),
             Pid = gdbstub_hub:dev_start(
                     #{ hub => Hub,
-                       log => fun(_) -> ok end,
+                       log => fun gdbstub_hub:ignore/2,
                        %% log => fun(Msg) -> log:info("~p~n",[Msg]) end,
                        host => Host,
                        tty => TTYDev,
@@ -77,7 +81,9 @@ hub_handle({add_tty,BHost,TTYDev,DevPath}=_Msg, State)
             maps:put(ID, Pid, State)
     end;
 
-
+hub_handle({up, Pid}, State) when is_pid(Pid) ->
+    %% Ignore here.  Useful for Handle override.
+    State;
 
 hub_handle({'EXIT',Pid,_Reason}=_Msg,State) ->
     log:info("~p~n", [_Msg]),
@@ -101,7 +107,7 @@ hub_handle(Msg, State) ->
 %% The main purpose of this process is to provide mutually exclusive
 %% access to the GDB port.  Two cases are supported.
 
-dev_start(#{ tty := Dev, id := {Host, _} } = Init) ->      
+dev_start(#{ tty := Dev, id := {Host, _}, hub := Hub } = Init) ->      
     serv:start(
       {handler,
        fun() ->
@@ -109,11 +115,19 @@ dev_start(#{ tty := Dev, id := {Host, _} } = Init) ->
                Port = exo:open_ssh_port(Host, "gdbstub_connect", Dev, []),
                log:info("connected ~p~n",[Port]),
                Gdb = gdb_start(maps:merge(Init, #{ pid => self() })),
+               Pid = self(),
+               spawn(
+                 fun() ->
+                         %% Identify the board and notify.
+                         obj:call(Pid, {set_uid, gdbstub:uid(Pid)}),
+                         Hub ! {up, Pid}
+                 end),
+
                maps:merge(
                  Init,
                  #{ gdb => Gdb,
-                    port => Port,
-                    recv => fun rsp:recv_port/2 })
+                    handler => fun gdbstub_hub:print/2,
+                    port => Port })
        end,
        fun gdbstub_hub:dev_handle/2}).
 
@@ -121,25 +135,42 @@ dev_handle(Msg,State) ->
     %% Tap point
     log:info("~p~",[{Msg,State}]),
     dev_handle_(Msg,State).
-
 dev_handle_(Msg={_,dump},State) ->
     obj:handle(Msg, State);
+dev_handle_({Pid,{set_uid, UID}}, State) ->
+    obj:reply(Pid, ok),
+    maps:put(uid, UID, State);
 dev_handle_({Pid, {rsp_call, Request}}, 
-            #{ port := Port, recv := Recv } = State) ->
+            #{ port := Port } = State) ->
     true = port_command(Port, Request),
     obj:reply(
       Pid,
       case Request of
           "+" -> "";
-          _   -> Recv(Port, 300)
+          _   -> rsp:recv_port(Port, 3000)
       end),
     State;
-dev_handle_({Port, Msg}, #{ port := Port} = _State) ->
-    %% All {data,_} messages should arrive in the receive above.
-    log:info("exit or bad protocol: ~p~n",[Msg]),
-    exit(Msg).
+dev_handle_({send, RawData},
+            #{ port := Port } = State) ->
+    true = port_command(Port, RawData),
+    State;
+dev_handle_({Port, Msg}, #{ port := Port, handler := Handle} = State) ->
+    %% For GDB RSP, all {data,_} messages should arrive in the
+    %% {rsp_call,_} handler.  This is to support different protocols.
+    case Msg of
+        {data,_} ->
+            Handle(Msg, State);
+        _ ->
+            _ = Handle(Msg, State),
+            log:info("ERROR: ~p~n",[Msg]),
+            exit(Msg)
+    end.
 
-
+ignore(_Msg, State) -> State.
+print(Msg, State) -> 
+    log:info("~p~n", [Msg]),
+    State.
+    
 
 
 %% GDB RSP server.
@@ -164,11 +195,11 @@ gdb_start(#{ tcp_port := TCPPort } = Init) ->
 %% device restarts while keeping gdb conn open.
 gdb_loop(State = #{ sock := Sock, log := Log }) ->
     Request = rsp:recv(Sock),
-    Log({request,Request}),
+    _ = Log({request,Request}, State),
     case gdb_dispatch(State, Request) of
         "" -> ignore;
         Reply ->
-            Log({reply, Reply}),
+            _ = Log({reply, Reply}, State),
             ok = rsp:send(Sock, Reply)
     end,
     gdb_loop(State).
