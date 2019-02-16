@@ -4,6 +4,7 @@
          dev/1,
          %% Some high level calls
          info/1,
+         find_uid/1, uids/0,
 
          %% Debug
          devpath_usb_port/1,
@@ -279,6 +280,7 @@ call(Msg) -> obj:call(gdbstub_hub, Msg).
 dev(Pid) when is_pid(Pid) -> Pid;
 dev(ID) -> {ok, Pid} = call({dev_pid, ID}), Pid.
 
+
 info(ID) ->
     case call({dev_pid,ID}) of
         {ok, Pid} -> obj:dump(Pid);
@@ -286,3 +288,19 @@ info(ID) ->
     end.
             
 
+find_uid(UID) ->
+    maps:find(UID, uids()).
+uids() ->
+    uids(gdbstub_hub).
+uids(Hub) ->
+    lists:foldl(
+      fun({_ID,Pid},Map) ->
+              case obj:dump(Pid) of
+                  #{ uid := UID} ->
+                      maps:put(UID,Pid,Map);
+                  _ ->
+                      Map
+              end
+      end,
+      #{},
+      maps:to_list(obj:dump(Hub))).
