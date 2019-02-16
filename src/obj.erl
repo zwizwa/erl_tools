@@ -4,7 +4,7 @@
 -export([init/0, handle/2, call/2, call/3, reply/2,
          get/2, get/3, set/3, gets/2,
          update/3, update/2, find/2, dump/1, replace/2, merge/2,
-         update/4,
+         update/4, remove/2,
          kvstore/1, kvstore/2]).
 
 %% Simple async object.
@@ -118,7 +118,8 @@ update (Pid, Key, Fun) -> call(Pid, {update, Key, Fun}).
 update (Pid, Fun)      -> call(Pid, {update, Fun}).
 replace(Pid, D)        -> call(Pid, {replace, D}).
 merge  (Pid, D)        -> call(Pid, {merge, D}).
-    
+remove (Pid, Key)      -> call(Pid, {remove, Key}).
+     
 
 gets   (Pid, [Key])    -> get(Pid,Key);
 gets   (Pid, [K|Ks])   -> gets(get(Pid,K),Ks).

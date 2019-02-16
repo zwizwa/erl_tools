@@ -15,7 +15,8 @@
          read_only/1, read_only_from_map/1,
          get_type_bin_val/2,
          prefixed/2,
-         combined/2]).
+         combined/2,
+         to_obj/1, to_obj_handle/2]).
 
 %% FIXME: rename these to the interface of obj.erl
 
@@ -190,3 +191,31 @@ read_only_from_map(Map) ->
         (to_list)  ->
              fun() -> maps:to_list(Map) end
      end}.
+
+
+%% Map obj api to kvstore, saving all values as pterm.
+to_obj(KVStore) ->
+    serv:start(
+      {handler,
+       fun() -> KVStore end,
+       fun kvstore:to_obj_handle/2}).
+
+tag(M) when is_map(M) -> maps:map(fun(_,V) -> {pterm, V} end, M).
+
+untag(M) when is_map(M) -> maps:map(fun(_,{pterm, V}) -> V end, M);
+untag({ok,{pterm,V}}) -> {ok, V};
+untag({pterm,V}) -> V;
+untag(error) -> error.
+
+to_obj_handle({Pid, dump}, S)           -> ok=obj:reply(Pid, untag(to_map(S))), S;
+to_obj_handle({Pid, {remove, K}}, S)    -> remove(S, K), ok=obj:reply(Pid, ok), S;
+to_obj_handle({Pid, {find, K}}, S)      -> ok=obj:reply(Pid, untag(find(S, K))), S;
+to_obj_handle({Pid, {set, K, V}}, S)    -> put(S, K, {pterm, V}), obj:reply(Pid, ok), S;
+to_obj_handle({Pid, {replace, M}}, S)   -> clear(S), put_map(S, tag(M)), obj:reply(Pid, ok), S;
+to_obj_handle({Pid, {merge, M}}, S)     -> put_map(S, tag(M)), obj:reply(Pid, ok), S;
+to_obj_handle(shutdown, _)              -> exit(shutdown).
+                                           
+%% TODO:
+%% to_obj_handle({Pid, {update, K, F}}, S) -> V = F(maps:get(K, Map)), ok=obj:reply(Pid, V), maps:put(K, V, Map);
+%% to_obj_handle({Pid, {update, F}}, S)    -> {V,S} = F(Map), ok=obj:reply(Pid, V), S;
+               

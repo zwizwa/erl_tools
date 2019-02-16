@@ -118,6 +118,7 @@ dev_start(#{ tty := Dev, id := {Host, _}, hub := Hub } = Init) ->
       {handler,
        fun() ->
                log:info("connecting ~p~n", [{Host,Dev}]),
+               %% FIXME:
                Port = exo:open_ssh_port(Host, "gdbstub_connect", Dev, []),
                log:info("connected ~p~n",[Port]),
                Gdb = gdb_start(maps:merge(Init, #{ pid => self() })),
