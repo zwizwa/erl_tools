@@ -67,7 +67,12 @@ hub_handle({add_tty,BHost,TTYDev,DevPath}=_Msg, State)
         _ ->
             %% Easier to decouple GDB communication if there is a
             %% dedicated process per device.
+
+            %% FIXME: Use listen errors to determine next port.
             Hub = self(),
+            <<Offset:14,_:2,_/binary>> = crypto:hash(sha, [BHost,DevPath]),
+            TcpPort = 10000 + Offset,
+
             Pid = gdbstub_hub:dev_start(
                     #{ hub => Hub,
                        log => fun gdbstub_hub:ignore/2,
@@ -75,7 +80,7 @@ hub_handle({add_tty,BHost,TTYDev,DevPath}=_Msg, State)
                        host => Host,
                        tty => TTYDev,
                        devpath => DevPath,
-                       tcp_port => 1234, %% FIXME: alloc
+                       tcp_port => TcpPort,
                        id => ID }),
             log:info("adding ~p~n", [{ID,Pid}]),
             maps:put(ID, Pid, State)
@@ -154,6 +159,10 @@ dev_handle_({send, RawData},
             #{ port := Port } = State) ->
     true = port_command(Port, RawData),
     State;
+dev_handle_({send_term, Term},
+            #{ port := Port } = State) ->
+    true = port_command(Port, term_to_binary(Term)),
+    State;
 dev_handle_({Port, Msg}, #{ port := Port, handler := Handle} = State) ->
     %% For GDB RSP, all {data,_} messages should arrive in the
     %% {rsp_call,_} handler.  This is to support different protocols.
@@ -174,7 +183,15 @@ print(Msg, State) ->
 print_etf(Msg, State) -> 
     case Msg of
         {data, Bin = <<131, _/binary>>} ->
-            log:info("~p~n", [binary_to_term(Bin)]), State;
+            Term = binary_to_term(Bin),
+            %% Assume this is from uc_lib/gdb/sm_etf.c
+            case Term of
+                [{123,LogData}] ->
+                    log:info("sm_etf log:~n~s", [LogData]);
+                _ ->
+                    log:info("~p~n", [])
+            end,
+            State;
         _ ->
             print(Msg, State)
     end.
