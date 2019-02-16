@@ -1,7 +1,7 @@
 -module(gdbstub_hub).
 -export([start_link/0, start_link/1,
          send/1, call/1,
-         dev/1,
+         dev/1, devs/0,
          %% Some high level calls
          info/1,
          find_uid/1, uids/0,
@@ -292,6 +292,9 @@ find_uid(UID) ->
     maps:find(UID, uids()).
 uids() ->
     uids(gdbstub_hub).
+devs() ->
+    maps:values(obj:dump(gdbstub_hub)).
+    
 uids(Hub) ->
     lists:foldl(
       fun({_ID,Pid},Map) ->
