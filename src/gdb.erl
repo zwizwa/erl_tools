@@ -45,8 +45,21 @@ upload(TargetHost, Gdb, TargetPort, Elf, Sink) ->
     P = open(Gdb, TargetHost, TargetPort, Elf, Sink),
     Rv = cmd_sink(P, "load", Sink),
     _Rv = cmd_sink(P, "compare-sections", Sink),
-    ok = send(P, "quit"),
+    quit(P, Sink),
     Rv.
+
+%% Quit gdb, ensuring it has actually quit.
+quit(P, Sink) ->
+    Ref = erlang:monitor(port, P),
+    ok = send(P, "quit"),
+    sync(P, Sink),
+    receive 
+        {'DOWN',Ref,port,_,_}=_Msg ->
+            %% log:info("~p~n",[_Msg]),
+            ok
+    end,
+    ok.
+
 
 %% Send command, send results to sink, and wait for (gdb) prompt.
 cmd_sink(Port, Cmd, Sink) ->
