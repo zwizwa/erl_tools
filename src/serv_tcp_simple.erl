@@ -8,7 +8,7 @@
 %% process from the accepting proces, such that the accepting process
 %% can become the connection services process.
 start_link(#{ port := SrcPort,
-              packet := Packet } = Spec) ->
+              opts := Opts } = Spec) ->
     {ok,
      serv:start(
        {handler,
@@ -16,10 +16,8 @@ start_link(#{ port := SrcPort,
                 {ok, LSock} =
                     gen_tcp:listen(
                       SrcPort, 
-                      [binary,
-                       {packet, Packet},
-                       {active, true},
-                       {reuseaddr, true}]),
+                      Opts
+                      ),
                 State = 
                     maps:merge(
                       Spec,
