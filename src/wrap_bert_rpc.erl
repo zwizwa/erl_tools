@@ -28,7 +28,7 @@ handle({Pid, {M,F,A}}, #{ sock := Sock } = State) ->
     State;
 
 handle({tcp_closed,Sock}=_Msg, #{ sock := Sock }=State) ->
-    log:info("~p~n", [_Msg]),
+    %% log:info("~p~n", [_Msg]),
     handle(connect, State);
                     
 handle(Msg,State) ->
@@ -43,8 +43,8 @@ connect(State=#{spec := {Host,Port}}, Tries) ->
         {ok, Sock} ->
             log:info("connected: ~p~n", [{Host,Port}]),
             Sock;
-        Error ->
-            log:info("error: ~p~n", [Error]),
+        _Error = {error,econnrefused} ->
+            %% log:info("error: ~p~n", [_Error]),
             Start = maps:get(start, State, fun() -> ok end),
             Start(),
             Ms = maps:get(delay, State, 1000),
