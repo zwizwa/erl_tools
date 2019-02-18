@@ -17,7 +17,7 @@
          pad/3,
          padded_at/2, padded_range/3, padded_insert/4,
          enumerate/2,
-         list_at/2, list_update_with/3,
+         list_at/2, list_update_with/3, unique/1,
          tuple_to_list/1, as_binary/1, as_binaries/1, as_list/1, as_atom/1,
          pmap/2,
          foldn/3,
@@ -319,6 +319,9 @@ list_at(List, Index) ->
 list_update_with(Index, Fun, List) ->
     [case N of Index -> Fun(E); _ -> E end
      || {N,E} <- enumerate(List)].
+
+unique(L) ->
+    sets:to_list(sets:from_list(L)).
              
 %% Record to Maps translation
 tuple_to_list(Tuple) ->
