@@ -152,7 +152,15 @@ hub_handle({send, Msg}, Hub) ->
     lists:foreach(
       fun({Pred, Pid}) -> ?IF(Pred(Msg), Pid ! Msg, ignore) end,
       Hub),
+    Hub;
+hub_handle({subscribe, Pid}, Hub) ->
+    self() ! {add, fun(_) -> true end, Pid},
+    Hub;
+
+hub_handle({Pid,dump}, Hub) ->  %% debug
+    obj:reply(Pid, #{ hub => Hub }),
     Hub.
+
 
 hub_start() ->
     start({handler, fun hub_init/0, fun serv:hub_handle/2}).
