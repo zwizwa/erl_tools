@@ -3,7 +3,7 @@
 -module(serv).
 -export([
          %% Broadcaster
-         bc_start/0,  bc_up/1,
+         bc_start/0,  bc_up/1,  bc_test/1,
          %% Hub with predicates
          hub_start/0, hub_handle/2, hub_add/3, hub_add/2, hub_send/2,
          %% Printer process
@@ -80,6 +80,16 @@ bc_spawner() ->
      fun serv:bc_handle/2}.
 bc_start()  -> start(bc_spawner()).
 bc_up(Name) -> up(Name, bc_spawner()).
+
+bc_test(BC) ->
+    BC ! {subscribe,
+          start(
+            {handler,
+             fun() -> #{} end,
+             fun(Msg,State) ->
+                     log:info("~p~n", [Msg]),
+                     State 
+             end})}.
 
 bc_handle({subscribe, Pid}, #{pids := Pids}=State) when is_pid(Pid) -> 
     case pids_subscribed(Pid, Pids) of
