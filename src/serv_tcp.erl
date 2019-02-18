@@ -1,7 +1,12 @@
 %% (c) 2018 Tom Schouten -- see LICENSE file
 
 -module(serv_tcp).
--export([init/2, init/4, init/5, handle/2, accept_loop/3]).
+-export([
+         %% V1 API, for legacy support
+         init/2, init/4, init/5, handle/2, accept_loop/3,
+         %% V2 API, use this for new code
+         start_link/1, accept/1
+]).
 
 %% TCP server with client registry.
 
@@ -106,3 +111,52 @@ handle_(shutdown, {#{lsocks := LSocks}=_Env, _Pids, _State}) ->
 handle_(Msg, {#{handle := Handle}=_Env, Pids, State}) ->
     {Pids, Handle(Msg, State)}.
  
+
+
+
+
+
+%% A simpler version 2.
+
+%% Because of how accept works, we need to decouple the supervised
+%% process from the accepting proces, such that the accepting process
+%% can become the connection services process.
+start_link(#{ port := SrcPort,
+              opts := Opts } = Spec) ->
+    {ok,
+     serv:start(
+       {handler,
+        fun() ->
+                {ok, LSock} =
+                    gen_tcp:listen(
+                      SrcPort, 
+                      Opts
+                      ),
+                State = 
+                    maps:merge(
+                      Spec,
+                      #{ listen_sock => LSock }),
+                spawn_link(fun() -> accept(State) end),
+               State
+        end,
+        %% This is just a placeholder to serve debug info.
+        fun obj:handle/2})}.
+
+accept(#{listen_sock := LSock, 
+         handle := Handle,
+         on_accept := Init
+        } = ListenState) ->
+    %% tools:info("accepting: ~p~n", [LSock]),
+    {ok, SrcSock} = gen_tcp:accept(LSock),
+    tools:info("accepted: ~p~n", [SrcSock]),
+
+    %% The process running accept will become the connection service
+    %% process, so fork of a new acceptor.
+    spawn_link(fun() -> accept(ListenState) end),
+
+    %% And fall into the service loop.
+    ConnectState = Init(maps:put(sock, SrcSock, ListenState)),
+    serv:receive_loop(ConnectState, Handle).
+
+
+
