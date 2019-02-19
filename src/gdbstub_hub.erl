@@ -41,11 +41,7 @@ start_link(HubHandle) ->
     {ok,
      serv:start(
        {handler,
-        fun() ->
-                process_flag(trap_exit, true),
-                register(gdbstub_hub, self()),
-                #{ }
-        end,
+        fun() -> process_flag(trap_exit, true), #{ } end,
         HubHandle})}.
 
 %% Udev events will eventuall propagate to here.
