@@ -163,7 +163,10 @@ dev_handle_({send, RawData},
     State;
 dev_handle_({send_term, Term},
             #{ port := Port } = State) ->
-    true = port_command(Port, term_to_binary(Term)),
+    %% sm_etf uses {packet,4} wrapping
+    Bin = term_to_binary(Term),
+    Size = size(Bin),
+    true = port_command(Port, [<<Size:32>>,Bin]),
     State;
 dev_handle_({Port, Msg}, #{ port := Port, handler := Handle} = State) ->
     %% For GDB RSP, all {data,_} messages should arrive in the
@@ -184,16 +187,23 @@ print(Msg, State) ->
     State.
 print_etf(Msg, State) -> 
     case Msg of
-        {data, Bin = <<131, _/binary>>} ->
-            Term = binary_to_term(Bin),
-            %% Assume this is from uc_lib/gdb/sm_etf.c
-            case Term of
-                [{123,LogData}] ->
-                    log:info("sm_etf log:~n~s", [LogData]);
-                _ ->
-                    log:info("~p~n", [])
+        {data, _Packet4 = <<Size:32, Bin/binary>>} ->
+            try
+                Size = size(Bin),
+                Term = binary_to_term(Bin),
+                %% Assume this is from uc_lib/gdb/sm_etf.c
+                case Term of
+                    [{123,LogData}] ->
+                        log:info("sm_etf log:~n~s", [LogData]);
+                    _ ->
+                        log:info("~p~n", [Term])
+                end
+            catch C:E -> 
+                    log:info("~p~n",[{C,E}]),
+                    print(Msg, State)
             end,
             State;
+
         _ ->
             print(Msg, State)
     end.
