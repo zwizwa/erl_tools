@@ -69,13 +69,17 @@ http_request(Req, Get, Post) ->
             {Cookies, _} = cowboy_req:cookies(Req),
             {Referer, _} = cowboy_req:header(<<"referer">>, Req),
             {Peer, _} = cowboy_req:peer(Req),
-            QvMap = maps:merge(
-                      #{ referer => Referer,
-                         peer => Peer,
-                         cookies => atom_map(Cookies)},
-                      atom_map(QueryVals)),
+            %% FIXME: Implementation has changed here. QVs are now
+            %% kept separate.  The old implementation was just too
+            %% messy.
+            Env = #{
+              referer => Referer,
+              peer => Peer,
+              cookies => atom_map(Cookies),
+              query   => atom_map(QueryVals) 
+             },
             %% log:info("qv: ~p~n", [QvMap]),
-            Get(BinPath, QvMap)
+            Get(BinPath, Env)
     end.
 
 
