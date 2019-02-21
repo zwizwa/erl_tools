@@ -129,7 +129,7 @@ dev_start(#{ tty := Dev, id := {Host, _}, hub := Hub } = Init) ->
                maps:merge(
                  Init,
                  #{ gdb => Gdb,
-                    handler => fun gdbstub_hub:print_etf/2,
+                    decode => 4, %% see decode/1, for erlang:decode_packet
                     port => Port })
        end,
        fun gdbstub_hub:dev_handle/2}).
@@ -153,6 +153,10 @@ dev_handle_({Pid, {rsp_call, Request}},
           _   -> rsp:recv_port(Port, 3000)
       end),
     State;
+
+
+%% Initially, ports speak GDB RSP.  Once we send something else, the
+%% gdbstub connects the application.
 dev_handle_({send, RawData},
             #{ port := Port } = State) ->
     true = port_command(Port, RawData),
@@ -164,45 +168,62 @@ dev_handle_({send_term, Term},
     Size = size(Bin),
     true = port_command(Port, [<<Size:32>>,Bin]),
     State;
-dev_handle_({Port, Msg}, #{ port := Port, handler := Handle} = State) ->
-    %% For GDB RSP, all {data,_} messages should arrive in the
-    %% {rsp_call,_} handler.  This is to support different protocols.
+
+%% For GDB RSP, all {data,_} messages should arrive in the
+%% {rsp_call,_} handler.
+
+%% If the application sends something back, it is assumed to be a
+%% protocol understood by erlang:decode_packet.
+dev_handle_({Port, Msg}, #{ port := Port} = State) ->
     case Msg of
-        {data,_} ->
-            Handle(Msg, State);
+        {data, Bin} ->
+            decode(Bin, State);
         _ ->
-            _ = Handle(Msg, State),
             log:info("ERROR: ~p~n",[Msg]),
             exit(Msg)
     end.
 
 ignore(_Msg, State) ->
     State.
+
+%% Because port is in raw mode, we don't have proper segmentation.  Do
+%% that here.
+decode(NewBin, State = #{ decode := Type }) ->
+    PrevBin = maps:get(rest, State, <<>>),
+    Bin = iolist_to_binary([PrevBin, NewBin]),
+    case erlang:decode_packet(Type,Bin,[]) of
+        {more, _} ->
+            maps:put(rest, Bin, State);
+        {ok, Msg, RestBin} ->
+            forward_msg(Msg, State),
+            decode(<<>>, maps:put(rest, RestBin, State));
+        {error,_}=E ->
+            log:info("~p~n",[{E,Bin}]),
+            maps:put(rest, <<>>, State)
+    end.
+
+forward_msg(Msg, State) ->
+    print_etf(Msg, State).
+
 print(Msg, State) -> 
     log:info("~p~n", [Msg]),
     State.
 print_etf(Msg, State) -> 
-    case Msg of
-        {data, _Packet4 = <<Size:32, Bin/binary>>} ->
-            try
-                Size = size(Bin),
-                Term = binary_to_term(Bin),
-                %% Assume this is from uc_lib/gdb/sm_etf.c
-                case Term of
-                    [{123,LogData}] ->
-                        log:info("sm_etf log:~n~s", [LogData]);
-                    _ ->
-                        log:info("~p~n", [Term])
-                end
-            catch C:E -> 
-                    log:info("~p~n",[{C,E}]),
-                    print(Msg, State)
-            end,
-            State;
-
-        _ ->
+    try
+        Term = binary_to_term(Msg),
+        %% Assume this is from uc_lib/gdb/sm_etf.c
+        case Term of
+            [{123,LogData}] ->
+                log:info("~s", [LogData]);
+            _ ->
+                log:info("~p~n", [Term])
+        end
+    catch _C:_E -> 
+            %% log:info("~p~n",[{_C,_E}]),
             print(Msg, State)
-    end.
+    end,
+    State.
+
     
 
 

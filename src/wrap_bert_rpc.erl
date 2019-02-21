@@ -2,6 +2,8 @@
 -export([start_link/1, handle/2]).
 
 %% Wrapper / monitor for BERT RPC servers.
+%% Notes:
+%% - The other end sends {packet,4}, but why do we send raw ETF?
 
 start_link(#{ spec := {_Host, _Port}} = Info) ->
     {ok, 
