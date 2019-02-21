@@ -848,6 +848,7 @@ filename_extension(File) ->
       lists:last(re:split(filename:basename(File),"\\.")),
       utf8).
 
+intersperse([],_) -> [];
 intersperse(List, Sep) ->
     tl(lists:append([[Sep, El] || El <- List])).
 node_to_host(Node) ->                
