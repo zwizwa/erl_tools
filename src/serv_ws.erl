@@ -50,9 +50,22 @@ handle({tcp,Sock,Data}, #{ sock := Sock}=State) ->
     case parse1(Data) of
         #{ mask := 1, len := Len } when Len < 127  ->
             #{ key := Key, rest := Rest } = parse2(Data),
-            Unmasked = unmask(Key, 0, Rest),
+            Unmasked = xorkey(Key, 0, Rest),
             log:info("~p~n", [Unmasked])
     end,
+    State;
+
+handle({send, Data}, #{ sock := Sock}=State) when is_binary(Data)->
+    Len = size(Data),
+    true = Len < 127,
+    Fin = 1, Opcode = 1, Mask = 1,
+    Key32 = random:uniform(16#100000000)-1,
+    Key = <<Key32:32>>,
+    Encoded =
+        [<<Fin:1,0:3,Opcode:4,Mask:1,Len:7>>,Key,
+         xorkey(Key,0,Data)],
+    log:info("~p~n", [Encoded]),
+    gen_tcp:send(Sock, Encoded),
     State;
 
 handle(Msg, State) ->
@@ -80,10 +93,10 @@ parse2(<<_Fin:1,_Res1:1,_Res2:1,_Res3:1,
        rest => Rest
     }.    
 
-unmask(M,N,Bin) when is_binary(Bin) ->
-    unmask(M,N,binary_to_list(Bin));
-unmask(_,_,[]) -> [];
-unmask(Mask,N,[B|Bs]) ->
+xorkey(M,N,Bin) when is_binary(Bin) ->
+    xorkey(M,N,binary_to_list(Bin));
+xorkey(_,_,[]) -> [];
+xorkey(Mask,N,[B|Bs]) ->
     M = binary:at(Mask, N rem 4),
-    [B bxor M | unmask(Mask, N+1, Bs)].
+    [B bxor M | xorkey(Mask, N+1, Bs)].
     
