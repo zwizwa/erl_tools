@@ -28,7 +28,7 @@ on_accept(#{ sock := _Sock} = State) ->
 
 handle({http,Sock,{http_request,'GET',{abs_path,"/"},{1,1}}},
        #{ sock := Sock } = State) ->
-    Headers = et_tcp:recv_http_headers(Sock),
+    Headers = http:recv_http_headers(Sock),
     log:info("~p~n",[Headers]),
     Key64 = proplists:get_value("Sec-Websocket-Key", Headers),
     %% Key = base64:decode(Key64), log:info("~p~n",[Key]),
