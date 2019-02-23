@@ -2,8 +2,14 @@
 
 #include "system.h"
 #include <stdio.h>
-#include <sqlite3.h>
 #include <setjmp.h>
+
+#include <sqlite3.h>
+/* For default.elf.do
+ELF_LDLIBS=-lsqlite3
+*/
+
+
 
 #include "bert.h"
 #include "port.h"

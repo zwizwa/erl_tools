@@ -1,6 +1,7 @@
 -module(player).
 -export([start_link/1, handle/2,
          ensure_index/2, ensure_index/1,
+         convert/3,
          %% RPC calls
          spans/1, tree/1, lookup/2]).
 
@@ -279,3 +280,48 @@ tree_span(Tree) ->
         {leaf,{_,Span}} -> Span;
         {fork, {{Start,_},_}, {{_,Endx},_}} -> {Start,Endx}
     end.
+
+
+
+
+
+
+%% Convert a textual "~999p~n" log to binary.
+%% Write it as a task since it might run for a while.
+
+%% Note: my log has a bunch of messages that are spread over multiple
+%% lines.  I don't need them, so this just logs them as errors.
+
+%% This is also going to be ridiculously slow.
+
+convert(InFile,OutFile,N) ->
+    {ok, I} = file:open(InFile,[binary,read]),
+    {ok, O} = file:open(OutFile,[raw,append,delayed_write]),
+    convert(I,O,N,[]).
+convert(_, _, 0, _) -> ok;
+convert(I, O, N, Stack) ->
+    case file:read_line(I) of
+        {ok, Line} -> 
+            Term = 
+                try
+                    type_base:decode({pterm, Line})
+                catch 
+                    _:_ -> {error, Line}
+                end,
+            Bin = term_to_binary(Term),
+            Size = size(Bin),
+            Packet = [<<Size:32>>,Bin,<<Size:32>>],
+            case file:write(O, Packet) of
+                ok -> convert(I, O, N-1, Stack);
+                E -> E
+            end;
+        E ->
+            file:close(I),
+            file:close(O),
+            E
+    end.
+
+
+
+
+
