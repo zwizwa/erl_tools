@@ -1,4 +1,5 @@
 
+# FIXME: use redo instead.
 
 # Allow optional targets to be specified as an environment variable
 # passed to the top level rebar3.  E.g.:
@@ -79,12 +80,3 @@ build/$(TARGET)/%.elf: %.c
 	$(TARGET_BUILD) gcc -o $@ $< -I../include -DMAIN=main -Wall -ljpeg -g
 	$(TARGET_BUILD) strip $@
 
-# Create a list of build targets to push.  As a side effect, this
-# should rebuild the files if necessary.
-PUSH_LIST := build/host/v4l.elf build/nexx/v4l.elf
-push.list: $(PUSH_LIST)
-	echo $(PUSH_LIST) >$@
-# Perform individual file deployment
-%.push: %
-	[ ! -z "$$DST" ]
-	../../../apps/exo/priv/ssh/exo_ssh.sh $$DST update bin/$$(basename $*) <$<
