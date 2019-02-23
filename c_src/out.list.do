@@ -5,5 +5,8 @@ sqlite3.host.elf \
 gdbstub_connect.host.elf \
 "
 redo-ifchange $TARGETS
-echo $TARGETS >$3
+
+# The convention is to use one item per line.
+for target in $TARGETS; do echo $target >>$3; done
+
 
