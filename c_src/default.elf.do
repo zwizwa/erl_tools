@@ -4,7 +4,7 @@
 
 # Object filename encodes target architecture.
 ARCH="${2##*.}"
-ENV=env.$ARCH.sh
+ENV=$ARCH.env.sh
 C=$(basename $2 .$ARCH).c
 LIB_A=lib.$ARCH.a
 redo-ifchange env.sh $ENV $C $LIB_A

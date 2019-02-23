@@ -7,7 +7,7 @@
 O=$1
 ARCH="${2##*.}"
 C=$(basename $2 .$ARCH).c
-ENV=env.$ARCH.sh
+ENV=$ARCH.env.sh
 
 # e.g.: foo.c -> foo.arch.o
 # echo "$C -> $O" >&2

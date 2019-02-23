@@ -269,4 +269,3 @@ int MAIN(int argc, char **argv) {
     sqlite3_close(db);
     return 0;
 }
-
