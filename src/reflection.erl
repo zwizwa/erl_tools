@@ -219,7 +219,10 @@ push_erl_change(File, #{ nodes := Nodes } = Env) ->
                   fun(Node) -> _ = push_erl_beam(Env, Node, Mod, Bin) end,
                   Nodes),
             %% FIXME: make a proper report
-            {ok, File, Nodes};
+            Report = tools:format("~p", [Nodes]),
+            Short = Report, Long = Report, %% FIXME
+            {ok, {Short, Long}};
+
         {error, Errors, _Warnings} ->
             {error,
              {see_compiler_output, 
