@@ -27,10 +27,23 @@ obj(Cmd) ->
        fun v4l:handle/2}).
 handle({Port, Msg}, #{ port := Port, bc := BC } = State) ->
     case Msg of
-        {data, Data} ->
-            %% log:info("frame: ~p bytes~n", [size(Data)]),
-            BC ! {broadcast, {v4l, self(), {jpeg, Data}}},
+        {data, <<1:32/little, %% TAG
+                 _Width:16/little,
+                 _Height:16/little,
+                 _Motion:32/float-little,
+                 _Brightness:32/float-little
+               >> = Stats} ->
+            %% log:info("motion: ~p~n", [_Motion]),
+            %% log:info("brightness: ~p~n", [_Brightness]),
+            BC ! {broadcast, {v4l, self(), {stats, Stats}}},
+            State;
+        {data, <<16#FF, 16#D8, 16#FF, _/binary>> = JpegFrame} ->
+            %% log:info("frame: ~p bytes~n", [size(JpegFrame)]),
+            BC ! {broadcast, {v4l, self(), {jpeg, JpegFrame}}},
             next(Port),
+            State;
+        {data, <<Data>>} ->
+            log:info("invalid, size ~p~n", [size(Data)]),
             State;
         {exit_status, _}=E ->
             exit(E)

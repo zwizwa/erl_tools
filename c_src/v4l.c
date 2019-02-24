@@ -5,11 +5,12 @@
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <linux/videodev2.h>
+#include <math.h>
 
 #include "jpeglib.h"
 
 /* For default.elf.do
-ELF_LDLIBS=-ljpeg
+ELF_LDLIBS="-ljpeg -lm"
 */
 
 #define WRITE write
@@ -17,6 +18,13 @@ ELF_LDLIBS=-ljpeg
 #include "system.h"
 #include "port.h"
 
+struct stats {
+    uint32_t tag;
+    uint16_t width;
+    uint16_t height;
+    float motion;
+    float brightness;
+};
 
 // FIXME
 #ifndef MAIN
@@ -35,17 +43,18 @@ ELF_LDLIBS=-ljpeg
 
 uint8_t *jpeg_buf = NULL;
 unsigned long jpeg_size = 0;
-int width  = 640;
-int height = 480;
+#define WIDTH  640
+#define HEIGHT 480
+uint8_t last[WIDTH * HEIGHT];
 
-void compress(uint8_t *buf) {
+void compress(uint8_t *buf, struct stats *stats) {
     struct jpeg_compress_struct cinfo;
     struct jpeg_error_mgr jerr;
     cinfo.err = jpeg_std_error(&jerr);
     jpeg_create_compress(&cinfo);
 
-    cinfo.image_width  = width;
-    cinfo.image_height = height;
+    cinfo.image_width  = WIDTH;
+    cinfo.image_height = HEIGHT;
     cinfo.input_components = 3;
     cinfo.in_color_space = JCS_YCbCr;
     jpeg_set_defaults(&cinfo);
@@ -55,22 +64,35 @@ void compress(uint8_t *buf) {
 
     jpeg_mem_dest(&cinfo, &jpeg_buf, &jpeg_size);
     jpeg_start_compress(&cinfo, TRUE);
-    uint8_t out_row[3 * width];
+    uint8_t out_row[3 * WIDTH];
     JSAMPROW row_pointer[1] = {&out_row[0]};
 
-    while (cinfo.next_scanline < height) {
-        uint8_t *in_row = &buf[cinfo.next_scanline * 2 * width];
-        for (int x=0; x<width; x++) {
+    /* Use one loop to layout the pixel in the format desired by the
+     * jpeg library, and to perform motion estimation. */
+    uint64_t square_diff_acc = 0;
+    uint32_t level_acc = 0;
+    while (cinfo.next_scanline < HEIGHT) {
+        uint8_t *in_row = &buf[cinfo.next_scanline * 2 * WIDTH];
+        uint8_t *last_row = &last[WIDTH * cinfo.next_scanline];
+        for (int x=0; x<WIDTH; x++) {
             int x2 = x/2;
-            // Y Cr Y Cb -> Y Cr Cb Y Cr Cb
+            // Y Cr Cb Y Cr Cb <- Y Cr Y Cb
             out_row[x*3]   = in_row[x*2];
             out_row[x*3+1] = in_row[x2*4+1];
             out_row[x*3+2] = in_row[x2*4+3];
+            // motion
+            uint32_t diff = in_row[x*2] - last_row[x];
+            last_row[x] = in_row[x*2];
+            square_diff_acc += diff * diff;
+            level_acc += in_row[x*2];
         }
         (void) jpeg_write_scanlines(&cinfo, row_pointer, 1);
     }
     jpeg_finish_compress(&cinfo);
     jpeg_destroy_compress(&cinfo);
+    float scale = 1.0f / ((float)(WIDTH * HEIGHT));
+    stats->brightness = scale * (float)level_acc;
+    stats->motion     = scale * sqrtf((float)square_diff_acc);
 }
 
 
@@ -103,8 +125,8 @@ int MAIN(int argc, char **argv) {
         .type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
         .fmt = {
             .pix = {
-                .width       = width,
-                .height      = height,
+                .width       = WIDTH,
+                .height      = HEIGHT,
                 .pixelformat = V4L2_PIX_FMT_YUYV,
             }
         }
@@ -161,11 +183,19 @@ int MAIN(int argc, char **argv) {
         ASSERT_ERRNO(ioctl(fd, VIDIOC_DQBUF, &buf));
         ASSERT(buf.index < req.count);
         //LOG("buf:%d bytes:%d.\n", buf.index, buf.bytesused);
-        compress(buffers[buf.index].start);
+        struct stats stats = {
+            .tag    = 1,
+            .width  = WIDTH,
+            .height = HEIGHT
+        };
+        compress(buffers[buf.index].start, &stats);
+
+        //LOG("motion: %f\n", motion);
         //LOG("jpeg_size: %d.\n", (int)jpeg_size);
         //write(1, jpeg_buf, jpeg_size); exit(0);
         //assert_write_port32(1, buffers[buf.index].start, buf.bytesused);
         assert_write_port32(1, jpeg_buf, jpeg_size);
+        assert_write_port32(1, &stats, sizeof(stats));
         // cleanup
         free(jpeg_buf);
         jpeg_buf = NULL;
