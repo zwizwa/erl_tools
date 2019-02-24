@@ -1,6 +1,7 @@
 -module(player).
 -export([start_link/1, handle/2,
          ensure_index/2, ensure_index/1,
+         take/2,
          convert/3,
          %% RPC calls
          spans/1, tree/1, lookup/2]).
@@ -19,7 +20,7 @@
 
 %% FIXME: With the index tree, some methods are no longer necessary.
 
-start_link(Init = #{ dir := Dir }) ->
+start_link(Init = #{ dir := Dir, chunk := N }) ->
     {ok,
      serv:start(
        {handler,
@@ -30,7 +31,7 @@ start_link(Init = #{ dir := Dir }) ->
                 Tree = tree(Spans),
                 State = maps:put(tree, Tree, Init),
                 %% Always have a file open.
-                handle({open,0}, State)
+                handle({open, N}, State)
         end,
         fun ?MODULE:handle/2})}.
 
@@ -174,6 +175,14 @@ handle({Pid, {ref_current, N}},
 handle(Msg, State) ->
     obj:handle(Msg,State).
    
+
+
+take(_Pid, N) when N =< 0 -> [];
+take(Pid, N) ->
+    {ok, Msg} = obj:call(Pid, next),
+    [Msg | take(Pid, N-1)].
+    
+    
 
 
 

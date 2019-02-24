@@ -19,14 +19,14 @@ use std::os::unix::io::AsRawFd;
 
 const MEM_SIZE : u32 = 3 * 4096;
 
-pub struct Chunk {
+pub struct RawLog {
     mem: *mut libc::c_void,
     len: usize
 }
 
-impl Chunk {
+impl RawLog {
     #[allow(dead_code)]
-    pub fn chunk(filename: &str) -> Option<Chunk> {
+    pub fn chunk(filename: &str) -> Option<RawLog> {
         match fs::metadata(&filename) {
             Err(e) => {
                 eprintln!("WARNING: {}: metadata failed: {:?}", filename, e);
@@ -52,7 +52,7 @@ impl Chunk {
                                 if ptr == libc::MAP_FAILED {
                                     panic!("mmap failed: {}", io::Error::last_os_error())
                                 } else {
-                                    Some( Chunk { mem: ptr, len: metadata.len() as usize } )
+                                    Some( RawLog { mem: ptr, len: metadata.len() as usize } )
                                 }
                             }
                         }
@@ -60,7 +60,7 @@ impl Chunk {
             }
         }
     }
-    fn get_bytes(&mut self, offset: usize, bytes: &mut [u8]) {
+    fn get_bytes(&self, offset: usize, bytes: &mut [u8]) {
         let n = bytes.len();
         if offset + n  > self.len { panic!("memory out of range"); }
         unsafe {
@@ -73,7 +73,7 @@ impl Chunk {
         }
     }
     // Wrap in Option, so it can be used to detect eof
-    pub fn get_u32_be(&mut self, offset: usize) -> Option<u32> {
+    pub fn get_u32_be(&self, offset: usize) -> Option<u32> {
         if offset + 4 > self.len { None }
         else {
             let mut buf = [0,0,0,0];
@@ -88,7 +88,7 @@ impl Chunk {
      * positives.  A counterexample is a binary packet containing log
      * fragments.  The real solution is to build an index.  The format
      * itself is not ambiguous. */
-    pub fn scan_offset(&mut self, offset: usize, endx: usize) -> Option<usize> {
+    pub fn scan_offset(&self, offset: usize, endx: usize) -> Option<usize> {
         let mut o = offset;
         while o < endx {
             match self.verify(o) {
@@ -98,7 +98,7 @@ impl Chunk {
         }
         None
     }
-    fn verify(&mut self, offset: usize) -> Option<u32> {
+    fn verify(&self, offset: usize) -> Option<u32> {
         let size  = self.get_u32_be(offset)?;
         if offset + (size as usize) + 8 > self.len { return None; }
         let size2 = self.get_u32_be(offset + 4 + size as usize)?;
@@ -113,7 +113,7 @@ impl Chunk {
          * best to perform another data validation step upstream. */
         Some(size)
     }
-    pub fn make_index_u32(&mut self) -> Vec<u32> {
+    pub fn make_index_u32(&self) -> Vec<u32> {
         let mut vec = Vec::new();
         let mut o = 0;
         while o < self.len {
@@ -126,7 +126,7 @@ impl Chunk {
     // Default is u32, since there seems to be no real reason to have
     // chunks larger than 4GB.  This will allow the code to work on 32
     // bit platforms as well while memory-mapping.
-    pub fn save_index_u32(&mut self, filename: &str) -> usize {
+    pub fn save_index_u32(&self, filename: &str) -> usize {
         // Build the whole thing in memory.  That is probably ok.
         let vec = self.make_index_u32();
         let slice_u32: &[u32] = &vec;
@@ -139,6 +139,28 @@ impl Chunk {
         vec.len()
     }
 
+    // Iteratore over slices.
+    
+
+
+
+    // Extract temperature data from log.  This needs to deal with:
+    // - Time base resets:  {9,{start,{{2018,5,6},{14,31,55}}}},
+    // - Sensor data:       {515,{temp,zoe,22.375}},
+    // - Furnace state:     {515,{furnace,on}},
+    // All the rest can be ignored
+
+    // I wonder if it is really necessary to do the filtering in Rust.
+    // Probably not unless the whole file needs to be traversed.
+    // First problem is finding the time marker.
+
+    // I want to translate this into a multiresolution file.  But that
+    // only works with data that is on a fixed sampling grid.  Not an
+    // issue though.
+
+    
+
+
     // Another useful thing is to perform bisection search.  The index
     // only allows direct message lookup, but to find a particular
     // time stamp, we still need to perform search.  Perform the loop
@@ -147,7 +169,7 @@ impl Chunk {
     
 }
 
-impl Drop for Chunk {
+impl Drop for RawLog {
     fn drop(&mut self) {
         unsafe {
             assert!(
@@ -158,4 +180,37 @@ impl Drop for Chunk {
         }
     }
 }
+// https://stackoverflow.com/questions/30218886/how-to-implement-iterator-and-intoiterator-for-a-simple-struct
+// https://stackoverflow.com/questions/34733811/what-is-the-difference-between-iter-and-into-iter
 
+impl<'a> IntoIterator for &'a RawLog {
+    type Item = u32;
+    type IntoIter = RawLogIterator<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        RawLogIterator {
+            rawlog: &self,
+            index: 0,
+        }
+    }
+}
+
+pub struct RawLogIterator<'a> {
+    rawlog: &'a RawLog,
+    index: usize,
+}
+
+impl<'a> Iterator for RawLogIterator<'a> {
+    type Item = u32;
+    fn next(&mut self) -> Option<u32> {
+        match self.rawlog.get_u32_be(self.index) {
+            Some(size) => {
+                self.index += size as usize + 8;
+                Some(size)
+            },
+            None => {
+                None
+            }
+        }
+    }
+}
