@@ -73,6 +73,7 @@ http_request(Req, Get, Post) ->
             %% kept separate.  The old implementation was just too
             %% messy.
             Env = #{
+              wrap    => cowboy_wrap,
               referer => Referer,
               peer => Peer,
               cookies => atom_map(Cookies),

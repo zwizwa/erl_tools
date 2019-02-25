@@ -228,6 +228,11 @@ sql_transaction(DB, Queries) ->
     end.
         
     
+%% Typed databases.  This requires storage of types, possibly in a
+%% separate table or kvstore, and a wrapper around queries.  It
+%% doesn't seem worth abstracting.  Do it at the application side.
+
+
 
 
 

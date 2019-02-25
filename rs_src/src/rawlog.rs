@@ -24,9 +24,9 @@ pub struct RawLog {
     len: usize
 }
 
-impl RawLog {
+impl<'a> RawLog {
     #[allow(dead_code)]
-    pub fn chunk(filename: &str) -> Option<RawLog> {
+    pub fn rawlog(filename: &str) -> Option<RawLog> {
         match fs::metadata(&filename) {
             Err(e) => {
                 eprintln!("WARNING: {}: metadata failed: {:?}", filename, e);
@@ -60,57 +60,63 @@ impl RawLog {
             }
         }
     }
-    fn get_bytes(&self, offset: usize, bytes: &mut [u8]) {
-        let n = bytes.len();
-        if offset + n  > self.len { panic!("memory out of range"); }
+    pub fn slice(&self, offset: usize, n: usize) -> Option<&'a [u8]> {
+        if offset + n  > self.len { return None; }
         unsafe {
-            let src = self.mem as *mut u8; 
-            // eprintln!("src = {:?}", src);
-            ptr::copy_nonoverlapping(
-                src.offset(offset as isize),
-                bytes.as_mut_ptr(),
-                n as usize)
+            let src = self.mem as *const u8; 
+            Some(slice::from_raw_parts(src.offset(offset as isize), n))
         }
     }
+    //// With slice, this is not necessary.
+    // fn copy(&self, offset: usize, bytes: &mut [u8]) -> Option<()> {
+    //     let n = bytes.len();
+    //     if offset + n  > self.len { return None; }
+    //     unsafe {
+    //         let src = self.mem as *mut u8; 
+    //         // eprintln!("src = {:?}", src);
+    //         Some(
+    //             ptr::copy_nonoverlapping(
+    //                 src.offset(offset as isize),
+    //                 bytes.as_mut_ptr(),
+    //                 n as usize))
+    //     }
+    // }
     // Wrap in Option, so it can be used to detect eof
     pub fn get_u32_be(&self, offset: usize) -> Option<u32> {
-        if offset + 4 > self.len { None }
-        else {
-            let mut buf = [0,0,0,0];
-            self.get_bytes(offset, &mut buf);
-            Some(buf[3] as u32
-                 + (buf[2] as u32) * 0x100
-                 + (buf[1] as u32) * 0x10000
-                 + (buf[0] as u32) * 0x1000000)
-        }
+        let slice = self.slice(offset, 4)?;
+        Some(slice[3] as u32
+             + (slice[2] as u32) * 0x100
+             + (slice[1] as u32) * 0x10000
+             + (slice[0] as u32) * 0x1000000)
     }
     /* Scan for next packet.  Note that this can yield false
-     * positives.  A counterexample is a binary packet containing log
-     * fragments.  The real solution is to build an index.  The format
-     * itself is not ambiguous. */
-    pub fn scan_offset(&self, offset: usize, endx: usize) -> Option<usize> {
+     * positives.  If possible, use an unambiguous representation with
+     * an index. */
+    pub fn scan_offset_etf(&self, offset: usize, endx: usize) -> Option<usize> {
         let mut o = offset;
         while o < endx {
-            match self.verify(o) {
+            match self.verify_etf(o) {
                 Some(_size) => { return Some(o); }
                 None => { o += 1; }
             }
         }
         None
     }
-    fn verify(&self, offset: usize) -> Option<u32> {
+    fn verify_etf(&self, offset: usize) -> Option<u32> {
         let size  = self.get_u32_be(offset)?;
         if offset + (size as usize) + 8 > self.len { return None; }
         let size2 = self.get_u32_be(offset + 4 + size as usize)?;
         if size != size2 { return None };
-        /* This is not enougn.  size == 0 is a common false positive,
-         * so at least assert it has the ETF prefix. */
+        /* The above is not enougn.  size == 0 is a common false
+           positive, so we don't support it.  Some additional
+           redundancy is needed, so at least assert it has the ETF
+           prefix. */
         if size == 0 { return None; }
-        let mut buf = [0];
-        self.get_bytes(offset + 4, &mut buf);
-        if buf[0] != 131 { return None }
-        /* At this point we are reasonably sure, but it is probably
-         * best to perform another data validation step upstream. */
+        let slice = self.slice(offset + 4, 1)?;
+        if slice[0] != 131 { return None }
+        /* At this point we are reasonably sure it's a packet
+           containing an ETF bionary, but it is probably
+           best to perform another data validation step upstream. */
         Some(size)
     }
     pub fn make_index_u32(&self) -> Vec<u32> {
@@ -183,30 +189,31 @@ impl Drop for RawLog {
 // https://stackoverflow.com/questions/30218886/how-to-implement-iterator-and-intoiterator-for-a-simple-struct
 // https://stackoverflow.com/questions/34733811/what-is-the-difference-between-iter-and-into-iter
 
+// Convert log reference to iterator
 impl<'a> IntoIterator for &'a RawLog {
-    type Item = u32;
+    type Item = &'a [u8];
     type IntoIter = RawLogIterator<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
         RawLogIterator {
             rawlog: &self,
-            index: 0,
+            offset: 0,
         }
     }
 }
 
+// The iterator itself, which is consumed in an iteration.
 pub struct RawLogIterator<'a> {
     rawlog: &'a RawLog,
-    index: usize,
+    offset: usize,
 }
-
 impl<'a> Iterator for RawLogIterator<'a> {
-    type Item = u32;
-    fn next(&mut self) -> Option<u32> {
-        match self.rawlog.get_u32_be(self.index) {
+    type Item = &'a [u8];
+    fn next(&mut self) -> Option<&'a [u8]> {
+        match self.rawlog.get_u32_be(self.offset) {
             Some(size) => {
-                self.index += size as usize + 8;
-                Some(size)
+                self.offset += size as usize + 8;
+                self.rawlog.slice(self.offset, size as usize)
             },
             None => {
                 None

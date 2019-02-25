@@ -25,8 +25,10 @@
          decode_tv/2, encode_ktv/2, decode_ktv/2,
          
          %% Misc tools
-         atom/1, int/1, rotate_finite/1, skip_finite/1, si_power/1
+         atom/1, int/1, rotate_finite/1, skip_finite/1, si_power/1,
          
+         %% Row processing, e.g. for db
+         decode_row/1, encode_row/1
          
         ]).
 
@@ -395,4 +397,21 @@ si_power(Float) ->
     Grid = trunc(math:log10(Float)/3 + 3),
     max(0, min(6, Grid)) - 3.
     
+%% Curried so it can be used on tables, e.g:
+%% lists:map(
+%%   type_base:decode_row([binary,pterm,pterm,binary]),
+%%   sql_query(<<"select * from table")).
     
+decode_row(Types) ->
+    fun(Row) ->
+            lists:map(
+              fun type:decode/1,
+              lists:zip(Types,Row))
+    end.
+
+encode_row(Types) ->
+    fun(Row) ->
+            lists:map(
+              fun type:encode/1,
+              lists:zip(Types,Row))
+    end.
