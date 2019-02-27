@@ -1,5 +1,5 @@
 -module(serv_ws).
--export([start_link/1, handle/2, on_accept/1]).
+-export([start_link/1, defaults/0, handle/2, on_accept/1]).
 
 %% Stand-alone minimalistic websocket server.
 %% FIXME: Just proof of concept.
@@ -7,18 +7,19 @@
 %% ws = new WebSocket("ws://10.1.3.29:8123");
 %% ws.send("123");
 
+defaults() ->
+    #{ opts      => [binary,
+                     {packet, http},
+                     {active, once},
+                     {reuseaddr, true}],
+       headers   => #{},
+       on_accept => fun ?MODULE:on_accept/1,
+       handle    => fun ?MODULE:handle/2 }.
+    
 
 start_link(#{ port := _} = Spec) ->
     serv_tcp:start_link(
-      maps:merge(
-        Spec,
-        #{ opts      => [binary,
-                         {packet, http},
-                         {active, once},
-                         {reuseaddr, true}],
-           headers   => #{},
-           on_accept => fun ?MODULE:on_accept/1,
-           handle    => fun ?MODULE:handle/2 })).
+      maps:merge(defaults(), Spec)).
 
 on_accept(#{ sock := _Sock} = State) ->
     State.
@@ -26,7 +27,7 @@ on_accept(#{ sock := _Sock} = State) ->
 handle({http,Sock,{http_request,'GET',{abs_path,"/"},{1,1}}},
        #{ sock := Sock } = State) ->
     Headers = http:recv_headers(Sock),
-    log:info("~p~n",[Headers]),
+    %% log:info("~p~n",[Headers]),
     Key64 = proplists:get_value("Sec-Websocket-Key", Headers),
     %% Key = base64:decode(Key64), log:info("~p~n",[Key]),
     Magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
@@ -37,18 +38,19 @@ handle({http,Sock,{http_request,'GET',{abs_path,"/"},{1,1}}},
            "Connection: Upgrade\r\n",
            "Sec-WebSocket-Accept: ">>, KeyOut, <<"\r\n">>,
          <<"\r\n">>],
-    log:info("resp:~n~s", [Resp]),
+    %% log:info("resp:~n~s", [Resp]),
     inet:setopts(Sock, [{packet, raw}, {active, true}]),
     ok = gen_tcp:send(Sock, Resp),
     maps:put(headers, Headers, State);
 
 handle({tcp,Sock,Data}, #{ sock := Sock}=State) ->
-    log:info("~p~n", [Data]),    
+    %% log:info("~p~n", [Data]),    
     case parse1(Data) of
         #{ mask := 1, len := Len } when Len < 127  ->
             #{ key := Key, rest := Rest } = parse2(Data),
-            Unmasked = xorkey(Key, 0, Rest),
-            log:info("~p~n", [Unmasked])
+            _Unmasked = xorkey(Key, 0, Rest),
+            %% log:info("~p~n", [_Unmasked]),
+            ok
     end,
     State;
 
@@ -61,9 +63,12 @@ handle({send, Data}, #{ sock := Sock}=State) when is_binary(Data)->
     Encoded =
         [<<Fin:1,0:3,Opcode:4,Mask:1,Len:7>>,Key,
          xorkey(Key,0,Data)],
-    log:info("~p~n", [Encoded]),
+    %% log:info("~p~n", [Encoded]),
     gen_tcp:send(Sock, Encoded),
     State;
+
+handle({tcp_closed,_Sock}=Msg, _State) ->
+    exit(Msg);
 
 handle(Msg, State) ->
     obj:handle(Msg, State).

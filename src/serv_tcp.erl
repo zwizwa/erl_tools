@@ -5,7 +5,7 @@
          %% V1 API, for legacy support
          init/2, init/4, init/5, handle/2, accept_loop/3,
          %% V2 API, use this for new code
-         start_link/1, accept/1
+         start_link/1, accept/1, listener_handle/2
 ]).
 
 %% TCP server with client registry.
@@ -127,6 +127,7 @@ start_link(#{ port := SrcPort,
      serv:start(
        {handler,
         fun() ->
+                process_flag(trap_exit, true),
                 {ok, LSock} =
                     gen_tcp:listen(
                       SrcPort, 
@@ -136,19 +137,34 @@ start_link(#{ port := SrcPort,
                     maps:merge(
                       Spec,
                       #{ listen_sock => LSock }),
-                spawn_link(fun() -> accept(State) end),
+                Listener = self(),
+                spawn_link(
+                  fun() ->
+                          accept(maps:put(listener, Listener, State))
+                  end),
                State
         end,
         %% This is just a placeholder to serve debug info.
-        fun obj:handle/2})}.
+        fun ?MODULE:listener_handle/2})}.
+
+listener_handle({'EXIT', Pid, _Reason}, State) ->
+    Peer = maps:get(Pid, State),
+    log:info("removing: ~p~n", [{Pid,Peer}]),
+    maps:remove(Pid, State);
+
+listener_handle(Msg, State) ->
+    obj:handle(Msg, State).
+
 
 accept(#{listen_sock := LSock, 
          handle := Handle,
+         listener := Listener,
          on_accept := Init
         } = ListenState) ->
     %% tools:info("accepting: ~p~n", [LSock]),
     {ok, SrcSock} = gen_tcp:accept(LSock),
     tools:info("accepted: ~p~n", [SrcSock]),
+    obj:set(Listener, self(), inet:peername(SrcSock)),
 
     %% The process running accept will become the connection service
     %% process, so fork of a new acceptor.
