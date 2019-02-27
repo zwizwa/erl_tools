@@ -47,6 +47,7 @@
 
          %% Delegate to supervisor's child
          to_child/3,
+         widgets/1,
 
          %% Query values as produced by ws.js
          form_list/2
@@ -606,6 +607,17 @@ to_child(Sup, Child, Msg) when is_atom(Child) ->
               end
       end,
       supervisor:which_children(Sup)).
+    
+
+widgets(Ws) ->
+    case obj:find(Ws, supervisor) of
+        {ok, Sup} ->
+            maps:from_list(
+              [{Id,Pid} || {Id,Pid,_,_} <- supervisor:which_children(Sup)]);
+        _ ->
+            #{}
+    end.
+    
     
     
     

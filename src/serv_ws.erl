@@ -1,5 +1,5 @@
 -module(serv_ws).
--export([start_link/0, handle/2, on_accept/1]).
+-export([start_link/1, handle/2, on_accept/1]).
 
 %% Stand-alone minimalistic websocket server.
 %% FIXME: Just proof of concept.
@@ -7,9 +7,6 @@
 %% ws = new WebSocket("ws://10.1.3.29:8123");
 %% ws.send("123");
 
-
-start_link() ->
-    start_link(#{ port => 8123}).
 
 start_link(#{ port := _} = Spec) ->
     serv_tcp:start_link(
@@ -28,7 +25,7 @@ on_accept(#{ sock := _Sock} = State) ->
 
 handle({http,Sock,{http_request,'GET',{abs_path,"/"},{1,1}}},
        #{ sock := Sock } = State) ->
-    Headers = http:recv_http_headers(Sock),
+    Headers = http:recv_headers(Sock),
     log:info("~p~n",[Headers]),
     Key64 = proplists:get_value("Sec-Websocket-Key", Headers),
     %% Key = base64:decode(Key64), log:info("~p~n",[Key]),
@@ -59,7 +56,7 @@ handle({send, Data}, #{ sock := Sock}=State) when is_binary(Data)->
     Len = size(Data),
     true = Len < 127,
     Fin = 1, Opcode = 1, Mask = 1,
-    Key32 = random:uniform(16#100000000)-1,
+    <<Key32:32,_/binary>> = crypto:hash(sha, term_to_binary(erlang:timestamp())),
     Key = <<Key32:32>>,
     Encoded =
         [<<Fin:1,0:3,Opcode:4,Mask:1,Len:7>>,Key,
