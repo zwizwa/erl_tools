@@ -167,7 +167,7 @@ accept(#{listen_sock := LSock,
         } = ListenState) ->
     %% tools:info("accepting: ~p~n", [LSock]),
     {ok, SrcSock} = gen_tcp:accept(LSock),
-    tools:info("accepted: ~p~n", [SrcSock]),
+    %% tools:info("accepted: ~p~n", [SrcSock]),
     obj:set(Listener, self(), inet:peername(SrcSock)),
 
     %% The process running accept will become the connection service

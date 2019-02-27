@@ -2,7 +2,7 @@
 -export([start_link/1, defaults/0, handle/2, on_accept/1]).
 
 %% Stand-alone minimalistic websocket server.
-%% FIXME: Just proof of concept.
+%% FIXME: Not complete.  Modified as needed.
 
 %% ws = new WebSocket("ws://10.1.3.29:8123");
 %% ws.send("123");
@@ -24,9 +24,8 @@ start_link(#{ port := _} = Spec) ->
 on_accept(#{ sock := _Sock} = State) ->
     State.
 
-%% FIXME: Also serve the bootstrap page.
-
-handle({http,Sock,{http_request,'GET',{abs_path,"/"},{1,1}}},
+%% Start the websocket
+handle({http,Sock,{http_request,'GET',{abs_path,"/ws"},{1,1}}},
        #{ sock := Sock } = State) ->
     Headers = http:recv_headers(Sock),
     self() ! {headers,Headers},
@@ -45,6 +44,27 @@ handle({http,Sock,{http_request,'GET',{abs_path,"/"},{1,1}}},
     ok = gen_tcp:send(Sock, Resp),
     maps:put(headers, Headers, State);
 
+%% For any other page, serve a bootstrap page.
+handle({http,Sock,{http_request,'GET',_Path,{1,1}}},
+       #{ sock := Sock } = State) ->
+    Resp =
+        case maps:find(html, State) of
+            {ok, GetHtml} ->
+                Html = GetHtml(),
+                _Headers = http:recv_headers(Sock),
+                [<<"HTTP/1.1 200 OK\r\n",
+                   "Content-Type: text/html\r\n",
+                   "Content-Length: ">>, integer_to_list(size(Html)),
+                 <<"\r\n\r\n">>,
+                 Html];
+            _ ->
+                [<<"HTTP/1.1 404 Not Found\r\n">>]
+        end,
+    ok = gen_tcp:send(Sock, Resp),
+    gen_tcp:close(Sock),
+    exit(normal);
+    %%inet:setopts(Sock, [{packet, http},{active,once}]),
+    %%State;
 
 %% FIXME: Handle partial frames.
 handle({tcp,Sock,Data}=_Msg, #{ sock := Sock}=State) ->
