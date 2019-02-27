@@ -137,15 +137,19 @@ start_link(#{ port := SrcPort,
                     maps:merge(
                       Spec,
                       #{ listen_sock => LSock }),
-                Listener = self(),
-                spawn_link(
-                  fun() ->
-                          accept(maps:put(listener, Listener, State))
-                  end),
+                self() ! accept,
                State
         end,
         %% This is just a placeholder to serve debug info.
         fun ?MODULE:listener_handle/2})}.
+
+listener_handle(accept, State) ->
+    Listener = self(),
+    spawn_link(
+      fun() ->
+              accept(maps:put(listener, Listener, State))
+      end),
+    State;
 
 listener_handle({'EXIT', Pid, _Reason}, State) ->
     Peer = maps:get(Pid, State),
@@ -168,7 +172,7 @@ accept(#{listen_sock := LSock,
 
     %% The process running accept will become the connection service
     %% process, so fork of a new acceptor.
-    spawn_link(fun() -> accept(ListenState) end),
+    Listener ! accept,
 
     %% And fall into the service loop.
     ConnectState = Init(maps:put(sock, SrcSock, ListenState)),

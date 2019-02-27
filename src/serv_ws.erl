@@ -24,10 +24,12 @@ start_link(#{ port := _} = Spec) ->
 on_accept(#{ sock := _Sock} = State) ->
     State.
 
+%% FIXME: Also serve the bootstrap page.
+
 handle({http,Sock,{http_request,'GET',{abs_path,"/"},{1,1}}},
        #{ sock := Sock } = State) ->
     Headers = http:recv_headers(Sock),
-    %% log:info("~p~n",[Headers]),
+    self() ! {headers,Headers},
     Key64 = proplists:get_value("Sec-Websocket-Key", Headers),
     %% Key = base64:decode(Key64), log:info("~p~n",[Key]),
     Magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
@@ -43,32 +45,51 @@ handle({http,Sock,{http_request,'GET',{abs_path,"/"},{1,1}}},
     ok = gen_tcp:send(Sock, Resp),
     maps:put(headers, Headers, State);
 
-handle({tcp,Sock,Data}, #{ sock := Sock}=State) ->
-    %% log:info("~p~n", [Data]),    
+
+%% FIXME: Handle partial frames.
+handle({tcp,Sock,Data}=_Msg, #{ sock := Sock}=State) ->
+    %% log:info("~p~n", [_Msg]),    
     case parse1(Data) of
-        #{ mask := 1, len := Len } when Len < 127  ->
-            #{ key := Key, rest := Rest } = parse2(Data),
-            _Unmasked = xorkey(Key, 0, Rest),
-            %% log:info("~p~n", [_Unmasked]),
-            ok
-    end,
-    State;
+        #{ mask := 1, len := Len } when Len < 126  ->
+            {Decoded = #{ opcode := Opcode }, Rest} = parse2(Data),
+            case Opcode of
+                8 ->
+                    exit({ws_connection_close, Opcode});
+                _ ->
+                    self() ! {data, Decoded},
+                    case Rest of
+                        <<>> -> State;
+                        _ -> handle({tcp,Sock,Rest}, State)
+                    end
+                end;
+        _ ->
+            log:info("can't parse: ~p~n", [Data]),
+            State
+    end;
 
 handle({send, Data}, #{ sock := Sock}=State) when is_binary(Data)->
     Len = size(Data),
-    true = Len < 127,
-    Fin = 1, Opcode = 1, Mask = 1,
-    <<Key32:32,_/binary>> = crypto:hash(sha, term_to_binary(erlang:timestamp())),
+    %% This is not for crypto, so pseudo-random is ok.
+    <<Key32:32,_/binary>> =
+        crypto:hash(sha, term_to_binary(erlang:timestamp())),
     Key = <<Key32:32>>,
-    Encoded =
-        [<<Fin:1,0:3,Opcode:4,Mask:1,Len:7>>,Key,
-         xorkey(Key,0,Data)],
-    %% log:info("~p~n", [Encoded]),
+    Fin = 1, Opcode = 1, Mask = 1,
+    {LenCode,ExtraLen} =
+        if Len < 126   -> {Len,[]};
+           Len < 65535 -> {126,<<Len:16>>};
+           true        -> {127,<<Len:64>>}
+        end,
+    Encoded = [<<Fin:1,0:3,Opcode:4,Mask:1,LenCode:7>>,
+               ExtraLen, Key, xorkey(Key,0,Data)],
     gen_tcp:send(Sock, Encoded),
     State;
 
 handle({tcp_closed,_Sock}=Msg, _State) ->
     exit(Msg);
+
+%% For super
+handle({headers,_}, State) -> State;
+handle({data,_}, State) -> State;
 
 handle(Msg, State) ->
     obj:handle(Msg, State).
@@ -86,14 +107,15 @@ parse1(<<_Fin:1,_Res1:1,_Res2:1,_Res3:1,
 parse2(<<_Fin:1,_Res1:1,_Res2:1,_Res3:1, 
          Opcode:4, 1:1, Len:7, 
          Key:32,
-         Rest/binary>>) ->
-    #{
-       opcode => Opcode,
-       mask => 1,
-       len => Len,
-       key => <<Key:32>>,
-       rest => Rest
-    }.    
+         Bin/binary>>) ->
+    Masked  = binary:part(Bin, 0, Len),
+    Rest    = binary:part(Bin, Len, size(Bin)-Len),
+    Unmasked = xorkey(<<Key:32>>, 0, Masked),
+
+    {#{
+        opcode => Opcode,
+        data   => Unmasked
+      }, Rest}.
 
 xorkey(M,N,Bin) when is_binary(Bin) ->
     xorkey(M,N,binary_to_list(Bin));
