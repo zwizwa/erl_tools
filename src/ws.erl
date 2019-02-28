@@ -568,11 +568,14 @@ hmac(GetKey,Bin) when is_binary(Bin) ->
 %% By default, use a key that's generated once per session.  Failed
 %% keys will cause websocket processes to die, disconnecting socket
 %% which causes client to reconnect.  To change key, kill the process.
+gen_hmac_key() ->
+    crypto:strong_rand_bytes(32).
+
 hmac_key() ->
     Pid = serv:up(
             hmac_key,
             {handler,
-             fun() -> #{ key => crypto:strong_rand_bytes(32) } end,
+             fun() -> #{ key => gen_hmac_key() } end,
              fun obj:handle/2}),
     unlink(Pid),
     obj:get(Pid, key).

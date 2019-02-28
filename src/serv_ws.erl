@@ -95,18 +95,24 @@ handle({tcp,Sock,Data}=_Msg, #{ sock := Sock}=State) ->
 
 handle({send, Data}, #{ sock := Sock}=State) when is_binary(Data)->
     Len = size(Data),
-    %% This is not for crypto, so pseudo-random is ok.
-    <<Key32:32,_/binary>> =
-        crypto:hash(sha, term_to_binary(erlang:timestamp())),
-    Key = <<Key32:32>>,
-    Fin = 1, Opcode = 1, Mask = 1,
+    %% According to chrome, server must not mask any frames that it
+    %% sends to the client.
+
+    %% <<Key32:32,_/binary>> =
+    %%    crypto:hash(sha, term_to_binary(erlang:timestamp())),
+    %% Key = <<Key32:32>>,
+
+    Fin = 1, Opcode = 1, Mask = 0,
     {LenCode,ExtraLen} =
         if Len < 126   -> {Len,[]};
            Len < 65535 -> {126,<<Len:16>>};
            true        -> {127,<<Len:64>>}
         end,
     Encoded = [<<Fin:1,0:3,Opcode:4,Mask:1,LenCode:7>>,
-               ExtraLen, Key, xorkey(Key,0,Data)],
+               ExtraLen, 
+               %% Key, xorkey(Key,0,Data)
+               Data
+              ],
     gen_tcp:send(Sock, Encoded),
     State;
 

@@ -202,9 +202,9 @@ to_obj(KVStore) ->
 
 tag(M) when is_map(M) -> maps:map(fun(_,V) -> {pterm, V} end, M).
 
-untag(M) when is_map(M) -> maps:map(fun(_,{pterm, V}) -> V end, M);
-untag({ok,{pterm,V}}) -> {ok, V};
-untag({pterm,V}) -> V;
+untag(M) when is_map(M) -> maps:map(fun(_,{_, V}) -> V end, M);
+untag({ok,{_,V}}) -> {ok, V};
+untag({_,V}) -> V;
 untag(error) -> error.
 
 to_obj_handle({Pid, dump}, S)           -> ok=obj:reply(Pid, untag(to_map(S))), S;

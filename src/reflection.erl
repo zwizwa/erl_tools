@@ -207,6 +207,7 @@ make_rpc(Node) ->
 %% Compile the file inside the VM.  Note this requires that the paths
 %% are set properly to allow for include files.
 push_erl_change(File, #{ nodes := Nodes } = Env) ->
+    %% log:info("push_erl_change: ~p~n", [{File,Nodes}]),
     Path = maps:get(path, Env, fun(F) -> F end),
     Opts = [verbose,
             %% report_errors,report_warnings,
@@ -215,12 +216,19 @@ push_erl_change(File, #{ nodes := Nodes } = Env) ->
     case compile:file(Path(File), Opts) of
         %% FIXME: Warnings are ignored.
         {ok, Mod, Bin, _Warnings} ->
-            _ = tools:pmap(
-                  fun(Node) -> _ = push_erl_beam(Env, Node, Mod, Bin) end,
+            NodeReport =
+                tools:pmap(
+                  fun(Node) -> push_erl_beam(Env, Node, Mod, Bin) end,
                   Nodes),
+            Report = 
+                [{src,File},
+                 {md5,crypto:hash(md5, Bin)}]
+                ++ maps:to_list(NodeReport),
+
+
             %% FIXME: make a proper report
-            Report = tools:format("~p", [Nodes]),
-            Short = Report, Long = Report, %% FIXME
+            Short = tools:format("~p", [Nodes]),
+            Long  = tools:format("~p", [Report]),
             {ok, {Short, Long}};
 
         {error, Errors, _Warnings} ->
@@ -241,42 +249,50 @@ format_error({File,ErrorInfos}) ->
      || {Line,_Mod,ErrorDescriptor} <- ErrorInfos].
 
 push_erl_beam(Env, Node, Mod, Bin) ->
+    %% log:info("push_erl_beam/4: ~p~n", [{Node,Mod}]),
     RPC = make_rpc(Node),
     Ebin = maps:find(ebin, Env),
     case {Ebin,RPC(code,which,[Mod])} of
-        {_, {badrpc,nodedown}} ->
-            log:info("Node ~p is down~n", [Node]);
+        {_, {badrpc,nodedown}=Report} ->
+            %% log:info("Node ~p is down~n", [Node]),
+            Report;
         {{ok, Path}, non_existing} ->
             log:info("Node ~p, mod ~p, using default path ~s~n", [Node,Mod,Path]),
             RemoteFile = tools:format("~s/~s.beam", [Path, Mod]),
             push_erl_beam(Env, Node, Mod, Bin, RemoteFile);
         {_, non_existing} ->
-            log:info("Node ~p, mod ~p: no default path~n", [Node,Mod]);
+            log:info("Node ~p, mod ~p: no default path~n", [Node,Mod]),
+            {non_existing, no_default};
         {_, RemoteFile} ->
+            %% log:info("Node ~p, mod ~p: overwriting~n", [Node,Mod]),
             push_erl_beam(Env, Node, Mod, Bin, RemoteFile)
     end.
 push_erl_beam(Env, Node, Mod, Bin, RemoteFile) ->
+    %% log:info("push_erl_beam/5: ~p~n", [{Node,Mod,RemoteFile}]),
     RPC = make_rpc(Node),
     %% log:info("pushing ~p to ~p, ~s~n", [Mod, Node, RemoteFile]),
-    _ = try 
+    Rv1 = try 
            reflection:update_file(Env, Node, RemoteFile, Bin)
         catch
             %% Do this as error recovery.
             %% Doing it every time is too
             %% expensive.
-            {update_file,{{error,erofs},_,_}} ->
+            {update_file,{{error,erofs},_,_}}=_Msg ->
+                log:info("~p~n",[_Msg]),
                 case maps:find(remount_rw, Env) of
                     {ok, RemountRw} ->
                         RemountRw(Node),
                         reflection:update_file(Env, Node, RemoteFile, Bin)
                 end
         end,
-    _ = RPC(code,purge,[Mod]),
-    _ = RPC(code,load_file,[Mod]),
+    Rv2 = RPC(code,purge,[Mod]),
+    Rv3 = RPC(code,load_file,[Mod]),
     %% _ = RPC(log,info,["load: ~p~n",[Mod]]),
     _ = RPC(log,info,["load: ~p~n",[{Mod,RemoteFile}]]),
-    ok.
-    
+    [{file,RemoteFile},
+     {update,Rv1},
+     {purge,Rv2},
+     {load,Rv3}].
 
 
 %% While Erlang changes are simple because they can be made on a per
@@ -307,13 +323,16 @@ update_file(Env, Node, RemoteFile, Bin) when is_atom(Node) and is_binary(Bin) ->
             log:info("FIXME: using ~p~n", [FileInfo]),
             update_file(Env, Node, RemoteFile, Bin, FileInfo);
         {ok, FileInfo} ->
-            %% log:info("~p:~s,~nFileInfo=~p~n", [Node, RemoteFile, FileInfo]),
+            %% log:info("File exists: ~p:~s,~nFileInfo=~p~n", [Node, RemoteFile, FileInfo]),
             update_file(Env, Node, RemoteFile, Bin, FileInfo)
     end.
 update_file(_Env, Node, RemoteFile, Bin, FileInfo) ->
+    %% log:info("update_file/5: ~p~n", [{Node,RemoteFile,FileInfo}]),
     RPC = fun (M,F,A) -> rpc:call(Node,M,F,A) end,
     _ = RPC(file,delete,[RemoteFile]), %% For executables
-    case RPC(file,write_file,[RemoteFile,Bin]) of
+    WriteRv = RPC(file,write_file,[RemoteFile,Bin]),
+    %% log:info("update_file/5: WriteRv ~p~n", [WriteRv]),
+    case WriteRv of
         ok ->
             ok = RPC(file,write_file_info,[RemoteFile,FileInfo]), ok;
         Err ->

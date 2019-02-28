@@ -12,6 +12,8 @@
          script_output/2,
          script_xml/2, 
 
+         to_script/2,
+
          %% For reloads
          session_receive/2
 ]).
@@ -129,4 +131,11 @@ script_print(Cmd, Timeout) ->
     fold_script(Cmd, fun port_print/2, none, Timeout, [{line, 1024}]).
 
 
+
+
+%% Print to output
+to_script(Cmd, Out) ->
+    Port = open_port({spawn,Cmd},[]),
+    port_command(Port, Out),
+    port_close(Port).
 

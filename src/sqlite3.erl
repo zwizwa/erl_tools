@@ -8,6 +8,9 @@
          %% SERVER
          db_registered/3, sql/2, sql_transaction/2, close/1,
 
+         %% TOOLS
+         column_type/1,
+
          %% Internal, for reloads
          db_handle/2
         ]).
@@ -227,6 +230,16 @@ sql_transaction(DB, Queries) ->
         {sqlite3_abort,_}=E  -> {error, E}
     end.
         
+
+%% Tools
+
+%% Map type_base.erl encodings to SQLITE3 encodings.
+%% FIXME: DATETIME
+column_type(binary) -> <<"BINARY">>;
+column_type(_) -> <<"TEXT">>.
+    
+
+
     
 %% Typed databases.  This requires storage of types, possibly in a
 %% separate table or kvstore, and a wrapper around queries.  It

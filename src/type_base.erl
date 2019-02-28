@@ -28,7 +28,8 @@
          atom/1, int/1, rotate_finite/1, skip_finite/1, si_power/1,
          
          %% Row processing, e.g. for db
-         decode_row/1, encode_row/1
+         decode_row/1, encode_row/1,
+         decode_table/2, encode_table/2
          
         ]).
 
@@ -244,6 +245,26 @@ type_spec(Type) ->
                      catch _:_ -> stop(hex, Bin, "Bad HEX value")
                      end
              end};
+        datetime ->
+            %% SQLITE3 DATETIME format <-> format used by
+            %% calendar:local_time().
+            {fun({{Year,Month,Day},
+                  {Hour,Minute,Second}}) ->
+                     tools:format_binary(
+                       "~4..0w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w",
+                       [Year,Month,Day,Hour,Minute,Second])
+             end,
+             fun(Bin) ->
+                     {match, [_|Bins]} =
+                         re:run(Bin,
+                                "(\\d+)-(\\d+)-(\\d+) (\\d+):(\\d+):(\\d+)",
+                                [{capture,all,binary}]),
+                     [Year,Month,Day,Hour,Minute,Second] =
+                         lists:map(fun binary_to_integer/1, Bins),
+                     {{Year,Month,Day},
+                      {Hour,Minute,Second}}
+             end
+            };
         mac ->
             {fun({A,B,C,D,E,F}) ->
                      H = fun(V) -> tools:hex8(V) end,
@@ -408,10 +429,12 @@ decode_row(Types) ->
               fun type:decode/1,
               lists:zip(Types,Row))
     end.
-
 encode_row(Types) ->
     fun(Row) ->
             lists:map(
               fun type:encode/1,
               lists:zip(Types,Row))
     end.
+
+decode_table(Types, Table) -> lists:map(decode_row(Types), Table).
+encode_table(Types, Table) -> lists:map(encode_row(Types), Table).
