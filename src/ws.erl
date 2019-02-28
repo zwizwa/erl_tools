@@ -45,6 +45,8 @@
          js_send_input_form/2,
          js_send_event/1,
 
+         js_start_nolib/1,
+
          %% Delegate to supervisor's child
          to_child/3,
          widgets/1,
@@ -95,10 +97,16 @@ websocket_init(_TransportName, Req, _Opts) ->
        peer => Peer}}.
 
 websocket_handle({text, Json}, Req, State) ->
-    %% Interpret all incoming messages as JSON.
-    {ok, EJson} = json:decode(Json),
-    NextState = handle_ejson_(EJson, State),  %% Async only
-    {ok, Req, NextState};
+    case json:decode(Json) of
+        %% Interpret all incoming messages as JSON.
+        {ok, EJson} ->
+            NextState = handle_ejson_(EJson, State),  %% Async only
+            {ok, Req, NextState};
+        Error ->
+            log:info("not json: ~p~n", [{Json,Error}]),
+            {ok, Req, State}
+    end;
+
 websocket_handle({binary, Bin}, Req, State) -> 
     %% Binary messages (Uint8Array) are interpreted as binary erlang
     %% terms containing EJson messages.  The main reason for this is
@@ -595,6 +603,31 @@ js_send_input_form(CB, Name) ->
     tools:format_binary("send_input('~s', document.forms['~s'])", [cb_encode(CB), Name]).
 js_send_event(CB) ->
     tools:format_binary("send_event('~s', event)",[cb_encode(CB)]).
+
+%% The above relies on ws.js
+%% The below creates raw js code that can be inlined without use of ws.js
+
+
+%% Create a websocket connection without relying on ws.js
+js_start_nolib(Init) when is_map(Init)  ->
+    js_start_nolib(ws:hmac_encode(fun() -> {ok, Init} end));
+js_start_nolib(StartArgs) when is_binary(StartArgs) ->
+[<<"
+ws = new WebSocket('ws://' + location.host + '/ws');
+ws.onopen = function() {
+    var msg = { type: 'ws_start', args: '">>,StartArgs,<<"' };
+    ws.send(JSON.stringify(msg));
+}
+ws.onmessage = function(msg) {
+    var cmd = JSON.parse(msg.data);
+    console.log(cmd);
+    if (cmd.type == 'reload') {
+        window.location.reload(true);
+    }                             
+}
+">>].
+
+
 
 %% See ws_action handler above.
 cb_encode(handle) -> <<>>;
