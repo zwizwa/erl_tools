@@ -25,8 +25,11 @@ on_accept(#{ sock := _Sock} = State) ->
     State.
 
 %% Start the websocket
-handle({http,Sock,{http_request,'GET',{abs_path,"/ws"},{1,1}}},
+handle({http,Sock,{http_request,'GET',{abs_path,"/ws"}=_Path,{1,1}}},
        #{ sock := Sock } = State) ->
+
+    log:info("~p~n", [{inet:peername(Sock),_Path}]),
+
     Headers = http:recv_headers(Sock),
     self() ! {headers,Headers},
     Key64 = proplists:get_value("Sec-Websocket-Key", Headers),
@@ -47,6 +50,9 @@ handle({http,Sock,{http_request,'GET',{abs_path,"/ws"},{1,1}}},
 %% For any other page, serve a bootstrap page.
 handle({http,Sock,{http_request,'GET',_Path,{1,1}}},
        #{ sock := Sock } = State) ->
+
+    log:info("~p~n", [{inet:peername(Sock),_Path}]),
+
     Resp =
         case maps:find(html, State) of
             {ok, GetHtml} ->
@@ -63,8 +69,8 @@ handle({http,Sock,{http_request,'GET',_Path,{1,1}}},
     ok = gen_tcp:send(Sock, Resp),
     gen_tcp:close(Sock),
     exit(normal);
-    %%inet:setopts(Sock, [{packet, http},{active,once}]),
-    %%State;
+    %% inet:setopts(Sock, [{packet, http},{active,once}]),
+    %% State;
 
 %% FIXME: Handle partial frames.
 handle({tcp,Sock,Data}=_Msg, #{ sock := Sock}=State) ->

@@ -105,7 +105,14 @@ function start(args, method_call) {
         alert("WebSocket NOT supported by your Browser!");
         return;
     }
-    ws = new WebSocket("ws://"+window.location.host+"/ws");
+
+    if (window.location.protocol == "https:") {
+        ws = new WebSocket("wss://"+window.location.host+"/ws");
+    }
+    else {
+        ws = new WebSocket("ws://"+window.location.host+"/ws");
+    }
+
     ws.binaryType = "arraybuffer"; // default is "blob"
     ws.onopen = function() {
         console.log("ws.onopen");
