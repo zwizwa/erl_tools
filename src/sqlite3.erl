@@ -116,7 +116,7 @@ db_registered(Atom, DbFile, DbInit) ->
                  fun() -> 
                          DB = self(),
                          unlink(ParentPid),
-                         spawn(fun() -> DbInit(DB) end),
+                         spawn(fun() -> DbInit(#{ pid => DB, timeout => {warn, 3000} }) end),
                          #{ db => sqlite3:port_open(DbFile()) }
                  end,
                  fun sqlite3:db_handle/2}),

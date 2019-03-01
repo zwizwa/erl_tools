@@ -247,6 +247,8 @@ int MAIN(int argc, char **argv) {
         sqlite3_close(db);
         exit(1);
     }
+    sqlite3_enable_load_extension(db, 1);
+
     uint8_t *msg;
     uint32_t msg_len;
     // LOG("entering message loop\n");
