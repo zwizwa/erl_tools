@@ -43,17 +43,26 @@ function append_html(log_el, html, opts) {
 // See web:form_data/1
 // {Name=atom(),{Type=atom(),Value=binary()}}
 //
+// (***) The default values make sure it fails at the Erlang side.
 function form_field(input) {
-    return [input_name(input),                   // key
-            input.getAttribute('data-decoder'),  // type
-            input_value(input)];                 // value
+    return [input_name(input),     // key
+            input_decoder(input),  // type
+            input_value(input)];   // value
 }
 
 function input_name(el) {
     var dn = el.getAttribute('data-name');
     if (dn) { return dn; }
     if (el.name) { return el.name; }
-    return el.getAttribute('id');
+    var id_attr = el.getAttribute('id');
+    if (id_attr) { return id_attr; }
+    return "<no_input_name>";  // (***)
+}
+
+function input_decoder(el) {
+    var dec = el.getAttribute('data-decoder');
+    if (dec) return dec;
+    return "no_input_decoder"; // (***)
 }
 
 // Convert input's value to string based on kind of input.
@@ -72,9 +81,10 @@ function input_value(el) {
             // "clickable" are encoded differently.
             return dv;
         }
-        else {
+        if (el.value) {
             return el.value;
         }
+        return "<no_input_value>"; // (***)
     }
 }
 // Convert a form or input element to form data.

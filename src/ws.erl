@@ -23,7 +23,6 @@
          
          command/3, command/2,
          showhide_select/3,
-         sockets/0,
          eval/2,
 
          %% Tools
@@ -207,7 +206,7 @@ handle_ejson(#{type := <<"ws_start">>,
 %% These are produced by "send*" methods in ws.js
 handle_ejson(#{type := <<"ws_action">>, action := Action} = Msg, State) ->
 
-    %% log:info("ws_action: ~p ~p~n", [CallbackHmac, Fun]),
+    %% log:info("ws_action: ~p~n", [Msg]),
     %% Already dispatched, so these keys are no longer needed.
     M1 = maps:remove(action, Msg),
     M2 = maps:remove(type, M1),
@@ -410,10 +409,6 @@ eval(Ws, Js) when is_binary(Js) ->
     wait_reply();
 eval(Ws, Js) -> eval(Ws, iolist_to_binary(Js)).
 
-
-%% FIXME: how to get actual list of active websockets?
-sockets() ->
-     [ws0,ws1,ws2,ws3,ws4]. 
 
 %% Run shell commands, streaming output to websocket log.
 port_handle(Ws, Port) ->

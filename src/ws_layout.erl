@@ -1,5 +1,6 @@
 -module(ws_layout).
 -export([button/2, button/3,
+         tagged_table/1,
          table/2, input/2]).
 
 %% Layout functions for ws_widget style web widgets.
@@ -58,3 +59,20 @@ input(_Env = #{kvstore := _KVStore}, _Key) ->
 %% printable terms.  See ws.erl and type_base.erl pterm
 id(PTerm) ->
     {id, ws:encode_id(PTerm)}.
+
+
+
+%% Using the widget Env convention.
+%% Move this to ws_layout.erl
+tagged_table(#{ get_table := GetTable,
+                send      := Send,
+                path      := Path }) ->
+    %% Take first column to be ID
+    {table,[],
+     [{tr,[{onclick, Send},
+           {'data-decoder', atom},
+           {'data-value', "click"},
+           {id, ws:encode_id({Path, hd(Row)})}],
+       [{td,[],[[Col]]}
+        || Col <- Row]}
+      || Row <- GetTable()]}.

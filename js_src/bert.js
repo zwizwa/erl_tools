@@ -225,9 +225,16 @@ Bert.prototype = {
         return a;
     },
     push_inner: function (a, obj) {
-        var type = typeof(obj);
-        //console.log(type, obj);
-        this["push_" + type].call(this, a, obj);
+        if (obj == null) {
+            // This is linkely an error somewhere else.  Don't fail here.
+            console.log("WARNING: bert: push_inner: null");
+            a.push(this.NIL);
+        }
+        else {
+            var type = typeof(obj);
+            // console.log(type, obj);
+            this["push_" + type].call(this, a, obj);
+        }
     },
     // JavaScript types, called by push_inner
     push_string: function (a, str) {
