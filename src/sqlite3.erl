@@ -132,14 +132,15 @@ db_registered(Atom, DbFile, DbInit) ->
 %% rewrite a lot of the logic.  Maybe clean this up later?.  To undo,
 %% remove the 'check' clause, and translate it back into a map that
 %% computes Results directly.
-db_handle({Pid, {queries, Queries}}, #{db := DB} = State) ->
+db_handle({Pid, {queries, Queries, QState}}, #{db := DB} = State) ->
     Results =
         run_transaction(  %% early stop on error.
           fun(Query) ->
                   sink:gen_to_list(
                     fun(Sink) -> sqlite3:port_query(DB, Query, Sink) end)
           end,
-          Queries),
+          Queries,
+          QState),
     Pid ! {self(), obj_reply, Results},
     State;
 
@@ -161,30 +162,42 @@ db_handle(Msg,State) ->
     obj:handle(Msg,State).
 
 
-run_transaction(RunQuery, Queries) ->
+run_transaction(RunQuery, Queries, QState) ->
     %% Always rollback first in case DB got into a bad state.
     RunQuery({<<"rollback transaction">>, []}),
     RunQuery({<<"begin transaction">>, []}),
-    Rv = run_until_error(RunQuery, Queries, []),
+    Rv = run_until_error(RunQuery, Queries, [], QState),
     RunQuery({<<"end transaction">>, []}),
     Rv.
 
-run_until_error(_, [], Acc) -> lists:reverse(Acc);
-run_until_error(RunQuery, [Q|Qs], Acc) ->
+run_until_error(_, [], Acc, _) ->
+    lists:reverse(Acc);
+run_until_error(RunQuery, [Q|Qs], Acc, QState) ->
     case Q of
+        %% FIXME: Remove in favor of pfold_fn
         {check, Check} ->
             case Check(Acc) of
                 ok ->
-                    run_until_error(RunQuery, Qs, Acc);
+                    run_until_error(RunQuery, Qs, Acc, QState);
                 Msg ->
                     RunQuery({<<"rollback transaction">>, []}),
                     {sqlite3_abort, Msg}
             end;
-         _ ->
+        %% FIXME: Not tested.  This was made for something that could
+        %% be done using straight queries.
+        {pfold_fn, Fn} ->
+            case Fn(Acc, QState) of
+                {next, QStateNext} ->
+                    run_until_error(RunQuery, Qs, Acc, QStateNext);
+                {stop, _}=Msg ->
+                    RunQuery({<<"rollback transaction">>, []}),
+                    {sqlite3_abort, Msg}
+            end;
+        _ ->
             Rows = RunQuery(Q),
             case (try throw_if_error(Rows), ok
                   catch {_,_}=E -> E end) of
-                ok -> run_until_error(RunQuery, Qs, [Rows|Acc]);
+                ok -> run_until_error(RunQuery, Qs, [Rows|Acc], QState);
                 Err -> Err
             end
     end.
@@ -201,17 +214,20 @@ throw_if_error(Rows) ->
 
 -spec queries(pid(),
               [query()],
-              query_timeout()) ->
+              query_timeout(),
+              any()) ->
                      query_ok() | query_error().
 
 
-queries(DbPid, Queries, Timeout) ->
-    obj:call(DbPid, {queries, Queries}, Timeout).
+queries(DbPid, Queries, Timeout, State) ->
+    obj:call(DbPid, {queries, Queries, State}, Timeout).
 
 
 -spec sql(db_spec(), [{binary(), [binding()]}]) -> [result_table()].
-sql(#{pid := Pid, timeout := Timeout}, Queries) ->
-    case queries(Pid, Queries, Timeout) of
+sql(DB, Queries) ->
+    sql(DB, Queries, no_state).
+sql(#{pid := Pid, timeout := Timeout}, Queries, State) ->
+    case queries(Pid, Queries, Timeout, State) of
         {_,_}=E -> throw(E);
         Rv -> Rv
     end.
@@ -224,7 +240,9 @@ close(#{pid := Pid}) ->
     
 %% Alterative using ok/error for sqlite3_errmsg errors
 sql_transaction(DB, Queries) ->
-    try {ok, sql(DB, Queries)}
+    sql_transaction(DB, Queries, no_state).
+sql_transaction(DB, Queries, State) ->
+    try {ok, sql(DB, Queries, State)}
     catch
         {sqlite3_errmsg,_}=E -> {error, E};
         {sqlite3_abort,_}=E  -> {error, E}

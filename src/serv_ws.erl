@@ -55,6 +55,7 @@ handle({http,Sock,{http_request,'GET',Path,{1,1}}},
         case maps:find(req, State) of
             {ok, Req} ->
                 {ok, HttpResp} = Req({Path,Headers}),
+                %% log:info("HttpResp: ~p~n", [HttpResp]),
                 HttpResp;
             _ ->
                 [<<"HTTP/1.1 404 Not Found\r\n">>]
