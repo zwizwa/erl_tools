@@ -66,12 +66,13 @@ id(PTerm) ->
 %% Move this to ws_layout.erl
 tagged_table(#{ get_table := GetTable,
                 send      := Send,
+                event     := {T,V},
                 path      := Path }) ->
     %% Take first column to be ID
     {table,[],
      [{tr,[{onclick, Send},
-           {'data-decoder', atom},
-           {'data-value', "click"},
+           {'data-decoder', T},
+           {'data-value', type_base:encode({T,V})},
            {id, ws:encode_id({Path, hd(Row)})}],
        [{td,[],[[Col]]}
         || Col <- Row]}

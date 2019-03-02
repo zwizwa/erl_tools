@@ -153,7 +153,7 @@ float(Bin) ->
     end.
              
 term(Bin) ->    
-    try binary_to_term(Bin)
+    try erlang:binary_to_term(Bin)
     catch _:_ -> stop(term, Bin, <<"Bad Term">>) end.
 
 %% Note that not all terms are serializable through ~p printing.

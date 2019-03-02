@@ -110,7 +110,7 @@ websocket_handle({binary, Bin}, Req, State) ->
     %% Binary messages (Uint8Array) are interpreted as binary erlang
     %% terms containing EJson messages.  The main reason for this is
     %% to avoid a JSON parser.
-    EJson = binary_to_term(Bin),
+    EJson = erlang:binary_to_term(Bin),
     %% log:info("via bert: ~p~n",[EJson]),
     NextState = handle_ejson_(EJson, State),  %% Async only
     {ok, Req, NextState};
@@ -559,9 +559,9 @@ hmac_encode(GetKey,Obj) ->
     Hmac = hmac(GetKey,Bin),
     base64:encode(term_to_binary({Bin,Hmac})).
 hmac_decode(GetKey,Base64) ->
-    {Bin,Hmac} = binary_to_term(base64:decode(Base64)),
+    {Bin,Hmac} = erlang:binary_to_term(base64:decode(Base64),[safe]),
     case hmac(GetKey,Bin) of
-        Hmac  -> {ok, binary_to_term(Bin)};
+        Hmac  -> {ok, erlang:binary_to_term(Bin)};
         Hmac1 -> {error, {hmac_fail, Hmac, Hmac1}}
     end.
 hmac(GetKey,Bin) when is_binary(Bin) -> 

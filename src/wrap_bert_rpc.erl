@@ -22,7 +22,7 @@ handle({Pid, {M,F,A}}, #{ sock := Sock } = State) ->
     gen_tcp:send(Sock, term_to_binary({call,M,F,A})),
     receive
         {tcp,Sock,Data} ->
-            case  binary_to_term(Data) of
+            case binary_to_term(Data) of
                 {reply, Term} ->
                     obj:reply(Pid, {ok, Term})
             end

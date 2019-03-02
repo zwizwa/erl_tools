@@ -31,7 +31,6 @@ handle({http,Sock,{http_request,'GET',{abs_path,"/ws"}=_Path,{1,1}}},
     log:info("~p~n", [{inet:peername(Sock),_Path}]),
 
     Headers = http:recv_headers(Sock),
-    self() ! {headers,Headers},
     Key64 = proplists:get_value("Sec-Websocket-Key", Headers),
     %% Key = base64:decode(Key64), log:info("~p~n",[Key]),
     Magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
@@ -47,22 +46,16 @@ handle({http,Sock,{http_request,'GET',{abs_path,"/ws"}=_Path,{1,1}}},
     ok = gen_tcp:send(Sock, Resp),
     maps:put(headers, Headers, State);
 
-%% For any other page, serve a bootstrap page.
-handle({http,Sock,{http_request,'GET',_Path,{1,1}}},
+%% Any other page is delegated to plugin.
+handle({http,Sock,{http_request,'GET',Path,{1,1}}},
        #{ sock := Sock } = State) ->
-
-    log:info("~p~n", [{inet:peername(Sock),_Path}]),
-
+    %% log:info("~p~n", [{inet:peername(Sock), Path}]),
+    Headers = http:recv_headers(Sock),
     Resp =
-        case maps:find(html, State) of
-            {ok, GetHtml} ->
-                Html = GetHtml(),
-                _Headers = http:recv_headers(Sock),
-                [<<"HTTP/1.1 200 OK\r\n",
-                   "Content-Type: text/html\r\n",
-                   "Content-Length: ">>, integer_to_list(size(Html)),
-                 <<"\r\n\r\n">>,
-                 Html];
+        case maps:find(req, State) of
+            {ok, Req} ->
+                {ok, HttpResp} = Req({Path,Headers}),
+                HttpResp;
             _ ->
                 [<<"HTTP/1.1 404 Not Found\r\n">>]
         end,
@@ -120,11 +113,20 @@ handle({tcp_closed,_Sock}=Msg, _State) ->
     exit(Msg);
 
 %% For super
-handle({headers,_}, State) -> State;
-handle({data,_}, State) -> State;
+handle({req,_}=_Msg, State) ->
+    log:info("serv_ws:handle: ~p~n",[_Msg]),
+    State;
+handle({data,_}, State) ->
+    State;
 
-handle(Msg, State) ->
-    obj:handle(Msg, State).
+handle({_,dump} = Msg, State) ->
+    obj:handle(Msg, State);
+
+handle(Msg, _State) ->
+    E = {bad_request, Msg},
+    log:info("~p~n", [E]),
+    exit(E).
+
 
 
 %% Several variants: FIXME: not complete
