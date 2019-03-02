@@ -49,9 +49,10 @@ input(Env = #{kvstore := KVStore, input := Input}, Key) ->
     %% Initialize from KVStore, set callback to 'handle' method.
     Input(Env, {Key, kvstore:get(KVStore, Key), handle});
 
-%% Newer code can leave out "input"
-input(_Env = #{kvstore := _KVStore}, _Key) ->
-    throw('FIXME_implement_input').
+%% Newer code can leave out "input" and use the default renderer that
+%% supports the newer Env approach.
+input(Env = #{kvstore := KVStore}, Key) ->
+    exml:input(Env, {Key, kvstore:get(KVStore, Key)}).
 
 
 

@@ -132,8 +132,9 @@ handle({Pid, span}, #{ tree := Tree }=State) ->
 
 %% Indexed reference.  Perform seek and retrieval in one atomic
 %% operation.  Two levels are supported: global and curent chunk.
-handle({Pid, {ref, {C, N}}},
+handle({Pid, {ref, {C, N}}=_Msg},
        #{ chunk := Chunk }=State) ->
+    log:info("~p~n", [_Msg]),
     case C of
         Chunk ->
             handle({Pid, {ref_current, N}}, State);
@@ -147,6 +148,12 @@ handle({Pid, {ref, {C, N}}},
                     handle({open, Chunk}, State)
             end
     end;
+handle({Pid, {frac_ref, Frac}},
+       #{ tree := Tree }=State) ->
+    {S,E} = tree_span(Tree),
+    N = trunc(S + Frac * (E-S-1)),
+    handle({Pid, {ref, N}}, State);
+    
 handle({Pid, {ref, N}},
        #{ tree := Tree }=State) when is_number(N) ->
     case lookup(N, Tree) of

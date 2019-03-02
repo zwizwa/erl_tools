@@ -69,8 +69,16 @@ input(TypeMod, Spec) when is_atom(TypeMod) ->
     input(#{ type_mod => TypeMod }, Spec);
 
 %% The new interface uses environment passing.
+input(Env, {Key, Value}) when is_map(Env) ->
+    Input = input_(Env, {Key, Value}),
+    %% By default, use the widget router.
+    JS = case maps:find(send, Env) of
+             {ok, Send} -> Send;
+             _ -> "app." ++ ws:js_send_input(handle)
+         end,
+    input_set_callback(Input, JS).
 
-input(_Env, {Key, {clickable, {Tag,As,Es}}}) ->
+input_(_Env, {Key, {clickable, {Tag,As,Es}}})  ->
     {Tag,
      attr_merge(
        As,[{'data-name',encode_key(Key)},
@@ -80,7 +88,7 @@ input(_Env, {Key, {clickable, {Tag,As,Es}}}) ->
            attr_decoder(button)]),
      Es};
 
-input(_Env, {Key, {button, Label}}) ->
+input_(_Env, {Key, {button, Label}}) ->
     true = is_binary(Label),
     {button,
      [{name,encode_key(Key)},
@@ -88,7 +96,7 @@ input(_Env, {Key, {button, Label}}) ->
       attr_decoder(button)],
      [[Label]]};
 
-input(_Env, {Key, {boolean, Value}}) ->
+input_(_Env, {Key, {boolean, Value}}) ->
     {input,
      [{name,encode_key(Key)},
       {type, checkbox},
@@ -96,8 +104,8 @@ input(_Env, {Key, {boolean, Value}}) ->
      ++ checked(Value),
      []};
 
-input(#{ type_mod := TypeMod},
-      {Key, {{float, Min, Max}=Type, _Value}=TaggedValue}) ->
+input_(Env, {Key, {{float, Min, Max}=Type, _Value}=TaggedValue}) ->
+    TypeMod = maps:get(type_mod, Env, type_base),
     BinEncoded = TypeMod:encode(TaggedValue),
     {input,
      [{name, encode_key(Key)},
@@ -108,15 +116,15 @@ input(#{ type_mod := TypeMod},
       attr_decoder(Type)],
      [[BinEncoded]]};
 
-input(_Env, {Key, {password, Value}}) -> 
+input_(_Env, {Key, {password, Value}}) -> 
     {input,[{name,encode_key(Key)},
             {type, password},
             {value, Value},
             attr_decoder(binary)],
      [[Value]]};
 
-input(#{ type_mod := TypeMod},
-      {Key, {Type, InitTerm}=TaggedValue}) ->
+input_(Env, {Key, {Type, InitTerm}=TaggedValue}) ->
+    TypeMod = maps:get(type_mod, Env, type_base),
     BinEncoded = TypeMod:encode(TaggedValue),
     Attrs = [{name, encode_key(Key)},
              attr_decoder(Type)],
