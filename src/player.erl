@@ -1,5 +1,5 @@
 -module(player).
--export([start_link/1, handle/2,
+-export([start_link/1, handle/2, stream_handle/2,
          ensure_index/2, ensure_index/1,
          take/2,
          convert/3,
@@ -29,7 +29,11 @@ start_link(Init = #{ dir := Dir, chunk := N }) ->
                 %% restart the player.
                 Spans = spans(Dir),
                 Tree = tree(Spans),
-                State = maps:put(tree, Tree, Init),
+                State = 
+                    maps:merge(
+                      Init,
+                      #{ bc => serv:bc_start(),
+                         tree => Tree }),
                 %% Always have a file open.
                 handle({open, N}, State)
         end,
@@ -178,9 +182,90 @@ handle({Pid, {ref_current, N}},
     end,
     State;
 
+%% Real-time playback.  Messages are sent to a broadcaster.
+handle({subscribe, _}=Msg, #{ bc := BC } = State) ->
+    BC ! Msg, State;
+handle({unsubscribe, _}=Msg, #{ bc := BC } = State) ->
+    BC ! Msg, State;
+
+
+handle(start, State = #{ bc := BC }) ->
+    %% It's simpler to do this in a separate task
+    case maps:find(stream, State) of
+        {ok, _Pid} ->
+            log:info("already started~n"),
+            State;
+        _ ->
+            Player = self(),
+            Stream = 
+                serv:start(
+                  {handler,
+                   fun() -> 
+                           self() ! start,
+                           #{ bc => BC,
+                              player => Player } 
+                   end,
+                   fun ?MODULE:stream_handle/2}),
+            maps:put(stream, Stream, State)
+    end;
+handle(stop, State) ->
+    case maps:find(stream, State) of
+        {ok, Pid} ->
+            unlink(Pid),
+            exit(Pid, kill),
+            maps:remove(stream, State);
+        _ ->
+            log:info("already stopped~n"),
+            State
+    end;    
+
 %% Debug.
 handle(Msg, State) ->
     obj:handle(Msg,State).
+
+
+
+%% Playback.  Use the player's current state.
+%% FIXME: Handle time jumps.
+stream_handle(start, State = #{ player := Player }) ->
+    {ok, {T,_} = TsMsg} = obj:call(Player, next),
+    State1 = maps:put(play_t0, {T, erlang:now()}, State),
+    stream_handle({play_next, TsMsg}, State1);
+
+stream_handle({play_next, OldTsMsg}, 
+       #{ bc := BC, 
+          player := Player,
+          play_t0 := {RecT0, NowT0} } = State) ->
+
+    %% log:info("play_next~n"),
+
+    %% Send the message that was read previously.
+    BC ! {broadcast, {play, OldTsMsg}},
+
+    %% Read the new one and schedule delivery.
+    {ok, {T,_} = TsMsg} = obj:call(Player, next),
+    RecDiff = timer:now_diff(T, RecT0),
+    NowDiff = timer:now_diff(erlang:now(), NowT0),
+    DelayMs = trunc((RecDiff - NowDiff) / 1000),
+
+    %% Ignore large discontinuities in the time stamp.
+    DelayMsPatched =
+        if (DelayMs > 1000) or (DelayMs < 0) ->
+                log:info("jump: ~p~n", [DelayMs]),
+                0;
+           true ->
+                DelayMs
+        end,
+    erlang:send_after(
+      DelayMsPatched, self(),
+      {play_next, TsMsg}, []),
+    State;
+
+stream_handle(Msg, State) ->
+    obj:handle(Msg, State).
+
+
+
    
 
 
