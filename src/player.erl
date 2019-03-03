@@ -193,7 +193,7 @@ handle(start, State = #{ bc := BC }) ->
     %% It's simpler to do this in a separate task
     case maps:find(stream, State) of
         {ok, _Pid} ->
-            log:info("already started~n"),
+            %% log:info("already started~n"),
             State;
         _ ->
             Player = self(),
@@ -206,28 +206,26 @@ handle(start, State = #{ bc := BC }) ->
                               player => Player } 
                    end,
                    fun ?MODULE:stream_handle/2}),
+            process_flag(trap_exit, true),
             maps:put(stream, Stream, State)
     end;
+
+handle({'EXIT',Stream,_}=_Msg, State = #{ stream := Stream }) ->
+    log:info("stopped: ~p~n",[_Msg]),
+    maps:remove(stream, State);
+
+handle({'EXIT',_,_}=Msg, _State) ->
+    exit({unknown_child,Msg});
+
 handle(stop, State) ->
     case maps:find(stream, State) of
         {ok, Pid} ->
-            unlink(Pid),
-            exit(Pid, kill),
-            maps:remove(stream, State);
+            exit(Pid, stop),
+            State;
         _ ->
-            log:info("already stopped~n"),
+            %% log:info("already stopped~n"),
             State
     end;    
-
-%% FIXME: Workaround for this not shutting down properly in the
-%% websockets widget monitor.
-handle({monitor,Pid}, State) ->
-    _Ref = erlang:monitor(process, Pid),
-    State;
-handle({'DOWN',_Ref,process,_Pid,_Reason}=Msg, _State) ->
-    E = {owner_exit, Msg},
-    log:info("~p~n",[E]),
-    exit(E);
 
 %% Debug.
 handle(Msg, State) ->
@@ -238,9 +236,13 @@ handle(Msg, State) ->
 %% Playback.  Use the player's current state.
 %% FIXME: Handle time jumps.
 stream_handle(start, State = #{ player := Player }) ->
-    {ok, {T,_} = TsMsg} = obj:call(Player, next),
-    State1 = maps:put(play_t0, {T, erlang:now()}, State),
-    stream_handle({play_next, TsMsg}, State1);
+    case obj:call(Player, next) of
+        {ok, {T,_} = TsMsg} ->
+            State1 = maps:put(play_t0, {T, erlang:timestamp()}, State),
+            stream_handle({play_next, TsMsg}, State1);
+        E ->
+            exit({next,E})
+    end;
 
 stream_handle({play_next, OldTsMsg}, 
        #{ bc := BC, 
@@ -253,27 +255,31 @@ stream_handle({play_next, OldTsMsg},
     BC ! {broadcast, {play, OldTsMsg}},
 
     %% Read the new one and schedule delivery.
-    {ok, {T,_} = TsMsg} = obj:call(Player, next),
-    RecDiff = timer:now_diff(T, RecT0),
-    NowDiff = timer:now_diff(erlang:now(), NowT0),
-    DelayMs = trunc((RecDiff - NowDiff) / 1000),
+    case obj:call(Player, next) of
+        {ok, {T,_} = TsMsg} ->
+            RecDiff = timer:now_diff(T, RecT0),
+            NowDiff = timer:now_diff(erlang:timestamp(), NowT0),
+            DelayMs = trunc((RecDiff - NowDiff) / 1000),
 
-    {DelayMsPatched,State1} =
-        if %% Reset time base when large discontinuities are detected.
-            abs(DelayMs) > 1000  ->
-                %% Reset the time base.
-                log:info("jump: ~p~n", [DelayMs]),
-                {0, maps:put(play_t0, {T, erlang:now()}, State)};
-            DelayMs < 0 ->
-                %% log:info("lag: ~p~n", [DelayMs]),
-                {0, State};
-            true ->
-                {DelayMs,State}
-        end,
-    erlang:send_after(
-      DelayMsPatched, self(),
-      {play_next, TsMsg}, []),
-    State1;
+            {DelayMsPatched,State1} =
+                if %% Reset time base when large discontinuities are detected.
+                    abs(DelayMs) > 1000  ->
+                        %% Reset the time base.
+                        %% log:info("jump: ~p~n", [DelayMs]),
+                        {0, maps:put(play_t0, {T, erlang:timestamp()}, State)};
+                    DelayMs < 0 ->
+                        %% log:info("lag: ~p~n", [DelayMs]),
+                        {0, State};
+                    true ->
+                        {DelayMs,State}
+                end,
+            erlang:send_after(
+              DelayMsPatched, self(),
+              {play_next, TsMsg}, []),
+            State1;
+        E ->
+            exit({next,E})
+    end;
 
 stream_handle(Msg, State) ->
     obj:handle(Msg, State).
