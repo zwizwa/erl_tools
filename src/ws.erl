@@ -172,10 +172,11 @@ websocket_terminate(_Reason, _Req, State) ->
     case maps:find(supervisor, State) of
         {ok, Pid} ->
             log:info("- shutdown supervisor ~p~n", [Pid]),
-            exit(Pid, shutdown), ok;
+            %% exit(Pid, shutdown), ok;
+            exit(Pid, kill), ok;
         _ ->
             log:info("- no supervisor~n"),
-            ok 
+            ok
     end.
 
 

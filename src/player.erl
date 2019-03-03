@@ -138,7 +138,7 @@ handle({Pid, span}, #{ tree := Tree }=State) ->
 %% operation.  Two levels are supported: global and curent chunk.
 handle({Pid, {ref, {C, N}}=_Msg},
        #{ chunk := Chunk }=State) ->
-    log:info("~p~n", [_Msg]),
+    %% log:info("~p~n", [_Msg]),
     case C of
         Chunk ->
             handle({Pid, {ref_current, N}}, State);
@@ -219,6 +219,16 @@ handle(stop, State) ->
             State
     end;    
 
+%% FIXME: Workaround for this not shutting down properly in the
+%% websockets widget monitor.
+handle({monitor,Pid}, State) ->
+    _Ref = erlang:monitor(process, Pid),
+    State;
+handle({'DOWN',_Ref,process,_Pid,_Reason}=Msg, _State) ->
+    E = {owner_exit, Msg},
+    log:info("~p~n",[E]),
+    exit(E);
+
 %% Debug.
 handle(Msg, State) ->
     obj:handle(Msg,State).
@@ -248,18 +258,22 @@ stream_handle({play_next, OldTsMsg},
     NowDiff = timer:now_diff(erlang:now(), NowT0),
     DelayMs = trunc((RecDiff - NowDiff) / 1000),
 
-    %% Ignore large discontinuities in the time stamp.
-    DelayMsPatched =
-        if (DelayMs > 1000) or (DelayMs < 0) ->
+    {DelayMsPatched,State1} =
+        if %% Reset time base when large discontinuities are detected.
+            abs(DelayMs) > 1000  ->
+                %% Reset the time base.
                 log:info("jump: ~p~n", [DelayMs]),
-                0;
-           true ->
-                DelayMs
+                {0, maps:put(play_t0, {T, erlang:now()}, State)};
+            DelayMs < 0 ->
+                %% log:info("lag: ~p~n", [DelayMs]),
+                {0, State};
+            true ->
+                {DelayMs,State}
         end,
     erlang:send_after(
       DelayMsPatched, self(),
       {play_next, TsMsg}, []),
-    State;
+    State1;
 
 stream_handle(Msg, State) ->
     obj:handle(Msg, State).
