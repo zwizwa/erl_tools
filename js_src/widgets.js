@@ -125,7 +125,7 @@ function create_element(spec) {
     tools.each(spec.e, function(el_spec) {
         el.appendChild(create_element(el_spec));
     });
-    // console.log(el);
+    //console.log(el);
     return el;
 }
 

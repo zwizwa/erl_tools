@@ -24,12 +24,24 @@ button(Env, Tag) ->
     Text = tools:format_binary("~p",[Tag]),
     button(Env, Tag, Text).
 
-button(#{path := Path, send := Send}, Tag, Text) ->
+%% FIXME: This changed.  Don't prefix the path here.  Widgets will
+%% have to use absolute IDs, otherwise it gets too confusing because
+%% absolute IDs are necessary in other places.
+
+%% button(#{path := Path}=Env, Tag, Text) ->
+%%     {button,
+%%      [{onclick, exml:get_send(Env)},
+%%       {'data-decoder', button},  %% Type conversion for js->erl messages.
+%%       {'data-mixin', cell},      %% DOM behavior for erl->js messages
+%%       id({Path,Tag})],           %% erl<->js messages
+%%      [[Text]]}.
+
+button(Env, Tag, Text) ->
     {button,
-     [{onclick, Send},
+     [{onclick, exml:get_send(Env)},
       {'data-decoder', button},  %% Type conversion for js->erl messages.
       {'data-mixin', cell},      %% DOM behavior for erl->js messages
-      id({Path,Tag})],           %% erl<->js messages
+      id(Tag)],                  %% erl<->js messages
      [[Text]]}.
 
 
@@ -52,9 +64,17 @@ input(Env = #{kvstore := KVStore, input := Input}, Key) ->
 %% Newer code can leave out "input" and use the default renderer that
 %% supports the newer Env approach.
 input(Env = #{kvstore := KVStore}, Key) ->
-    exml:input(Env, {Key, kvstore:get(KVStore, Key)}).
+    input_set_id(Key, exml:input(Env, {Key, kvstore:get(KVStore, Key)})).
 
-
+%% All widget elements have a unique id and have 'cell' behavior so
+%% they can be updated.  The exml:input library only uses 'name'.
+input_set_id(ID,{Tag,As,Es}) ->
+    {Tag,
+     exml:attr_merge(
+       As,
+       [{'id',ws:encode_id(ID)},
+        {'data-mixin','input'}]),
+     Es}.
 
 %% Throughout the application, id attributes are assumed to be
 %% printable terms.  See ws.erl and type_base.erl pterm

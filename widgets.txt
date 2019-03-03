@@ -1,0 +1,44 @@
+Some context regarding websocket widgets.
+
+JavaScript side:
+
+- a DOM element can be coupled to behavior, by attaching a set of
+  mixins via the 'data-mixin' attribute
+
+- a DOM element can be identified using the standard 'id' attribute.
+
+The combination of these two allows messages to be sent from Erlang to
+an object in JavaScript, by looking up a method in one of the mixin's
+method tables.
+
+
+Erlang side:
+
+- a single page application (SPA) is associated to a websocket and a
+  key value store (kvstore).
+
+- a SPA consists of a collection of widgets.  each widget instance is
+  identified by a unique path.  this is used for all JavaScript side
+  objects associated to the SPA
+
+- a widget is an Erlang process that is defined by:
+
+  - an initial layout page
+
+  - a start method for starting a process that receives messages from
+    the JavaScript side
+
+
+This is a fairly straightforward system, but it is a bit hard to
+explain in simple terms due to the a-symmetric nature of the two
+sides.  If you ware interested, drop me a line, I'll try to explain
+better.
+
+This is the result of a long evolution with a lot or refactoring and
+need for backwards compatibility, so at this point it is messy.
+However, the idea is solid.  There is a simple core idea hidden in here.
+
+
+
+
+

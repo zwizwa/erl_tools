@@ -17,6 +17,8 @@
 
          json/2,
 
+         get_send/1,
+
          validate/1
 
 
@@ -71,12 +73,15 @@ input(TypeMod, Spec) when is_atom(TypeMod) ->
 %% The new interface uses environment passing.
 input(Env, {Key, Value}) when is_map(Env) ->
     Input = input_(Env, {Key, Value}),
+    input_set_callback(Input, get_send(Env)).
+
+get_send(Env) ->
     %% By default, use the widget router.
     JS = case maps:find(send, Env) of
              {ok, Send} -> Send;
              _ -> "app." ++ ws:js_send_input(handle)
          end,
-    input_set_callback(Input, JS).
+    JS.
 
 input_(_Env, {Key, {clickable, {Tag,As,Es}}})  ->
     {Tag,

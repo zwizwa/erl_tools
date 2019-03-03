@@ -3,6 +3,10 @@
          %% Convert collection of widgets to initial page template
          layout/2,
          supervisor/2,
+         %% Lib code
+         sync/1,
+         ktv_set_cmd/1,
+
          %% Widgets
          kvstore_init/1,
          kvstore_edit/1,
@@ -254,4 +258,52 @@ config(Fun,Env1) ->
 kvstore_init(_Env = #{defaults := Defaults, kvstore := KVStore}) ->
     {ok, kvstore:init(KVStore, Defaults)}.
 
+    
+
+
+
+
+
+%% Sync all inputs with current store state.  This is necessary
+%% because the browser keeps its local input state across reloads,
+%% which is likely stale.
+sync(_Env = #{ kvstore := KVStore, ws := Ws, path := Path }) ->
+    Cmds =
+        lists:flatten(
+          lists:map(
+            fun({{P,_},_}=KTV) when P == Path ->
+                    [ktv_set_cmd(KTV)];
+               (_) ->
+                  []
+            end,
+            kvstore:to_list(KVStore))),
+    log:info("Cmds: ~p~n", [Cmds]),
+    %% ws:call_sequence(Ws,Cmds),
+    ok.
+
+%% Another attempt in simplifying data input handling.  Maybe a rehash
+%% of the principles:
+%% - Each single page application is associated to a websocket and a kvstore
+%% - A page may contain several instances of widgets.
+%% - Each widget's input ids are prefixed with a unique path
+
+
+%% A wrapper around 'set' that can be used on all input widgets.  This
+%% handles some special-casing that is hard to do on the javscript end
+%% -- see the 'input' export in widgets.js.  This corresponds to how
+%% exml:input encodes KTVs.  In retrospect, it makes more sense to
+%% always send encoded values, and do the special-casing at the
+%% JavaScript end.
+ktv_set_cmd({K,{T,V}}) ->
+    {K, set,
+     case T of
+         {finite,_} ->
+             %% Select widgets need the encoded items
+             type_base:encode({T,V});
+         _ ->
+             %% By default it is assumed that JSON or BERT layer
+             %% translates the decoded values to the correct JavaScript
+             %% type.
+             V
+     end}.
     
