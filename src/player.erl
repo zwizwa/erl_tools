@@ -4,7 +4,9 @@
          take/2,
          convert/3,
          bisect/2,
-         stamp_st/2,
+         stamp/2, stamp_st/2,
+         %% local_time_to_timestamp/1,
+         bisect_local_time/2,
          %% RPC calls
          spans/1, tree/1, lookup/2]).
 
@@ -307,16 +309,18 @@ take(Pid, N) ->
 %% Use someting else that is easier to compare.  For now, work in
 %% local time using calendar routines.
 
+bisect(Pid, {TimeBase, _}=T) when is_atom(TimeBase)->
+    bisect(Pid, to_timestamp(T));
 bisect(Pid, T) ->
     {Start, Endx} = obj:call(Pid, span),
     %% Search uses inclusive spans.
     Endi = Endx-1,
     bisect_({Pid, T}, Start, Endi).
 bisect_({ Pid, T }=Env, NLeft, NRight) ->
-    log:info("~p~n",[{NLeft,NRight}]),
+    %% log:info("~p~n",[{NLeft,NRight}]),
     if  (NRight - NLeft) < 2 -> 
-            %% FIXME: pick the best candidate instead
-            NLeft;
+            {NLeft,
+             NRight};
         true  ->
             NMid = (NLeft + NRight) div 2,
             TMid = stamp(Pid, NMid),
@@ -328,11 +332,21 @@ bisect_({ Pid, T }=Env, NLeft, NRight) ->
 
 stamp(Pid, N) ->
     {ok, {T,_}} = obj:call(Pid, {ref, N}),
-    calendar:now_to_local_time(T).
+    T.
 
 stamp_st(A, B) ->
-    {Days, _} = calendar:time_difference(B, A),
-    Days < 0.
+    now_ms(A) < now_ms(B).
+
+now_ms({Mega,Sec,Micro}) ->
+    X = 10000000,
+    (Mega * X + Sec) * X + Micro. 
+
+%% I don't see a routine to convert between universal/local time and
+%% the "now" format.
+
+%% calendar:now_to_universal_time({0,0,0}).
+%% {{1970,1,1},{0,0,0}}
+
 
 
 %% FIXME: This seems to work in practice, but it is very inefficient.
@@ -480,6 +494,24 @@ convert(I, O, N, Stack) ->
     end.
 
 
+%% Express input and annotate output in local time.
+bisect_local_time(Pid, LT) ->
+    {L,R} = bisect(Pid, {local_time, LT}),
+    %% Return both in case LT is in a gap.
+    {{L,lt_stamp(Pid,L)},
+     {R,lt_stamp(Pid,R)}}.
+     
+lt_stamp(Pid,N) ->
+    calendar:now_to_local_time(player:stamp(Pid, N)).
 
-
+to_timestamp({TimeBase,LT}) ->
+    {Days,{H,M,S}} = 
+        calendar:time_difference(
+          case TimeBase of
+              local_time     -> calendar:now_to_local_time({0,0,0});
+              universal_time -> calendar:now_to_universal_time({0,0,0})
+          end,
+          LT),
+    Sec = ((Days * 24 + H) * 60 + M) * 60 + S,
+    {Sec div 1000000, Sec rem 1000000, 0}.
 
