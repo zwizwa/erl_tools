@@ -305,10 +305,7 @@ take(Pid, N) ->
     [Msg | take(Pid, N-1)].
     
 
-%% Time stamp bisection.  It was a mistake to use erlang:timestamp().
-%% Use someting else that is easier to compare.  For now, work in
-%% local time using calendar routines.
-
+%% Time stamp bisection.
 bisect(Pid, {TimeBase, _}=T) when is_atom(TimeBase)->
     bisect(Pid, to_timestamp(T));
 bisect(Pid, T) ->
@@ -316,7 +313,7 @@ bisect(Pid, T) ->
     %% Search uses inclusive spans.
     Endi = Endx-1,
     bisect_({Pid, T}, Start, Endi).
-bisect_({ Pid, T }=Env, NLeft, NRight) ->
+bisect_({Pid, T}=Env, NLeft, NRight) ->
     %% log:info("~p~n",[{NLeft,NRight}]),
     if  (NRight - NLeft) < 2 -> 
             {NLeft,
@@ -341,11 +338,7 @@ now_ms({Mega,Sec,Micro}) ->
     X = 10000000,
     (Mega * X + Sec) * X + Micro. 
 
-%% I don't see a routine to convert between universal/local time and
-%% the "now" format.
 
-%% calendar:now_to_universal_time({0,0,0}).
-%% {{1970,1,1},{0,0,0}}
 
 
 
@@ -456,8 +449,6 @@ tree_span(Tree) ->
 
 
 
-
-
 %% Convert a textual "~999p~n" log to binary.
 %% Write it as a task since it might run for a while.
 
@@ -495,15 +486,19 @@ convert(I, O, N, Stack) ->
 
 
 %% Express input and annotate output in local time.
-bisect_local_time(Pid, LT) ->
-    {L,R} = bisect(Pid, {local_time, LT}),
-    %% Return both in case LT is in a gap.
+bisect_local_time(Pid, T) ->
+    {L,R} = bisect(Pid, {local_time, T}),
+    %% Return both in case T is in a gap.
     {{L,lt_stamp(Pid,L)},
      {R,lt_stamp(Pid,R)}}.
      
 lt_stamp(Pid,N) ->
     calendar:now_to_local_time(player:stamp(Pid, N)).
 
+%% I don't see a routine to convert between universal/local time and
+%% the "now" format.
+%% calendar:now_to_universal_time({0,0,0}).
+%% {{1970,1,1},{0,0,0}}
 to_timestamp({TimeBase,LT}) ->
     {Days,{H,M,S}} = 
         calendar:time_difference(
