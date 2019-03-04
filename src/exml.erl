@@ -114,9 +114,11 @@ input_(Env, {Key, {{float, Min, Max}=Type, _Value}=TaggedValue}) ->
     BinEncoded = TypeMod:encode(TaggedValue),
     {input,
      [{name, encode_key(Key)},
+      {style, "width: 100%"}, %% Control it with container div.
+      {'data-mixin',input},
       {min, TypeMod:encode({float,Min})},
       {max, TypeMod:encode({float,Max})},
-      {step, TypeMod:encode({float,(Max-Min)/100.0})}, %% FIXME: how to specify?
+      {step, TypeMod:encode({float,(Max-Min)/2000.0})}, %% FIXME: how to specify?
       {type, range},
       attr_decoder(Type)],
      [[BinEncoded]]};

@@ -211,7 +211,7 @@ handle(start, State = #{ bc := BC }) ->
     end;
 
 handle({'EXIT',Stream,_}=_Msg, State = #{ stream := Stream }) ->
-    log:info("stopped: ~p~n",[_Msg]),
+    %% log:info("stopped: ~p~n",[_Msg]),
     maps:remove(stream, State);
 
 handle({'EXIT',_,_}=Msg, _State) ->
