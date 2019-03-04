@@ -20,25 +20,31 @@
 
 %% FIXME: With the index tree, some methods are no longer necessary.
 
-start_link(Init = #{ dir := Dir, chunk := N }) ->
+start_link(Init = #{ dir := Dir }) ->
     {ok,
      serv:start(
        {handler,
         fun() -> 
+                N = case maps:find(chunk, Init) of
+                        {ok, Chunk} -> Chunk;
+                        _ -> hd(recorder:dir_chunks(Dir))
+                    end,
                 %% Keep the spans tree as a constant.  To rebuild it,
                 %% restart the player.
-                Spans = spans(Dir),
-                Tree = tree(Spans),
                 State = 
                     maps:merge(
                       Init,
-                      #{ bc => serv:bc_start(),
-                         tree => Tree }),
+                      #{ bc => serv:bc_start() }),
                 %% Always have a file open.
-                handle({open, N}, State)
+                handle({open, N}, 
+                       handle(scan, State))
         end,
         fun ?MODULE:handle/2})}.
 
+handle(scan, State = #{ dir := Dir }) ->
+    Spans = spans(Dir),
+    Tree = tree(Spans),
+    maps:put(tree, Tree, State);
  
 handle({open, N}, #{ dir := Dir } = State) ->
     case maps:find(data, State) of
