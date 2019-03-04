@@ -3,6 +3,8 @@
          ensure_index/2, ensure_index/1,
          take/2,
          convert/3,
+         bisect/2,
+         stamp_st/2,
          %% RPC calls
          spans/1, tree/1, lookup/2]).
 
@@ -300,8 +302,37 @@ take(Pid, N) ->
     {ok, Msg} = obj:call(Pid, next),
     [Msg | take(Pid, N-1)].
     
-    
 
+%% Time stamp bisection.  It was a mistake to use erlang:timestamp().
+%% Use someting else that is easier to compare.  For now, work in
+%% local time using calendar routines.
+
+bisect(Pid, T) ->
+    {Start, Endx} = obj:call(Pid, span),
+    %% Search uses inclusive spans.
+    Endi = Endx-1,
+    bisect_({Pid, T}, Start, Endi).
+bisect_({ Pid, T }=Env, NLeft, NRight) ->
+    log:info("~p~n",[{NLeft,NRight}]),
+    if  (NRight - NLeft) < 2 -> 
+            %% FIXME: pick the best candidate instead
+            NLeft;
+        true  ->
+            NMid = (NLeft + NRight) div 2,
+            TMid = stamp(Pid, NMid),
+            case stamp_st(T, TMid) of
+                true  -> bisect_(Env, NLeft, NMid);
+                false -> bisect_(Env, NMid, NRight)
+            end
+    end.
+
+stamp(Pid, N) ->
+    {ok, {T,_}} = obj:call(Pid, {ref, N}),
+    calendar:now_to_local_time(T).
+
+stamp_st(A, B) ->
+    {Days, _} = calendar:time_difference(B, A),
+    Days < 0.
 
 
 %% FIXME: This seems to work in practice, but it is very inefficient.
