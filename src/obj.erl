@@ -71,18 +71,20 @@ resolve({tagged,Tag,Obj}) ->
 
 
 call(Dst, Req, Timeout, Warn) ->
-    %% log:info("call: ~p~n",[{Dst, Req, Timeout, Warn}]),
+    {ReplyTag, {Pid, Ref}} = send(Dst, Req),
+    wait_reply({ReplyTag, Pid, Req, Timeout, Warn, Ref}).
+
+send(Dst, Req) ->
     case resolve(Dst) of
         {tagged, Tag, Pid} when is_pid(Pid) ->
             Ref = erlang:monitor(process, Pid),
             Pid ! {{Tag,self()}, Req},
-            wait_reply({{Tag, Pid}, Pid, Req, Timeout, Warn, Ref});
+            {{Tag, Pid}, {Pid, Ref}};
         Pid when is_pid(Pid) ->
             Ref = erlang:monitor(process, Pid),
             Pid ! {self(), Req},
-            wait_reply({Pid, Pid, Req, Timeout, Warn, Ref})
+            {Pid, {Pid, Ref}}
     end.
-
 
 wait_reply({Tagged, Pid, Req, Timeout, Warn, Ref}=Env) ->
     %% log:info("wait_reply: ~p~n", [Env]),
