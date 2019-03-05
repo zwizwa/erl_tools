@@ -2,7 +2,7 @@
 
 -module(socks_proxy).
 -export([start_serv/1, on_accept/1, handle/2,
-         socks_connect/5]).
+         connect/5]).
 start_serv(#{ port := _ } = Spec) ->
     serv_tcp:start_link(
       maps:merge(
@@ -55,7 +55,7 @@ on_accept(#{ sock := Sock} = State) ->
           connect,
           State,
           fun(_,Hst,Prt,Opts) -> gen_tcp:connect(Hst,Prt,Opts) end
-          %% fun(_,Hst,Prt,Opts) -> socks_connect("localhost",1081,Hst,Prt,Opts) end
+          %% fun(_,Hst,Prt,Opts) -> connect("localhost",1081,Hst,Prt,Opts) end
          ),
     {ok, DstSock} = 
         Connect(
@@ -100,8 +100,8 @@ handle(Msg,State) ->
 
 
 
-socks_connect(ProxyHost,ProxyPort,
-              Host,Port,Opts) ->
+connect(ProxyHost,ProxyPort,
+        Host,Port,Opts) ->
     {ok, Sock} = 
         gen_tcp:connect(
           ProxyHost, ProxyPort,
@@ -113,18 +113,23 @@ socks_connect(ProxyHost,ProxyPort,
     Recv =
         fun(N) ->
                 {ok, D} = gen_tcp:recv(Sock, N),
-                log:info("R: ~p~n",[D]),
+                %% log:info("R: ~p~n",[D]),
                 D
         end,
     Send =
         fun(D) ->
-                log:info("S: ~p~n",[D]),
+                %% log:info("S: ~p~n",[D]),
                 gen_tcp:send(Sock, D)
         end,
 
     Send(<<5,1,0>>),
     <<5,0>> = Recv(2),
-    Send([<<5,1,0,3>>,length(Host),Host,<<Port:16>>]),
+    case Host of
+        {A,B,C,D} ->
+            Send([<<5,1,0,1,A,B,C,D,Port:16>>]);
+        _ ->
+            Send([<<5,1,0,3>>,length(Host),Host,<<Port:16>>])
+    end,
     <<5,0,0,1,_:32,_:16>> = Recv(10),
     
     inet:setopts(Sock, Opts),
