@@ -45,7 +45,8 @@ uint8_t *jpeg_buf = NULL;
 unsigned long jpeg_size = 0;
 #define WIDTH  640
 #define HEIGHT 480
-uint8_t last[WIDTH * HEIGHT];
+uint8_t last_y[WIDTH * HEIGHT];
+uint8_t frame[WIDTH * HEIGHT * 2];
 
 void compress(uint8_t *buf, struct stats *stats) {
     struct jpeg_compress_struct cinfo;
@@ -73,7 +74,7 @@ void compress(uint8_t *buf, struct stats *stats) {
     uint32_t level_acc = 0;
     while (cinfo.next_scanline < HEIGHT) {
         uint8_t *in_row = &buf[cinfo.next_scanline * 2 * WIDTH];
-        uint8_t *last_row = &last[WIDTH * cinfo.next_scanline];
+        uint8_t *last_row = &last_y[WIDTH * cinfo.next_scanline];
         for (int x=0; x<WIDTH; x++) {
             int x2 = x/2;
             // Y Cr Cb Y Cr Cb <- Y Cr Y Cb
@@ -176,19 +177,32 @@ int MAIN(int argc, char **argv) {
         //    uint8_t cmd_buf[cmd_len];
         //    assert_read_fixed(0, &cmd_buf[0], cmd_len);
         //}
-        struct v4l2_buffer buf = {
-            .type   = V4L2_BUF_TYPE_VIDEO_CAPTURE,
-            .memory = V4L2_MEMORY_MMAP
-        };
-        ASSERT_ERRNO(ioctl(fd, VIDIOC_DQBUF, &buf));
-        ASSERT(buf.index < req.count);
-        //LOG("buf:%d bytes:%d.\n", buf.index, buf.bytesused);
+
+        for (int p = 0; p < WIDTH * HEIGHT; p++) {
+            frame[p*2]   = 0;
+            frame[p*2+1] = 0x80;
+        }
+        for (int i = 0; i < 1; i ++) {
+            struct v4l2_buffer buf = {
+                .type   = V4L2_BUF_TYPE_VIDEO_CAPTURE,
+                .memory = V4L2_MEMORY_MMAP
+            };
+            ASSERT_ERRNO(ioctl(fd, VIDIOC_DQBUF, &buf));
+            ASSERT(buf.index < req.count);
+            //LOG("buf:%d bytes:%d.\n", buf.index, buf.bytesused);
+            uint8_t *src = buffers[buf.index].start;
+            for (int p = 0; p < WIDTH * HEIGHT; p++) {
+                frame[p*2] += src[p*2];
+                frame[p*2+1] += src[p*2+1] - 0x80;
+            }
+            ASSERT_ERRNO(ioctl(fd, VIDIOC_QBUF, &buf));
+        }
         struct stats stats = {
             .tag    = 1,
             .width  = WIDTH,
             .height = HEIGHT
         };
-        compress(buffers[buf.index].start, &stats);
+        compress(frame, &stats);
 
         //LOG("motion: %f\n", motion);
         //LOG("jpeg_size: %d.\n", (int)jpeg_size);
@@ -200,7 +214,6 @@ int MAIN(int argc, char **argv) {
         free(jpeg_buf);
         jpeg_buf = NULL;
         jpeg_size = 0;
-        ASSERT_ERRNO(ioctl(fd, VIDIOC_QBUF, &buf));
     }
 }
 

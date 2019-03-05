@@ -5,7 +5,7 @@
          %% V1 API, for legacy support
          init/2, init/4, init/5, handle/2, accept_loop/3,
          %% V2 API, use this for new code
-         start_link/1, accept/1, listener_handle/2
+         start_link/1, accept/1, listener_handle/2, pids/1
 ]).
 
 %% TCP server with client registry.
@@ -151,9 +151,9 @@ listener_handle(accept, State) ->
       end),
     State;
 
-listener_handle({'EXIT', Pid, _Reason}, State) ->
+listener_handle({'EXIT', Pid, Reason}, State) ->
     Peer = maps:get(Pid, State),
-    log:info("removing: ~p~n", [{Pid,Peer}]),
+    log:info("removing: ~999p~n", [{Pid,Peer,Reason}]),
     maps:remove(Pid, State);
 
 listener_handle(Msg, State) ->
@@ -180,3 +180,7 @@ accept(#{listen_sock := LSock,
 
 
 
+pids(Listener) ->
+    lists:filter(
+      fun is_pid/1,
+      maps:keys(obj:dump(Listener))).

@@ -8,26 +8,35 @@ start_serv(#{ port := _ } = Spec) ->
       maps:merge(
         Spec,
         #{ opts      => [binary,
+                         {send_timeout,3000},
                          {packet, raw},
                          {active, false},
                          {reuseaddr, true}],
            on_accept => fun ?MODULE:on_accept/1,
            handle    => fun ?MODULE:handle/2 })).
 
-on_accept(#{ sock := Sock} = State) ->
-    {ok, {From,_}} = inet:peername(Sock),
-    log:set_info_name({?MODULE,From}),
-    Recv =
-        fun(N) ->
-                {ok, D} = gen_tcp:recv(Sock, N),
-                %% log:info("R: ~p~n",[D]),
-                D
-        end,
+io(Sock) ->
     Send =
         fun(D) ->
                 %% log:info("S: ~p~n",[D]),
                 gen_tcp:send(Sock, D)
         end,
+    Recv =
+        fun(N) ->
+                case gen_tcp:recv(Sock, N, 3000) of
+                    {error, _}=E -> exit(E);
+                    {ok, D} -> 
+                        %% log:info("R: ~p~n",[D]),
+                        D
+                end
+        end,
+    {Send,Recv}.
+    
+
+on_accept(#{ sock := Sock} = State) ->
+    {ok, {From,_}} = inet:peername(Sock),
+    log:set_info_name({?MODULE,From}),
+    {Send,Recv} = io(Sock),
 
     %% Handshake
     %% https://en.wikipedia.org/wiki/SOCKS
@@ -54,13 +63,13 @@ on_accept(#{ sock := Sock} = State) ->
         maps:get(
           connect,
           State,
-          fun(_,Hst,Prt,Opts) -> gen_tcp:connect(Hst,Prt,Opts) end
+          fun(_,Hst,Prt,Opts) -> gen_tcp:connect(Hst,Prt,Opts,3000) end
           %% fun(_,Hst,Prt,Opts) -> connect("localhost",1081,Hst,Prt,Opts) end
          ),
     {ok, DstSock} = 
         Connect(
           From, Host, Port,
-          [{active,true},{packet,raw},binary]),
+          [{active,true},{packet,raw},binary,{send_timeout,3000}]),
     Send(<<5,0,0,1, 
            %% Does this matter?  This is what SSH sends
            0,0,0,0,0,0
@@ -72,6 +81,7 @@ on_accept(#{ sock := Sock} = State) ->
       #{ dst => {Host,Port},
          dst_sock => DstSock }).
 
+%% Note: Something is blocking..  Not sure what.
 handle({tcp,Sock,Data},
        #{ sock := Src, dst_sock := Dst } = State) ->
     case Sock of
@@ -80,21 +90,26 @@ handle({tcp,Sock,Data},
     end,
     State;
 
-handle({tcp_closed, Sock},
+handle({tcp_closed, Sock}=E,
        #{ sock := Src, dst_sock := Dst } = _State) ->
     case Sock of
         Src ->
             log:info("src closed~n"),
-            gen_tcp:close(Dst);
+            gen_tcp:close(Dst),
+            ok;
         Dst ->
             log:info("dst closed~n"),
-            gen_tcp:close(Src)
+            gen_tcp:close(Src),
+            ok
     end,
-    exit(normal);
+    exit(E);
 
 
 handle(Msg,State) ->
-   obj:handle(Msg,State).
+    %% log:info("~p~n",[{Msg,State}]),
+    Rv = obj:handle(Msg,State),
+    %% log:info("~p~n",[Rv]),
+    Rv.
     
 %% curl --socks5 10.1.3.29:1080 http://google.com
 
@@ -106,21 +121,12 @@ connect(ProxyHost,ProxyPort,
         gen_tcp:connect(
           ProxyHost, ProxyPort,
           [binary,
+           {send_timeout,3000},
            {packet, raw},
            {active, false},
            {reuseaddr, true}]),
 
-    Recv =
-        fun(N) ->
-                {ok, D} = gen_tcp:recv(Sock, N),
-                %% log:info("R: ~p~n",[D]),
-                D
-        end,
-    Send =
-        fun(D) ->
-                %% log:info("S: ~p~n",[D]),
-                gen_tcp:send(Sock, D)
-        end,
+    {Send,Recv} = io(Sock),
 
     Send(<<5,1,0>>),
     <<5,0>> = Recv(2),
@@ -134,3 +140,7 @@ connect(ProxyHost,ProxyPort,
     
     inet:setopts(Sock, Opts),
     {ok, Sock}.
+
+
+
+

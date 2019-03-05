@@ -25,8 +25,10 @@
 init() -> #{}.
 
 %% Allow replies to be disabled to implement casts. for set, replace, update.
+
 reply(no_reply, _) -> ok;
-reply(Pid, Val) -> Pid ! {self(), obj_reply, Val}, ok.
+reply(Pid, Val) when is_pid(Pid) -> Pid ! {self(), obj_reply, Val}, ok;
+reply({Tag,Pid}, Val) when is_pid(Pid) -> Pid ! {{Tag,self()}, obj_reply, Val}, ok.
 
 -type rpc_message(M) :: dump | {replace, M} | {merge, M} | {remove, _} | {find, _} | {set, _, _} | {update, _, fun((_) -> _)}.
 -type handle_message(M) :: shutdown | {pid(), rpc_message(M)}.
@@ -35,54 +37,73 @@ reply(Pid, Val) -> Pid ! {self(), obj_reply, Val}, ok.
 -type handle(M) :: fun((handle_message(M),M) -> M).
 -spec handle(handle_message(M), M) -> M.
 
-handle({Pid, dump}, Map)           -> ok=reply(Pid, Map), Map;
-handle({Pid, {replace, M}}, _)     -> ok=reply(Pid, ok), M;
-handle({Pid, {merge, M1}}, M0)     -> ok=reply(Pid, ok), maps:merge(M0,M1);
-handle({Pid, {remove, K}}, Map)    -> Map1 = maps:remove(K, Map), ok=reply(Pid, ok), Map1;
-handle({Pid, {find, K}}, Map)      -> ok=reply(Pid, maps:find(K, Map)), Map;
-handle({Pid, {set, K, V}}, Map)    -> reply(Pid, ok), maps:put(K, V, Map);
-handle({Pid, {update, K, F}}, Map) -> V = F(maps:get(K, Map)), ok=reply(Pid, V), maps:put(K, V, Map);
-handle({Pid, {update, F}}, Map)    -> {V,S} = F(Map), ok=reply(Pid, V), S;
-handle(shutdown, _)                -> exit(shutdown).
+handle({From, dump}, Map)           -> ok=reply(From, Map), Map;
+handle({From, {replace, M}}, _)     -> ok=reply(From, ok), M;
+handle({From, {merge, M1}}, M0)     -> ok=reply(From, ok), maps:merge(M0,M1);
+handle({From, {remove, K}}, Map)    -> Map1 = maps:remove(K, Map), ok=reply(From, ok), Map1;
+handle({From, {find, K}}, Map)      -> ok=reply(From, maps:find(K, Map)), Map;
+handle({From, {set, K, V}}, Map)    -> reply(From, ok), maps:put(K, V, Map);
+handle({From, {update, K, F}}, Map) -> V = F(maps:get(K, Map)), ok=reply(From, V), maps:put(K, V, Map);
+handle({From, {update, F}}, Map)    -> {V,S} = F(Map), ok=reply(From, V), S;
+handle(shutdown, _)                 -> exit(shutdown).
 
 %% DON'T DO THIS: catch-all clauses limit dialyzer view
 %% handle(Msg, State) ->
 %%     %% tools:info("obj:handle: bad request ~p~n",[Msg]), State.
 %%     throw({obj_handle, {Msg, State}}).
 
+
 resolve(Pid) when is_pid(Pid) ->
     Pid;
 resolve(Name) when is_atom(Name) ->
     case whereis(Name) of
         undefined -> exit({obj_call_undefined, Name});
-        Pid when is_pid(Pid) -> Pid
+        From when is_pid(From) -> From
     end;
 resolve({Name,Node}=NN) when is_atom(Name) and is_atom(Node) ->
     case rpc:call(Node, erlang, whereis, [Name]) of
         undefined -> exit({obj_call_undefined, Name});
         {badrpc, nodedown} -> exit({obj_call_nodedown, NN});
-        Pid when is_pid(Pid) -> Pid
+        From when is_pid(From) -> From
+    end;
+resolve({tagged,Tag,Obj}) ->
+    {tagged,Tag,resolve(Obj)}.
+
+
+call(Dst, Req, Timeout, Warn) ->
+    %% log:info("call: ~p~n",[{Dst, Req, Timeout, Warn}]),
+    case resolve(Dst) of
+        {tagged, Tag, Pid} when is_pid(Pid) ->
+            Ref = erlang:monitor(process, Pid),
+            Pid ! {{Tag,self()}, Req},
+            wait_reply({{Tag, Pid}, Pid, Req, Timeout, Warn, Ref});
+        Pid when is_pid(Pid) ->
+            Ref = erlang:monitor(process, Pid),
+            Pid ! {self(), Req},
+            wait_reply({Pid, Pid, Req, Timeout, Warn, Ref})
     end.
 
-call(Obj, Req, Timeout, Warn) ->
-    Pid = resolve(Obj),
-    Ref = erlang:monitor(process, Pid),
-    Pid ! {self(), Req},
-    wait_reply(Pid, Req, Timeout, Warn, Ref).
 
-wait_reply(Pid, Req, Timeout, Warn, Ref) ->
-    receive 
+wait_reply({Tagged, Pid, Req, Timeout, Warn, Ref}=Env) ->
+    %% log:info("wait_reply: ~p~n", [Env]),
+    receive
         {'DOWN',Ref,process,Pid,Reason} ->
             erlang:demonitor(Ref, [flush]),
-            throw({obj_call_monitor, {Pid, Reason}});
-        {Pid, obj_reply, Val} ->
+            throw({obj_call_monitor, {Pid, Req, Reason}});
+        {Tagged, obj_reply, Val} ->
             erlang:demonitor(Ref, [flush]),
             Val
     after
         Timeout ->
             Warn(),
-            wait_reply(Pid, Req, Timeout, Warn, Ref)
+            wait_reply(Env)
     end.
+
+
+
+
+
+
 
 -type obj_timeout() :: {'warn', timeout()} | timeout().
 
@@ -109,25 +130,25 @@ call(Obj, Req) ->
 %%          end).
 
 
-dump   (Pid)           -> call(Pid, dump).
-get    (Pid, Key)      -> case find(Pid, Key) of {ok, Val} -> Val; _ -> throw({obj_get_not_found, Key}) end.
-get    (Pid, Key, Def) -> case find(Pid, Key) of {ok, Val} -> Val; _ -> Def end.
-find   (Pid, Key)      -> call(Pid, {find, Key}).
-set    (Pid, Key, Val) -> call(Pid, {set, Key, Val}).
-update (Pid, Key, Fun) -> call(Pid, {update, Key, Fun}).
-update (Pid, Fun)      -> call(Pid, {update, Fun}).
-replace(Pid, D)        -> call(Pid, {replace, D}).
-merge  (Pid, D)        -> call(Pid, {merge, D}).
-remove (Pid, Key)      -> call(Pid, {remove, Key}).
+dump   (From)           -> call(From, dump).
+get    (From, Key)      -> case find(From, Key) of {ok, Val} -> Val; _ -> throw({obj_get_not_found, Key}) end.
+get    (From, Key, Def) -> case find(From, Key) of {ok, Val} -> Val; _ -> Def end.
+find   (From, Key)      -> call(From, {find, Key}).
+set    (From, Key, Val) -> call(From, {set, Key, Val}).
+update (From, Key, Fun) -> call(From, {update, Key, Fun}).
+update (From, Fun)      -> call(From, {update, Fun}).
+replace(From, D)        -> call(From, {replace, D}).
+merge  (From, D)        -> call(From, {merge, D}).
+remove (From, Key)      -> call(From, {remove, Key}).
      
 
-gets   (Pid, [Key])    -> get(Pid,Key);
-gets   (Pid, [K|Ks])   -> gets(get(Pid,K),Ks).
+gets   (From, [Key])    -> get(From,Key);
+gets   (From, [K|Ks])   -> gets(get(From,K),Ks).
 
 %% FIXME: the others should have timeouts as well.
-update (Pid, Key, Fun, TO) -> call(Pid, {update, Key, Fun}, TO).
+update (From, Key, Fun, TO) -> call(From, {update, Key, Fun}, TO).
 
-values(Pid) -> maps:values(dump(Pid)).
+values(From) -> maps:values(dump(From)).
     
 
 %% Abstract object as kvstore.
