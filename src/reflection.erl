@@ -249,12 +249,13 @@ format_error({File,ErrorInfos}) ->
 push_erl_beam(Env, Node, Mod, Bin) ->
     %% log:info("push_erl_beam/4: ~p~n", [{Node,Mod}]),
     RPC = make_rpc(Node),
-    Ebin = maps:find(ebin, Env),
-    case {Ebin,RPC(code,which,[Mod])} of
+    MaybeEbin = maps:find(ebin, Env),
+    case {MaybeEbin,RPC(code,which,[Mod])} of
         {_, {badrpc,nodedown}=Report} ->
             %% log:info("Node ~p is down~n", [Node]),
             Report;
-        {{ok, Path}, non_existing} ->
+        {{ok, Ebin}, non_existing} ->
+            Path = Ebin(Node),
             log:info("Node ~p, mod ~p, using default path ~s~n", [Node,Mod,Path]),
             RemoteFile = tools:format("~s/~s.beam", [Path, Mod]),
             push_erl_beam(Env, Node, Mod, Bin, RemoteFile);
