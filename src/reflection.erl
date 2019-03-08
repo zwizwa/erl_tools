@@ -3,14 +3,12 @@
          module_source/1, module_source_unpack/1, module_source_raw/1,
          sync_file/3, update_file/4,
          inotifywait/1, inotifywait_handle/2, push_erl_change/2,
-         load_erl/3, run_erl/1, run_beam/3]).
+         load_erl/3, run_erl/1, run_beam/3,
+         push_change/2, describe_build_product/2, push_build_product/4,
+         find_parent/2, redo/2, copy/2]).
 
-%% The point of the code below is to have "immediate" code
-%% distribution on edit.  It creates a fast path, reusing the rebar3
-%% directory structure, e.g:
-
-%% tom@panda:~/erl_tools/_build/default$ find -name 'tools.*'
-%% ./lib/erl_tools/ebin/tools.beam
+%% 2019-03-08 This code has been in substantial flux in recent weeks,
+%% and has been lifted from exo without being cleaned up completely.
 
 module_has_export(Module,Export) ->
     MI = erlang:get_module_info(Module),
@@ -143,7 +141,7 @@ inotifywait(#{ cmd := Cmd, handle := _Handle } = Config) ->
                Port = open_port({spawn, Cmd}, Opts),
                maps:merge(Config, #{ port => Port })
        end,
-       fun reflection:inotifywait_handle/2});
+       fun ?MODULE:inotifywait_handle/2});
 
 inotifywait(#{ files := Files, handle := _Handle } = Config) ->
     inotifywait(
@@ -222,7 +220,7 @@ push_erl_change(File, #{ nodes := Nodes } = Env) ->
                   Nodes),
             Report = 
                 [{src,File},
-                 {md5,crypto:hash(md5, Bin)}]
+                 {beam_md5,crypto:hash(md5, Bin)}]
                 ++ maps:to_list(NodeReport),
 
 
@@ -235,7 +233,7 @@ push_erl_change(File, #{ nodes := Nodes } = Env) ->
             {error,
              {see_compiler_output, 
               iolist_to_binary(
-                ["reflection:push_erl_change:\n",
+                ["?MODULE:push_erl_change:\n",
                  lists:map(fun format_error/1, Errors)])}}
     end.
 
@@ -272,7 +270,7 @@ push_erl_beam(Env, Node, Mod, Bin, RemoteFile) ->
     RPC = make_rpc(Node),
     %% log:info("pushing ~p to ~p, ~s~n", [Mod, Node, RemoteFile]),
     Rv1 = try 
-           reflection:update_file(Env, Node, RemoteFile, Bin)
+           ?MODULE:update_file(Env, Node, RemoteFile, Bin)
         catch
             %% Do this as error recovery.
             %% Doing it every time is too
@@ -282,7 +280,7 @@ push_erl_beam(Env, Node, Mod, Bin, RemoteFile) ->
                 case maps:find(remount_rw, Env) of
                     {ok, RemountRw} ->
                         RemountRw(Node),
-                        reflection:update_file(Env, Node, RemoteFile, Bin)
+                        ?MODULE:update_file(Env, Node, RemoteFile, Bin)
                 end
         end,
     Rv2 = RPC(code,purge,[Mod]),
@@ -349,4 +347,224 @@ copy_file(LocalFile, Node, RemoteFile) ->
     ok = RPC(file,write_file,[RemoteFile,Bin]),
     ok = RPC(file,write_file_info,[RemoteFile,FileInfo]),
     ok.
+
+
+
+
+
+push_change(File, PushType) ->
+    case find_parent(filename:dirname(File), ".push_change") of
+        {ok, DotPushChange} ->
+            {ok, Bin} = file:read_file(DotPushChange),
+            PushChange = type_base:decode({pterm, Bin}),
+            %% log:info("push_change: ~p~n", [{File,DotPushChange,PushChange}]),
+            Nodes0 = maps:get(node, PushChange),
+            push_change({file, File}, Nodes0, PushType);
+        _Error  ->
+            %% Let's not treat this as an error, since we get all
+            %% Emacs save operations.
+            Short = tools:format_binary("No .push_change file for ~s", [File]),
+            {ok, {Short, Short}}
+    end.
+
+%% Old interface: called by Emacs after parsing s-expr file.  Deprecated.
+push_change({file, File}, Nodes0, PushType) ->
+    %% log:info("push_change/2: ~p~n",[{{file, File}, Nodes0}]),
+    Nodes = lists:map(fun resolve_any_node/1, Nodes0),
+    Type = tools:filename_extension(File),
+    Report = 
+        try PushType(Type,File,Nodes)
+        catch {C,E} -> {error, {{File, Nodes}, {C,E}}}
+        end,
+    %% log:info("?MODULE:push_change: ~p~n", [Report]),
+    Report;
+push_change(_Msg, _Nodes, _) ->
+    Error = {error, {bad_command, _Msg, _Nodes}},
+    log:info("?MODULE:push_change: ~p~n", [Error]),
+    Error.
+
+
+
+resolve_node(A) when is_atom(A) -> A;
+resolve_node(B) when is_binary(B) -> binary_to_atom(B,utf8);
+resolve_node(L) -> list_to_atom(L).
+    
+%% Syntax used in .push_node
+%% FIXME: This can be removed.  .push_node now uses the result syntax.
+resolve_any_node({erl,_}=N) -> N;
+resolve_any_node({elf,_}=N) -> N;
+resolve_any_node(B) when is_binary(B) ->
+    case re:split(B,":") of
+        [<<"elf">>,Platform,SSH] ->
+            {elf,{Platform,SSH}};
+        [Node] ->
+            {erl, resolve_node(Node)}
+    end;
+resolve_any_node(L) when is_list(L) ->
+    resolve_any_node(list_to_binary(L)).
+
+
+
+%% FIXME: This doesn't support deployment feedback in emacs since
+%% bin/push_build_product.sh is only a single-ended notification and can't propagate
+%% back to the output or exit value of "redo install".
+redo(File, Nodes) ->
+    log:info("redo: ~p~n", [File]),
+    %% Find the top level directory.
+    PushChangeState = #{ file => File, nodes => Nodes },
+    case redo_root(File) of
+        {ok, RedoRoot} ->
+            %% log:info("ReadoRoot: ~p~n", [RedoRoot]),
+            Cmd = tools:format(
+                    "bash -c '"
+                        "export PUSH_CHANGE_STATE=~s ; "
+                        "export REDO_VERBOSE_ENTER=1 ; "
+                        "cd ~s ; "
+                        "redo -j$(nproc) --no-status --no-color install 2>&1"
+                    "'", 
+                    [encode(PushChangeState),
+                     RedoRoot]),
+            %% log:info("~s~n", [Cmd]),
+            case run:script_output(Cmd, infinity) of
+                {ok, Out} ->
+                    {ok, {see_output,
+                          tools:format("~s~n~s~n", [Cmd, Out])}}
+            end;
+        Other ->
+            log:info("Can't find redo root: ~p~n", [{File,Other}])
+    end.
+
+redo_root(File) ->
+    try
+        {ok, DotRedo} = find_parent(filename:dirname(File), ".redo"),
+        {ok, filename:dirname(DotRedo)}
+    catch _:_ ->
+            error
+    end.
+
+
+
+%% To pass context data through a Erlang -> shell -> Erlang callback
+%% sequence.  FIXME: Does this need authentication?
+encode(Term) ->
+    base64:encode(term_to_binary(Term)).
+
+decode(EncodedTerm) ->
+    try {ok, binary_to_term(base64:decode(EncodedTerm))}
+    catch C:E -> {error,{C,E}} end.
+
+find_parent(Dir, File) ->
+    Path = tools:format("~s/~s", [Dir, File]),
+    %% log:info("find_parent: ~p~n", [Path]),
+    case filelib:is_file(Path) or filelib:is_dir(Path) of
+        false ->
+            case Dir of 
+                "/" -> error;
+                _ -> find_parent(filename:dirname(Dir), File)
+            end;
+        true ->
+            {ok, Path}
+    end.
+                
+                    
+
+copy(File, TypedNodes) ->
+    Nodes = [Node || {erl, Node} <- TypedNodes],
+    tools:re_dispatch(
+      File,
+      %% Priv files can be placed in the remote priv directory.
+      [{".*/(.*?)/priv/(.*)",
+        fun([BApp, Rel]=_Match) ->
+                App = list_to_atom(BApp),
+                Report =
+                    tools:pmap(
+                      fun(Node) ->
+                              case file:read_file(File) of
+                                  {ok, Bin} ->
+                                      Env = #{},
+                                      Priv = rpc:call(Node, code, priv_dir, [App]),
+                                      RemoteFile = tools:format("~s/~s", [Priv, Rel]),
+                                      ?MODULE:update_file(Env, Node, RemoteFile, Bin),
+                                      {Priv,Rel};
+                                  Error ->
+                                      throw({Error, File})
+                              end
+                      end,
+                      Nodes),
+                %% {error, {app, tools:format_binary("FIXME: ~p",[Report])}}
+                Long = tools:format("~p", [Report]),
+                {ok, {<<"OK">>, Long}}
+        end},
+       {"",
+        fun(_) ->
+                log:info("FIXME: copy: ~p~n", [{File, Nodes}]),
+                Report = <<"FIXME">>,
+                {error, {Report, Report}}
+        end}]).
+
+
+%% redo install ->
+%% some application specific notification mechansm (push.sh) ->
+%% push_build_product ->
+%% some application specific deployment
+
+%% FIXME: This is a lot of language interface jumping, but I don't
+%% really see a good way to do this better given the tools. 
+%%
+%% Some thoughts:
+%% 1. Erlang is good to sit between user and build system
+%% 2. Erlang is also good to perform the deployment
+%% 3. In the middle sits the redo build system, which should be stand-alone
+
+
+%% $ cat ~/exo/bin/push_build_product.sh 
+%% #!/bin/bash
+%% # FIXME: This script should be generic.
+%% # echo $0 $* >&2
+%% echo "push_build_product $(readlink -f .) $1 $PUSH_CHANGE_STATE" | socat - TCP:localhost:12345
+
+
+push_build_product(SrcPath, RelPath, PushChangeStateEncoded, DispatchBuildProduct) ->
+    case decode(PushChangeStateEncoded) of 
+        {ok, _PushChangeState = #{ nodes := Nodes }} ->
+            Desc = reflection:describe_build_product(SrcPath,RelPath),
+            lists:foreach(
+              fun(Node) -> DispatchBuildProduct(Node, Desc) end,
+              Nodes);
+        _ ->
+            Error = {no_push_context, {SrcPath, RelPath}},
+            log:info("~999p~n", [Error])
+    end.
+
+
+
+
+%% Map path and filename to a description that is easier to match on
+%% in dispatch_build_product/2
+%% For now this is very exo-specific.  Parameterize.
+describe_build_product(SrcPath, RelPath) ->
+    Dir  = filename:dirname(RelPath),
+    File = filename:basename(RelPath),
+    Common = #{
+      from_push => {SrcPath,RelPath},
+      dir  => Dir,
+      file => File,
+      path => tools:format("~s/~s", [SrcPath, Dir])
+     },
+    Specific =
+        case re:split(File,"\\.") of
+            %% Most .do files in the project use architecture encoding
+            %% in the filename.
+            [Base,Arch,Ext] ->
+                #{ base => Base,
+                   ext  => Ext,
+                   arch => Arch };
+            %% Special cases
+            [Base,<<"js">>=Ext] ->
+                #{ base => Base,
+                   ext  => Ext,
+                   arch => Ext }
+        end,
+    maps:merge(Common, Specific).
+
 

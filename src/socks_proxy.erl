@@ -63,8 +63,8 @@ on_accept(#{ sock := Sock} = State) ->
         maps:get(
           connect,
           State,
-          fun(_,Hst,Prt,Opts) -> gen_tcp:connect(Hst,Prt,Opts,3000) end
-          %% fun(_,Hst,Prt,Opts) -> connect("localhost",1081,Hst,Prt,Opts) end
+          %% fun(_,Hst,Prt,Opts) -> gen_tcp:connect(Hst,Prt,Opts,3000) end
+          fun(_,Hst,Prt,Opts) -> connect("localhost",1081,Hst,Prt,Opts) end
          ),
     {ok, DstSock} = 
         Connect(

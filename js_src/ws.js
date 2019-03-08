@@ -106,8 +106,8 @@ function start(args, method_call) {
         return;
     }
 
-    var proto = ({'https:': 'wss://', http: 'ws://'})[window.location.protocol];
-    ws = new WebSocket(proto+window.location.host+"/ws");
+    var ws_proto = ({'https:': 'wss://', 'http:': 'ws://'})[window.location.protocol];
+    ws = new WebSocket(ws_proto+window.location.host+"/ws");
 
     ws.binaryType = "arraybuffer"; // default is "blob"
     ws.onopen = function() {
