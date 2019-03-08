@@ -62,8 +62,10 @@ http_request(Req, Get, Post) ->
     {Method,_} = cowboy_req:method(Req),
     case Method of
         <<"POST">> ->
-            {ok, PostData, _} = cowboy_req:body_qs(Req),
-            Post(BinPath, atom_map(PostData));
+            %% {ok, PostData, _} = cowboy_req:body_qs(Req),
+            %% Post(BinPath, atom_map(PostData));
+            {ok, PostData, _} = cowboy_req:body(Req),
+            Post(BinPath, PostData);
         <<"GET">> ->
             {QueryVals, _} = cowboy_req:qs_vals(Req),
             {Cookies, _} = cowboy_req:cookies(Req),
