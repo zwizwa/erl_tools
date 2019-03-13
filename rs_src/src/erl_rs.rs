@@ -5,7 +5,7 @@ extern crate eetf;
 use std::vec::Vec;
 use std::option::Option;
 use std::io::{Read, Write, Cursor, Result};
-use eetf::{Term,Tuple,Atom,FixInteger,Binary};
+use eetf::{Term,Tuple,Atom,FixInteger,Binary,List};
 
 /* Read */
 fn read_u32be<Stream: Read>(s: &mut Stream) -> Result<u32> {
@@ -45,15 +45,19 @@ pub fn tag(tag: &str, term: Term) -> Term {
 pub fn i32(i: i32) -> Term {
     Term::from(FixInteger::from(i))
 }
-pub fn i32_vec(v: &[i32]) -> Term {
-    let tv: Vec<Term> = v.into_iter().map(|i| i32(*i)).collect();
-    Term::from(Tuple::from(tv))
+pub fn i32_vec(v: &Vec<i32>) -> Term {
+    let tv: Vec<Term> = (&v).into_iter().map(|i| i32(*i)).collect();
+    Term::from(List::from(tv))
 }
 pub fn atom(tag: &str) -> Term {
     Term::from(Atom::from(tag))
 }
 pub fn binary(bs: &[u8]) -> Term {
     Term::from(Binary::from(bs))
+}
+pub fn i32_vec2(vv: &Vec<Vec<i32>>) -> Term {
+    let vt: Vec<Term> = (&vv).into_iter().map(|v| i32_vec(&v)).collect();
+    Term::from(List::from(vt))
 }
 
 /* Destructors.  Matching deeply nested structures is really awkward.
@@ -67,10 +71,17 @@ pub fn as_vec(arg: &Term, size: Option<usize>) -> Option<&Vec<Term>> {
             }
             Some(&terms)
         },
-        _ =>
+        &Term::List(List{elements: ref terms}) => {
+            match size {
+                Some(len) => if terms.len() != len { return None; }
+                _ => ()
+            }
+            Some(&terms)
+        },
+         _ =>
             None
     }
-} 
+}
 pub fn as_i32(arg: &Term) -> Option<i32> {
     match arg {
         &Term::FixInteger(FixInteger {value: v}) => Some(v),

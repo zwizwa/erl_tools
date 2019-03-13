@@ -529,9 +529,9 @@ push_build_product(SrcPath, RelPath, PushChangeStateEncoded, DispatchBuildProduc
     case decode(PushChangeStateEncoded) of 
         {ok, _PushChangeState = #{ nodes := Nodes }} ->
             Desc = reflection:describe_build_product(SrcPath,RelPath),
-            lists:foreach(
-              fun(Node) -> DispatchBuildProduct(Node, Desc) end,
-              Nodes);
+            _ = tools:pmap(
+                  fun(Node) -> DispatchBuildProduct(Node, Desc) end,
+                  Nodes);
         _ ->
             Error = {no_push_context, {SrcPath, RelPath}},
             log:info("~999p~n", [Error])
@@ -558,14 +558,16 @@ describe_build_product(SrcPath, RelPath) ->
             %% in the filename.
             [Base,Arch,Ext] ->
                 #{ base => Base,
-                   ext  => Ext,
-                   arch => Arch };
+                   ext  => b2a(Ext),
+                   arch => b2a(Arch) };
             %% Special cases
             [Base,<<"js">>=Ext] ->
                 #{ base => Base,
-                   ext  => Ext,
-                   arch => Ext }
+                   ext  => b2a(Ext),
+                   arch => b2a(Ext) }
         end,
     maps:merge(Common, Specific).
 
+b2a(B) -> binary_to_atom(B,utf8).
+    
 

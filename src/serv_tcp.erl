@@ -151,9 +151,9 @@ listener_handle(accept, State) ->
       end),
     State;
 
-listener_handle({'EXIT', Pid, Reason}, State) ->
-    Peer = maps:get(Pid, State),
-    log:info("removing: ~999p~n", [{Pid,Peer,Reason}]),
+listener_handle({'EXIT', Pid, _Reason}, State) ->
+    _Peer = maps:get(Pid, State),
+    %% log:info("removing: ~999p~n", [{Pid,_Peer,_Reason}]),
     maps:remove(Pid, State);
 
 listener_handle(Msg, State) ->

@@ -9,7 +9,7 @@
          fmt_request/1,
          fmt_response/1,
          fmt_headers/1,
-         get/1, post/2
+         get/1, post/2, post/3
          ]).
 
 recv_headers_and_data(Sock) ->
@@ -99,8 +99,7 @@ get({Host,Port,Path}) ->
     gen_tcp:close(Sock),
     Rv.
 
-
-post({Host,Port,Path},Bin) when is_binary(Bin)->
+post({Host,Port,Path},ExtraHeaders,Bin) when is_binary(Bin)->
     Opts = [{active,once},{packet,http},binary],
     {ok, Sock} = gen_tcp:connect(Host,Port,Opts),
     Req =
@@ -109,10 +108,9 @@ post({Host,Port,Path},Bin) when is_binary(Bin)->
            [{<<"User-Agent">>,<<"http:get">>},
             {<<"Host">>,Host},
             {<<"Accept">>,<<"*/*">>},
-            {<<"Content-Type">>,<<"application/binary">>},
             {<<"Content-Length">>,integer_to_binary(size(Bin))},
             {<<"Connection">>,<<"keepalive">>}
-           ]),
+           ] ++ ExtraHeaders),
          Bin],
     %% log:info("~n~s",[Req]),
     gen_tcp:send(Sock, Req),
@@ -129,9 +127,13 @@ post({Host,Port,Path},Bin) when is_binary(Bin)->
                 end
         end,
     gen_tcp:close(Sock),
-    Rv;
+    Rv.
     
 %% A simple ad-hoc Erlang term call through http post.
+post({Host,Port,Path},Bin) ->
+    Headers = [{<<"Content-Type">>,<<"application/binary">>}],
+    post({Host,Port,Path},Headers,Bin);
+
 post(Dst, {rpc, Req}) ->
     BResp = post(Dst, term_to_binary(Req)),
     {ok, Resp} = erlang:binary_to_term(BResp, [safe]),

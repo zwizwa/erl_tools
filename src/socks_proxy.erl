@@ -94,11 +94,11 @@ handle({tcp_closed, Sock}=E,
        #{ sock := Src, dst_sock := Dst } = _State) ->
     case Sock of
         Src ->
-            log:info("src closed~n"),
+            %% log:info("src closed~n"),
             gen_tcp:close(Dst),
             ok;
         Dst ->
-            log:info("dst closed~n"),
+            %% log:info("dst closed~n"),
             gen_tcp:close(Src),
             ok
     end,
