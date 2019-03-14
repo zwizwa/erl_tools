@@ -450,7 +450,11 @@ redo(File, Nodes) ->
             case run:script_output(Cmd, infinity) of
                 {ok, Out} ->
                     {ok, {see_output,
-                          tools:format("~s~n~s~n", [Cmd, Out])}}
+                          tools:format("~s~n~s~n", [Cmd, Out])}};
+                {error, {E, Out}} ->
+                    Short = tools:format("~p",[{error,E}]),
+                    Long  = tools:format("~s~n~s~n", [Cmd, Out]),
+                    {error, {Short, Long}}
             end;
         Other ->
             log:info("Can't find redo root: ~p~n", [{File,Other}])

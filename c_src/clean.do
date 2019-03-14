@@ -1,2 +1,4 @@
-rm -f elf.list *.elf *.o *.a *~
+rm -f nexx.env.sh out.list *.o *.elf *.a
+
+
 
