@@ -1,7 +1,7 @@
 -module(reflection).
 -export([module_has_export/2,
          module_source/1, module_source_unpack/1, module_source_raw/1,
-         sync_file/3, update_file/4,
+         sync_file/3, update_file/4, fileinfo/1,
          inotifywait/1, inotifywait_handle/2, push_erl_change/2,
          load_erl/3, run_erl/1, run_beam/3,
          push_change/2, describe_build_product/2, push_build_product/4,
@@ -315,10 +315,11 @@ update_file(Env, Node, RemoteFile, Bin) when is_atom(Node) and is_binary(Bin) ->
             log:info("Node ~p is down.~n",[Node]),{error,E};
         {error, enoent}=_E ->
             log:info("Node ~p doesn't have ~s~n",[Node,RemoteFile]),
-            T = calendar:now_to_local_time(erlang:timestamp()),
-            FileInfo={file_info,7284,regular,read_write,
-                      T,T,T,
-                      33188,1,21,0,7737917,1000,1000},
+            FileInfo =
+                case maps:find(fileinfo, Env) of
+                    {ok, FI} -> FI;
+                    _ ->  fileinfo(#{})
+                end,
             log:info("FIXME: using ~p~n", [FileInfo]),
             update_file(Env, Node, RemoteFile, Bin, FileInfo);
         {ok, FileInfo} ->
@@ -338,7 +339,27 @@ update_file(_Env, Node, RemoteFile, Bin, FileInfo) ->
             throw({update_file,{Err,Node,RemoteFile}})
     end.
     
+%% http://erlang.org/doc/man/file.html#type-file_info
+%% This seems clumsy.
+%% use change_mode, change_owner, change_group instead.
+fileinfo(Spec) ->
+    Mode = maps:get(mode, Spec, 8#100644),
+    Uid  = maps:get(uid,  Spec, 1000),
+    Gid  = maps:get(gid,  Spec, 1000),
 
+    T = calendar:now_to_local_time(erlang:timestamp()),
+    {file_info,
+     0, %% size
+     regular, %% type
+     read_write, %% access
+     T,T,T, %% atime, mtime, ctime,
+     Mode, %% mode
+     1, %% links
+     0, %% major device
+     0, %% minor device
+     0, %% inode
+     Uid,  %% uid
+     Gid}. %% gid
 
 copy_file(LocalFile, Node, RemoteFile) ->
     {ok, FileInfo} = file:read_file_info(LocalFile),
@@ -496,6 +517,7 @@ copy(File, TypedNodes) ->
                 Long = tools:format("~p", [Report]),
                 {ok, {<<"OK">>, Long}}
         end},
+       %% Anything else is likely project-specific.  See exo dispatch_build_product.
        {"",
         fun(_) ->
                 log:info("FIXME: copy: ~p~n", [{File, Nodes}]),

@@ -17,16 +17,14 @@ extern crate libc;
 use std::{io, ptr, slice, mem, fs};
 use std::os::unix::io::AsRawFd;
 
-const MEM_SIZE : u32 = 3 * 4096;
-
-pub struct RawLog {
+pub struct EtfLog {
     mem: *mut libc::c_void,
     len: usize
 }
 
-impl<'a> RawLog {
+impl<'a> EtfLog {
     #[allow(dead_code)]
-    pub fn rawlog(filename: &str) -> Option<RawLog> {
+    pub fn open(filename: &str) -> Option<EtfLog> {
         match fs::metadata(&filename) {
             Err(e) => {
                 eprintln!("WARNING: {}: metadata failed: {:?}", filename, e);
@@ -52,7 +50,7 @@ impl<'a> RawLog {
                                 if ptr == libc::MAP_FAILED {
                                     panic!("mmap failed: {}", io::Error::last_os_error())
                                 } else {
-                                    Some( RawLog { mem: ptr, len: metadata.len() as usize } )
+                                    Some( EtfLog { mem: ptr, len: metadata.len() as usize } )
                                 }
                             }
                         }
@@ -175,7 +173,7 @@ impl<'a> RawLog {
     
 }
 
-impl Drop for RawLog {
+impl Drop for EtfLog {
     fn drop(&mut self) {
         unsafe {
             assert!(
@@ -190,12 +188,12 @@ impl Drop for RawLog {
 // https://stackoverflow.com/questions/34733811/what-is-the-difference-between-iter-and-into-iter
 
 // Convert log reference to iterator
-impl<'a> IntoIterator for &'a RawLog {
+impl<'a> IntoIterator for &'a EtfLog {
     type Item = &'a [u8];
-    type IntoIter = RawLogIterator<'a>;
+    type IntoIter = EtfLogIterator<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
-        RawLogIterator {
+        EtfLogIterator {
             rawlog: &self,
             offset: 0,
         }
@@ -203,11 +201,11 @@ impl<'a> IntoIterator for &'a RawLog {
 }
 
 // The iterator itself, which is consumed in an iteration.
-pub struct RawLogIterator<'a> {
-    rawlog: &'a RawLog,
+pub struct EtfLogIterator<'a> {
+    rawlog: &'a EtfLog,
     offset: usize,
 }
-impl<'a> Iterator for RawLogIterator<'a> {
+impl<'a> Iterator for EtfLogIterator<'a> {
     type Item = &'a [u8];
     fn next(&mut self) -> Option<&'a [u8]> {
         match self.rawlog.get_u32_be(self.offset) {
