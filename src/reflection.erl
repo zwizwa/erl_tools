@@ -5,7 +5,7 @@
          inotifywait/1, inotifywait_handle/2, push_erl_change/2,
          load_erl/3, run_erl/1, run_beam/3,
          push_change/2, describe_build_product/2, push_build_product/4,
-         find_parent/2, redo/2, copy/2]).
+         find_parent/2, redo/2, redo/3, copy/2]).
 
 %% 2019-03-08 This code has been in substantial flux in recent weeks,
 %% and has been lifted from exo without being cleaned up completely.
@@ -433,31 +433,35 @@ resolve_any_node(L) when is_list(L) ->
 redo(File, Nodes) ->
     log:info("redo: ~p~n", [File]),
     %% Find the top level directory.
-    PushChangeState = #{ file => File, nodes => Nodes },
     case redo_root(File) of
         {ok, RedoRoot} ->
-            %% log:info("ReadoRoot: ~p~n", [RedoRoot]),
-            Cmd = tools:format(
-                    "bash -c '"
-                        "export PUSH_CHANGE_STATE=~s ; "
-                        "export REDO_VERBOSE_ENTER=1 ; "
-                        "cd ~s ; "
-                        "redo -j$(nproc) --no-status --no-color install 2>&1"
-                    "'", 
-                    [encode(PushChangeState),
-                     RedoRoot]),
-            %% log:info("~s~n", [Cmd]),
-            case run:script_output(Cmd, infinity) of
-                {ok, Out} ->
-                    {ok, {see_output,
-                          tools:format("~s~n~s~n", [Cmd, Out])}};
-                {error, {E, Out}} ->
-                    Short = tools:format("~p",[{error,E}]),
-                    Long  = tools:format("~s~n~s~n", [Cmd, Out]),
-                    {error, {Short, Long}}
-            end;
+            redo(File, Nodes, RedoRoot);
         Other ->
             log:info("Can't find redo root: ~p~n", [{File,Other}])
+    end.
+
+redo(File, Nodes, RedoRoot) ->
+
+    PushChangeState = #{ file => File, nodes => Nodes },
+    %% log:info("ReadoRoot: ~p~n", [RedoRoot]),
+    Cmd = tools:format(
+            "bash -c '"
+            "export PUSH_CHANGE_STATE=~s ; "
+            "export REDO_VERBOSE_ENTER=1 ; "
+            "cd ~s ; "
+            "redo -j$(nproc) --no-status --no-color install 2>&1"
+            "'", 
+            [encode(PushChangeState),
+             RedoRoot]),
+    %% log:info("~s~n", [Cmd]),
+    case run:script_output(Cmd, infinity) of
+        {ok, Out} ->
+            {ok, {see_output,
+                  tools:format("~s~n~s~n", [Cmd, Out])}};
+        {error, {E, Out}} ->
+            Short = tools:format("~p",[{error,E}]),
+            Long  = tools:format("~s~n~s~n", [Cmd, Out]),
+            {error, {Short, Long}}
     end.
 
 redo_root(File) ->
