@@ -5,7 +5,7 @@
          inotifywait/1, inotifywait_handle/2, push_erl_change/2,
          load_erl/3, run_erl/1, run_beam/3,
          push_change/2, describe_build_product/2, push_build_product/4,
-         find_parent/2, redo/2, redo/3, copy/2]).
+         find_parent/2, redo/2, redo/3, copy/2, clone_module/2]).
 
 %% 2019-03-08 This code has been in substantial flux in recent weeks,
 %% and has been lifted from exo without being cleaned up completely.
@@ -605,3 +605,10 @@ describe_build_product(SrcPath, RelPath) ->
 b2a(B) -> binary_to_atom(B,utf8).
     
 
+clone_module(Node, Module) ->
+    RPC = fun(M,F,A) -> rpc:call(Node, M, F, A) end,
+    BeamFile = code:which(Module),
+    {ok, Bin} = file:read_file(BeamFile),
+    _ = RPC(code,purge,[Module]),
+    {module, Module} = RPC(code,load_binary,[Module,BeamFile,Bin]),
+    ok.
