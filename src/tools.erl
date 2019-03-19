@@ -56,7 +56,8 @@
          clean_filename/1,
          format_stacktrace/2,
          intersperse/2,
-         node_to_host/1
+         node_to_host/1,
+         tmpdir/2
         ]).
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -854,6 +855,25 @@ intersperse(List, Sep) ->
 node_to_host(Node) ->                
     [_,IP] = re:split(atom_to_list(Node),"@"), IP.
     
+
+tmpdir(Base, Tag) ->
+    tmpdir(Base, Tag, 6).
+
+tmpdir(Base, Tag, NbBytes) ->
+    Suffix = 
+        base64:encode(
+          binary:part(
+            crypto:hash(
+              sha,
+              term_to_binary(make_ref())),
+            0, NbBytes)),
+    Name =
+        tools:format("~s/~s.~s",[Base, Tag, Suffix]),
+    case file:make_dir(Name) of
+        ok -> {ok, Name};
+        {error, eexists} -> tmpdir(Base, Tag, NbBytes);
+        Error={error, _} -> Error
+    end.
 
 
 -ifdef(TEST).

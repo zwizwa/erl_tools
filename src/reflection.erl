@@ -512,10 +512,14 @@ copy(File, TypedNodes) ->
                               case file:read_file(File) of
                                   {ok, Bin} ->
                                       Env = #{},
-                                      Priv = rpc:call(Node, code, priv_dir, [App]),
-                                      RemoteFile = tools:format("~s/~s", [Priv, Rel]),
-                                      ?MODULE:update_file(Env, Node, RemoteFile, Bin),
-                                      {Priv,Rel};
+                                      case rpc:call(Node, code, priv_dir, [App]) of
+                                          {badrpc,_}=E ->
+                                              throw(E);
+                                          Priv ->
+                                              RemoteFile = tools:format("~s/~s", [Priv, Rel]),
+                                              ?MODULE:update_file(Env, Node, RemoteFile, Bin),
+                                              {Priv,Rel}
+                                      end;
                                   Error ->
                                       throw({Error, File})
                               end
