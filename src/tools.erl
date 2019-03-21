@@ -823,9 +823,13 @@ clean_filename(Filename) ->
       %% There should be a library routine for this...
       ["\s", "/", "\\\\"]).
 
+format_stacktrace(_FixPath, none) -> %% ??
+    ["<no stacktrace>"];
 
 format_stacktrace(FixPath, Lst) ->
     [format_stacktrace_line(FixPath, Entry) || Entry <- Lst].
+
+
 format_stacktrace_line(FixPath, {Module, Function, Arity, PropList}) ->
     %% FIME: Why is erlang:module_info/1 source different from what's recorded in the stacktrace?
     %%File = proplists:get_value(file, PropList),

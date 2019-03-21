@@ -71,13 +71,20 @@ input(TypeMod, Spec) when is_atom(TypeMod) ->
     input(#{ type_mod => TypeMod }, Spec);
 
 %% The new interface uses environment passing.
+
+%% Note that no action (e.g. as part of a form) needs to be configured
+%% explicitly.  The default is to use the default 'handle' routing.
 input(Env, {Key, Value}) when is_map(Env) ->
     Input = input_(Env, {Key, Value}),
-    input_set_callback(Input, get_send(Env)).
+    case get_send(Env) of
+        none -> Input;
+        Action -> input_set_callback(Input, Action)
+    end.
 
 get_send(Env) ->
     %% By default, use the widget router.
     JS = case maps:find(send, Env) of
+             {ok, none} -> none;
              {ok, Send} -> Send;
              _ -> "app." ++ ws:js_send_input(handle)
          end,

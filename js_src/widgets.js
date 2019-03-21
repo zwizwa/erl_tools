@@ -51,11 +51,12 @@ function form_field(input) {
 }
 
 function input_name(el) {
-    var dn = el.getAttribute('data-name');
-    if (dn) { return dn; }
+    var dn = el.getAttribute('data-name'); if (dn) { return dn; }
+    // check both property and attribute.  (e.g. <li/> only has name attribute)
     if (el.name) { return el.name; }
-    var id_attr = el.getAttribute('id');
-    if (id_attr) { return id_attr; }
+    var name_attr = el.getAttribute('name'); if (name_attr) { return name_attr; }
+    var id_attr = el.getAttribute('id'); if (id_attr) { return id_attr; }
+    //console.log(el);
     return "<no_input_name>";  // (***)
 }
 
