@@ -18,6 +18,7 @@
          padded_at/2, padded_range/3, padded_insert/4,
          enumerate/2,
          list_at/2, list_update_with/3, unique/1,
+         list_divide/2,
          tuple_to_list/1, as_binary/1, as_binaries/1, as_list/1, as_atom/1,
          pmap/2,
          foldn/3,
@@ -327,6 +328,19 @@ unique(L) ->
 %% Record to Maps translation
 tuple_to_list(Tuple) ->
     [element(I,Tuple) || I <- lists:seq(1,tuple_size(Tuple))].
+
+%% Divide up a list into a couple of sublists.
+list_divide(List, N) ->
+    list_divide(List, N, n_div(length(List), N)).
+list_divide(_, 0, _) -> [];
+list_divide(List, N, Nb) -> 
+    Head = lists:sublist(List, Nb),
+    Tail = lists:nthtail(length(Head), List),
+    [Head | list_divide(Tail, N-1, Nb)].
+    
+    
+    
+
 
 %% Project onto binary representation.
 as_binary(X) when is_binary(X)  -> X;
