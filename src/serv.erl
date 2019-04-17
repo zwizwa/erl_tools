@@ -52,23 +52,61 @@
 
 %% Set of Pids, with garbage collection on message send.
 pids_new() ->
-    sets:new().
+    #{}.
 pids_add(Pid, Pids) when is_pid(Pid) ->
-    sets:add_element(Pid, Pids).
+    pids_add(Pid, [], Pids).
+pids_add(Pid, Filter, Pids) ->
+    maps:put(Pid, Filter, Pids).
 pids_del(Pid, Pids) when is_pid(Pid) ->
-    sets:del_element(Pid, Pids).
+    maps:remove(Pid, Pids).
 pids_subscribed(Pid, Pids) when is_pid(Pid) ->
-    sets:is_element(Pid, Pids).
+    case maps:find(Pid, Pids) of
+        {ok, _} -> true;
+        _ -> false
+    end.
 pids_pids(Pids) ->
-    sets:to_list(Pids).
+    maps:keys(Pids).
+
+%% Non-filtered
 pids_foreach(Fun, Pids) ->
-    _ = sets:fold(
-          fun(Pid, Ps) -> Fun(Pid), Ps end,
-          Pids, Pids),
+    _ = maps:fold(
+          fun(Pid, _Filter, Ps) ->
+                  Fun(Pid), Ps end,
+          Pids,
+          Pids),
     ok.
-    
+pids_foreach_with_filter(Fun, Pids) ->
+    _ = maps:fold(
+          fun(Pid, Filter, Ps) ->
+                  Fun(Pid, Filter), Ps end,
+          Pids,
+          Pids),
+    ok.
+
+
+%% This can be filtered.
+
+%% FIXME: Filter spec is very ad hoc here.  Empty list means no
+%% filter, because a filter that filters out everything isn't of much
+%% use.
+
 pids_send(Msg, Pids) ->
-    pids_foreach(fun(Pid) -> Pid ! Msg end, Pids).
+    pids_foreach_with_filter(
+      fun(Pid, FilterSpec) ->
+              case {Msg, FilterSpec} of
+                  {_,[]} ->
+                      Pid ! Msg;
+                  {{Tag,_},Tags} when is_list(Tags) ->
+                      case lists:member(Tag, Tags) of
+                          true -> Pid ! Msg;
+                          false -> ok
+                      end;
+                  _ ->
+                      Pid ! Msg
+              end
+      end,
+      Pids).
+
 
 %% Broadcaster. FIXME: use gen_event?
 bc_spawner() ->
@@ -91,14 +129,17 @@ bc_test(BC) ->
                      State 
              end})}.
 
-bc_handle({subscribe, Pid}, #{pids := Pids}=State) when is_pid(Pid) -> 
+bc_handle({subscribe, Pid}, State) when is_pid(Pid) ->
+    %% Unfiltered
+    bc_handle({subscribe, {Pid,[]}}, State);
+bc_handle({subscribe, {Pid, Filter}}, #{pids := Pids}=State) when is_pid(Pid) -> 
     case pids_subscribed(Pid, Pids) of
         true ->
             %% Don't re-monitor
             State;
         false ->
             _Ref = erlang:monitor(process, Pid),
-            maps:put(pids, pids_add(Pid, Pids), State)
+            maps:put(pids, pids_add(Pid, Filter, Pids), State)
     end;
 bc_handle({subscribe, Atom}, State) when is_atom(Atom) -> 
     case whereis(Atom) of
@@ -117,6 +158,8 @@ bc_handle({unsubscribe, Pid}, #{pids := Pids}=State) ->
     maps:put(pids, pids_del(Pid, Pids), State);
 bc_handle({foreach,     Fun}, #{pids := Pids}=State) ->
     pids_foreach(Fun, Pids), State;
+bc_handle({foreach_with_filter, Fun}, #{pids := Pids}=State) ->
+    pids_foreach_with_filter(Fun, Pids), State;
 bc_handle({broadcast,   Msg}, #{pids := Pids}=State) ->
     pids_send(Msg,Pids), State;
 bc_handle({Pid,pids}, #{pids := Pids}=State) ->

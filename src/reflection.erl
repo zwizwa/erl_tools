@@ -281,7 +281,11 @@ push_erl_beam(Env, Node, Mod, Bin, RemoteFile) ->
                 case maps:find(remount_rw, Env) of
                     {ok, RemountRw} ->
                         RemountRw(Node),
-                        ?MODULE:update_file(Env, Node, RemoteFile, Bin)
+                        ?MODULE:update_file(Env, Node, RemoteFile, Bin);
+                    _ ->
+                        %% Can't modify.  Just load the beam file to memory
+                        log:info("WARNING: ~p: Can't write, loading to memory~n", [Mod]),
+                        {error, erofs}
                 end
         end,
     Rv2 = RPC(code,purge,[Mod]),

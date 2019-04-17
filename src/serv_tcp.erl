@@ -19,13 +19,14 @@
 %% the server registry process, with its corresponding initial state.
 
 
+
 init(Ports, Connect, Handle, State, Opts) ->
     %% This runs in the same process as the handler.
     process_flag(trap_exit, true),
     Registry = self(),  
     %% Create listening sockets and acceptors.
     LSocks =
-        [case gen_tcp:listen(Port, Opts) of
+        [case listen(Port, Opts) of
              {error, Reason} ->
                  tools:info("listen error: port ~p: ~p~n", [Port,Reason]),
                  exit(Reason);
@@ -45,6 +46,15 @@ init(P,C,D,S) ->
 init(P,C) ->
     Handle = fun(_, State) -> State end,
     init(P,C,Handle,[]).
+
+
+%% Allow Port and {IP,Port} specs for listening port.
+listen(Port, Opts) when is_number(Port) ->
+    gen_tcp:listen(Port, Opts);
+listen({{_,_,_,_}=IP,Port},Opts) ->
+    listen(Port, Opts ++ [{ip,IP}]).
+    
+
     
 
 %% FIXME: make accept loop reloadable as well.
@@ -128,17 +138,23 @@ start_link(#{ port := SrcPort,
        {handler,
         fun() ->
                 process_flag(trap_exit, true),
-                {ok, LSock} =
-                    gen_tcp:listen(
+                case gen_tcp:listen(
                       SrcPort, 
                       Opts
-                      ),
-                State = 
-                    maps:merge(
-                      Spec,
-                      #{ listen_sock => LSock }),
-                self() ! accept,
-               State
+                      ) of
+                    {ok, LSock} ->
+                        State = 
+                            maps:merge(
+                              Spec,
+                              #{ listen_sock => LSock }),
+                        self() ! accept,
+                        State;
+                    Error ->
+                        %% FIXME: This is just to reduce restart
+                        %% pressure, while fixing another bug.
+                        %% timer:sleep(2000),
+                        exit(Error)
+                end
         end,
         %% This is just a placeholder to serve debug info.
         fun ?MODULE:listener_handle/2})}.
