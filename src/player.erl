@@ -46,9 +46,13 @@ start_link(Init = #{ dir := Dir }) ->
         fun ?MODULE:handle/2})}.
 
 handle(scan, State = #{ dir := Dir }) ->
-    Spans = spans(Dir),
-    Tree = tree(Spans),
-    maps:put(tree, Tree, State);
+    case spans(Dir) of
+        [] ->
+            State;
+        Spans ->
+            Tree = tree(Spans),
+            maps:put(tree, Tree, State)
+    end;
  
 handle({open, N}, #{ dir := Dir } = State) ->
     case maps:find(data, State) of

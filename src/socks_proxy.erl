@@ -31,6 +31,15 @@ io(Sock) ->
                 end
         end,
     {Send,Recv}.
+
+
+%% listener_handle({tcp_error, Sock, Error}=Msg, State) ->
+%%     %% This appears to happen with Error=ehostunreach
+%%     log:info("WARNING: serv_tcp:listener_handle: ~p~n",[Msg]),
+%%     State;
+
+%% FIXME: handle {tcp_error,#Port<0.17430>,ehostunreach}
+
     
 
 on_accept(#{ sock := Sock} = State) ->
@@ -103,7 +112,6 @@ handle({tcp_closed, Sock}=E,
             ok
     end,
     exit(E);
-
 
 handle(Msg,State) ->
     %% log:info("~p~n",[{Msg,State}]),

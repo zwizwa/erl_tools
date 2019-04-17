@@ -175,6 +175,9 @@ accept(#{listen_sock := LSock,
     Listener ! accept,
 
     %% And fall into the service loop.
+
+    %% FIXME: It's not OK to clone ListenState here, as it has the
+    %% list of all client handlers.  That's just messy.
     ConnectState = Init(maps:put(sock, SrcSock, ListenState)),
     serv:receive_loop(ConnectState, Handle).
 
