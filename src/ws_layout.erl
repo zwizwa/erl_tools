@@ -1,5 +1,5 @@
 -module(ws_layout).
--export([button/2, button/3,
+-export([button/2, button/3, clickable/3,
          tagged_table/1,
          table/2, input/2]).
 
@@ -36,6 +36,7 @@ button(Env, Tag) ->
 %%       id({Path,Tag})],           %% erl<->js messages
 %%      [[Text]]}.
 
+%% FIXME: write button in terms of clickable
 button(Env, Tag, Text) ->
     {button,
      [{onclick, exml:get_send(Env)},
@@ -44,6 +45,15 @@ button(Env, Tag, Text) ->
       id(Tag)],                  %% erl<->js messages
      [[Text]]}.
 
+clickable(Env, Tag, {T, As, Es}) ->
+    {T,
+     exml:attr_merge(
+       [{onclick, exml:get_send(Env)},
+        {'data-decoder', button},  %% Type conversion for js->erl messages.
+        {'data-mixin', cell},      %% DOM behavior for erl->js messages
+        id(Tag)],                  %% erl<->js messages
+       As), Es}.
+    
 
 %% Table, using kvstore for initialization.
 table(Env, TableList) ->

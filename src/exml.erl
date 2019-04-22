@@ -76,6 +76,9 @@ input(TypeMod, Spec) when is_atom(TypeMod) ->
 %% explicitly.  The default is to use the default 'handle' routing.
 input(Env, {Key, Value}) when is_map(Env) ->
     Input = input_(Env, {Key, Value}),
+    input_with_send(Env, Input).
+%% FIXME: Yet another routine... End this proliferation!
+input_with_send(Env, Input) ->
     case get_send(Env) of
         none -> Input;
         Action -> input_set_callback(Input, Action)
