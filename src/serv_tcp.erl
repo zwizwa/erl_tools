@@ -70,7 +70,12 @@ accept_loop(LSock, Port,
             Registry ! {register_connect, self()},
             Registry ! {spawn_acceptor, LSock, Port},
             case Connect of
-                {handler, Init, Handle} ->
+                {handler, {M,F,A}=_Init, Handle} ->
+                    %% Labda-lifted version of the case below.  This
+                    %% case was added because anonymous functions can
+                    %% interfere with reloads.
+                    serv:enter({handler, fun() -> apply(M,F,A ++ [Sock,Port]) end, Handle});
+                {handler, Init, Handle} when is_function(Init) ->
                     serv:enter({handler, fun() -> Init(Sock, Port) end, Handle});
                 {body, Body} ->
                     serv:enter({body, fun() -> Body(Sock, Port) end})
