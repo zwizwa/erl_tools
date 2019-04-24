@@ -55,17 +55,33 @@ handle(newfile, #{ dir := Dir, nb_chunks := NbChunks }=State) ->
     %%       0, Old),
     %% log:info("recorder: current size: ~p~n", [TotalSize]),
 
-    maps:merge(
-      State,
-      maps:from_list(
-        lists:map(
-          fun(Tag) ->
-                  FileName = Dir ++ num_to_filename(Tag, New),
-                  log:info("recorder: new: ~s~n", [FileName]),
-                  {ok, File} = open(FileName),
-                  {Tag, File}
-          end,
-          [index, data])));
+
+    try
+        TaggedFiles =
+            lists:map(
+              fun(Tag) ->
+                      FileName = Dir ++ num_to_filename(Tag, New),
+                      log:info("recorder: new: ~s~n", [FileName]),
+                      case open(FileName) of
+                          {ok, File} ->
+                              {Tag, File};
+                          Error ->
+                              throw({open_error, {Tag, FileName, Error}})
+                      end
+              end,
+              [index, data]),
+        
+        maps:merge(
+          State,
+          maps:from_list(TaggedFiles))
+    catch
+        {open_error,_}=Error ->
+            log:info("WARNING: recorder: ~999p~n", [Error]),
+            %% Something is wrong with the file system.  This will
+            %% need operator intervention.
+            timer:sleep(5000),
+            handle(newfile, State)
+    end;
 
 %% For debug
 handle({_,dump}=Msg, State) ->
