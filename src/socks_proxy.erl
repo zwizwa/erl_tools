@@ -65,7 +65,8 @@ on_accept(#{ sock := Sock} = State) ->
                 <<P:16>> = Recv(2),
                 {binary_to_list(Domain),P}
         end,
-    log:info("~p~n", [{Host,Port}]),
+
+    %% log:info("~p~n", [{Host,Port}]),
 
     %% Allow override, e.g. to do source/dest based proxy chaining.
     Connect =

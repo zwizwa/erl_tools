@@ -4,8 +4,6 @@
 -export([
          %% Broadcaster
          bc_start/0,  bc_up/1,  bc_test/1,
-         %% Hub with predicates
-         hub_start/0, hub_handle/2, hub_add/3, hub_add/2, hub_send/2,
          %% Printer process
          info_start/0,
          %% Pid registry with GC
@@ -86,10 +84,13 @@ pids_foreach_with_filter(Fun, Pids) ->
 
 %% This can be filtered.
 
-%% FIXME: Filter spec is very ad hoc here.  Empty list means no
-%% filter, because a filter that filters out everything isn't of much
-%% use.
+%% FIXME: Filter spec is very ad hoc here:
 
+%% - Empty list means no filter, because a filter that filters out
+%%   everything isn't of much use.
+%%
+%% - Otherwise, a list is a list of tags for tagged pairs
+%%
 pids_send(Msg, Pids) ->
     pids_foreach_with_filter(
       fun(Pid, FilterSpec) ->
@@ -98,6 +99,11 @@ pids_send(Msg, Pids) ->
                       Pid ! Msg;
                   {{Tag,_},Tags} when is_list(Tags) ->
                       case lists:member(Tag, Tags) of
+                          true -> Pid ! Msg;
+                          false -> ok
+                      end;
+                  {_, Pred} when is_function(Pred) ->
+                      case Pred(Msg) of
                           true -> Pid ! Msg;
                           false -> ok
                       end;
@@ -177,44 +183,6 @@ bc_handle(Msg, State) ->
         
 
 
-%% Hub with predicates.
--type hub_filter() :: fun((_) -> boolean()).
--type hub_state() :: [{hub_filter(), pid()}].
--spec hub_handle(_, hub_state()) -> hub_state().
-
--spec hub_add(atom() | pid(), pid()) -> ok.
--spec hub_add(atom() | pid(), hub_filter(), pid()) -> ok.
--spec hub_send(atom() | pid(), _) -> ok.
-
-hub_init() ->
-    [].
-
-hub_handle({add, Pred, Pid}, Hub) ->
-    [{Pred, Pid} | Hub];
-hub_handle({send, Msg}, Hub) ->
-    lists:foreach(
-      fun({Pred, Pid}) -> ?IF(Pred(Msg), Pid ! Msg, ignore) end,
-      Hub),
-    Hub;
-hub_handle({subscribe, Pid}, Hub) ->
-    self() ! {add, fun(_) -> true end, Pid},
-    Hub;
-
-hub_handle({Pid,dump}, Hub) ->  %% debug
-    obj:reply(Pid, #{ hub => Hub }),
-    Hub.
-
-
-hub_start() ->
-    start({handler, fun hub_init/0, fun serv:hub_handle/2}).
-
-hub_add(Hub, Pred, Pid) ->
-    Hub ! {add, Pred, Pid}, ok.
-hub_add(Hub, Pid) ->
-    hub_add(Hub, fun(_)->true end, Pid).
-hub_send(Hub, Msg) ->
-    Hub ! {send, Msg},
-    ok.
 
 
 %% Print everything
