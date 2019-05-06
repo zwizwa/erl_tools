@@ -1,0 +1,9 @@
+.target
+_build/
+*.o
+*.elf
+*.a
+*.env.sh
+out.list
+rebar.lock
+
