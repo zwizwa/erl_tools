@@ -1,6 +1,7 @@
 -module(recorder).
 -export([start_link/1, handle/2,
-         num_to_filename/2, dir_chunks/1
+         num_to_filename/2, dir_chunks/1,
+         dir_chunk_sizes/1, total_size/1
          ]).
 
 %% Generic circular message stream recorder.
@@ -26,36 +27,61 @@ start_link(Init) ->
         fun() -> handle(newfile, Init) end,
         fun recorder:handle/2})}.
 
-handle(newfile, #{ dir := Dir, nb_chunks := NbChunks }=State) ->
-    {New, Old} = new_chunk(Dir),
+total_size(Dir) ->
+    lists:foldl(
+      fun({_N,{DSize,ISize}}, Acc) -> Acc + DSize + ISize end,
+      0, dir_chunk_sizes(Dir)).
+dir_chunk_sizes(Dir) ->
+    lists:map(
+      fun(N) ->
+              {N,
+               {filelib:file_size(Dir ++ num_to_filename(data, N)),
+                filelib:file_size(Dir ++ num_to_filename(index, N))}}
+      end,
+      dir_chunks(Dir)).
 
-    %% Prune circular buffer
+delete(Dir, N) ->
+    lists:foreach(
+      fun(Tag) ->
+              FN = Dir ++ num_to_filename(Tag, N),
+              log:info("recorder: del: ~s~n", [FN]),
+              file:delete(FN)
+      end,
+      [index, data]).
+
+
+%% Ideally, the size should be checked at write time, but that's a
+%% bigger change than doing it at chunk creation time.  This might be
+%% good enough.
+
+%% nb_bytes is the pruning threshold at the point of new chunk file
+%% creation.
+handle(newfile, #{ dir := Dir, usage := {nb_bytes, NbBytes} }=State) ->
+    TotalSize = total_size(Dir),
+    log:info("recorder: current size: ~p~n", [TotalSize]),
+    case {TotalSize > NbBytes, dir_chunks(Dir)} of
+        {true, [Old|_]} ->
+            delete(Dir, Old),
+            handle(newfile, State);
+        _ ->
+            handle(newfile_noprune, State)
+    end;
+
+%% similar, but using chunk count.  this isn't all that useful because
+%% chunks can be small due to restarts.
+handle(newfile, #{ dir := Dir, usage := {nb_chunks, NbChunks} }=State) ->
+    Old = dir_chunks(Dir),
     case length(Old) > NbChunks of
         false -> ok;
         true ->
             lists:foreach(
-              fun(N) ->
-                      lists:foreach(
-                        fun(Tag) ->
-                                FN = Dir ++ num_to_filename(Tag, N),
-                                log:info("recorder: del: ~s~n", [FN]),
-                                file:delete(FN)
-                        end,
-                        [index, data])
-              end,
+              fun(N) -> delete(Dir, N) end,
               lists:nthtail(NbChunks, Old))
     end,
-    
-    %% TotalSize = 
-    %%     lists:foldl(
-    %%       fun(N,Acc) ->
-    %%               Size = filelib:file_size(Dir ++ num_to_filename(N)),
-    %%               Acc + Size
-    %%       end,
-    %%       0, Old),
-    %% log:info("recorder: current size: ~p~n", [TotalSize]),
+    handle(newfile_noprune, State);
 
-
+handle(newfile_noprune, #{ dir := Dir }=State) ->
+    {New,_Old} = new_chunk(Dir),
     try
         TaggedFiles =
             lists:map(

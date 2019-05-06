@@ -23,6 +23,7 @@
          pmap/2,
          foldn/3,
          binary_fold/3, binary_sum/1, binary_join/2,
+         binary_concat/1,
          mask_bits/1,
          maps_apply/4, maps_append/3, maps_count/2, maps_inverse/1, maps_inverse_partition/1,
          maps_update_path/4, maps_find_path/2,
@@ -300,6 +301,10 @@ csv_parse(Data) ->
 binary_join([A,B|T], S) -> [A,S|binary_join([B|T], S)];
 binary_join(E, _) -> E.
 
+binary_concat(List) ->
+    lists:foldr(
+      fun(A,B) -> <<A/binary, B/binary>> end,
+      <<>>, List).
 
 
 transpose([[]|_]) -> [];
