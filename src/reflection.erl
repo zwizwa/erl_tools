@@ -1,5 +1,5 @@
 -module(reflection).
--export([module_has_export/2,
+-export([module_has_export/2, module_has_export/3,
          module_source/1, module_source_unpack/1, module_source_raw/1,
          sync_file/3, update_file/4, fileinfo/1,
          inotifywait/1, inotifywait_handle/2, push_erl_change/2,
@@ -11,7 +11,10 @@
 %% and has been lifted from exo without being cleaned up completely.
 
 module_has_export(Module,Export) ->
-    MI = erlang:get_module_info(Module),
+    module_has_export(node(), Module, Export).
+
+module_has_export(Node,Module,Export) ->
+    MI = rpc:call(Node,erlang,get_module_info,[Module]),
     E = proplists:get_value(exports, MI),
     lists:member(Export,E).
 
@@ -292,10 +295,26 @@ push_erl_beam(Env, Node, Mod, Bin, RemoteFile) ->
     Rv3 = RPC(code,load_file,[Mod]),
     %% _ = RPC(log,info,["load: ~p~n",[Mod]]),
     _ = RPC(log,info,["load: ~p~n",[{Mod,RemoteFile}]]),
+
+    %% Optionally, run some code after loading.
+    %% log:info("Env = ~p~n", [Env]),
+    OnLoadReport =
+        case maps:find(on_load, Env) of
+            {ok, OnLoad} when is_atom(OnLoad) ->
+                case module_has_export(Node, Mod, {OnLoad, 0}) of
+                    true -> 
+                        log:info("on_load: ~p: ~p:~p()~n", [Node, Mod, OnLoad]),
+                        [{on_load, RPC(Mod,OnLoad,[])}];
+                    false ->
+                        []
+                end;
+            _ ->
+                []
+        end,
     [{file,RemoteFile},
      {update,Rv1},
      {purge,Rv2},
-     {load,Rv3}].
+     {load,Rv3}] ++ OnLoadReport.
 
 
 %% While Erlang changes are simple because they can be made on a per
@@ -536,9 +555,10 @@ copy(File, TypedNodes) ->
        %% Anything else is likely project-specific.  See exo dispatch_build_product.
        {"",
         fun(_) ->
-                log:info("FIXME: copy: ~p~n", [{File, Nodes}]),
-                Report = <<"FIXME">>,
-                {error, {Report, Report}}
+                Short = tools:format("reflection:copy line ~p",[?LINE]),
+                Long  = tools:format("~s:~nproject-specific report needed for:~n~p~n",[Short, {File,Nodes}]),
+                %% log:info(Long),
+                {error, {Short, Long}}
         end}]).
 
 
