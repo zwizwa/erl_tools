@@ -1,3 +1,5 @@
+;; FIXME: This is now replaced with a direct call from push_change.erl
+
 ;; Run expect test.  This depends on a Makefile to generate
 ;; .expect.new from .expect and the rest of the project state.
 

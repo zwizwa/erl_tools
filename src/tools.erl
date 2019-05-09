@@ -328,7 +328,8 @@ list_update_with(Index, Fun, List) ->
      || {N,E} <- enumerate(List)].
 
 unique(L) ->
-    sets:to_list(sets:from_list(L)).
+    lists:sort(
+      sets:to_list(sets:from_list(L))).
              
 %% Record to Maps translation
 tuple_to_list(Tuple) ->
