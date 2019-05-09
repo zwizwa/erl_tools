@@ -61,6 +61,7 @@
          node_to_host/1,
          tmpdir/2
         ]).
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.

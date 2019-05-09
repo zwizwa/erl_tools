@@ -3,7 +3,7 @@
          module_source/1, module_source_unpack/1, module_source_raw/1,
          sync_file/3, update_file/4, fileinfo/1,
          inotifywait/1, inotifywait_handle/2, push_erl_change/2,
-         push_expect/4,
+         push_expect/2,
          load_erl/3, run_erl/1, run_beam/3,
          push_change/2, describe_build_product/2, push_build_product/4,
          find_parent/2, redo/2, redo/3, copy/2, clone_module/2]).
@@ -644,21 +644,25 @@ clone_module(Node, Module) ->
     ok.
 
 
-push_expect(F,N,RelPath,PushErl) ->
+push_expect(F,PushErl) ->
+    %% These only run in the build host.
+    N = [{erl, node()}],
+
     %% .expect files are always contained in side an Erlang module.
     %% Relpath is the relative path of .expect to .erl files.
 
     Dir = filename:dirname(F),
     BN = filename:basename(F, ".expect"),
     log:info("expect: ~p~n", [{Dir,BN}]),
-    %% FIXME: correspondence is not 1-1 any more.
-    Erl = Dir ++ RelPath ++ BN ++ ".erl",
+    Mod = list_to_atom(BN),
+    Erl = module_source_raw(Mod),
+
     case PushErl(Erl, N) of
         {ok,_}=OK ->
             %% Compilation worked, now execute it on the build node.
-            Mod = list_to_atom(BN),
-            log:info("expect: running ~p~n", [Mod]),
-            catch Mod:expect_run(),
+            log:info("expect: running ~p:expect_test()~n", [Mod]),
+            Report = (catch Mod:expect_test()),
+            log:info("report: ~s~n", [Report]),
             log:info("updating: ~s~n", [F]),
             file:copy(F ++ ".new", F),
             %% FIXME: Notify emacs
