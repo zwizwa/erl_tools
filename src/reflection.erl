@@ -3,6 +3,7 @@
          module_source/1, module_source_unpack/1, module_source_raw/1,
          sync_file/3, update_file/4, fileinfo/1,
          inotifywait/1, inotifywait_handle/2, push_erl_change/2,
+         push_expect/4,
          load_erl/3, run_erl/1, run_beam/3,
          push_change/2, describe_build_product/2, push_build_product/4,
          find_parent/2, redo/2, redo/3, copy/2, clone_module/2]).
@@ -240,8 +241,13 @@ push_erl_change(File, #{ nodes := Nodes } = Env) ->
                  lists:map(fun format_error/1, Errors)])}}
     end.
 
+format_line(none) ->
+    "?";
+format_line(Line) ->
+    integer_to_list(Line).
+
 format_error({File,ErrorInfos}) ->
-    [[File,": ",integer_to_list(Line),": ",
+    [[File,": ",format_line(Line),": ",
       %% FIXME: this should be done by compile module somehow
       try io_lib:format("~s",[ErrorDescriptor])
       catch _:_ -> io_lib:format("~p",[ErrorDescriptor]) end,
@@ -636,3 +642,33 @@ clone_module(Node, Module) ->
     _ = RPC(code,purge,[Module]),
     {module, Module} = RPC(code,load_binary,[Module,BeamFile,Bin]),
     ok.
+
+
+push_expect(F,N,RelPath,PushErl) ->
+    %% .expect files are always contained in side an Erlang module.
+    %% Relpath is the relative path of .expect to .erl files.
+
+    Dir = filename:dirname(F),
+    BN = filename:basename(F, ".expect"),
+    log:info("expect: ~p~n", [{Dir,BN}]),
+    %% FIXME: correspondence is not 1-1 any more.
+    Erl = Dir ++ RelPath ++ BN ++ ".erl",
+    case PushErl(Erl, N) of
+        {ok,_}=OK ->
+            %% Compilation worked, now execute it on the build node.
+            Mod = list_to_atom(BN),
+            log:info("expect: running ~p~n", [Mod]),
+            catch Mod:expect_run(),
+            log:info("updating: ~s~n", [F]),
+            file:copy(F ++ ".new", F),
+            %% FIXME: Notify emacs
+            Cmd = tools:format(
+                    "emacsclient -e '(progn (switch-to-buffer ~p) (revert-buffer t t))'", 
+                    %% This is buffer name, not file path.  Full paths don't work here
+                    [filename:basename(F)]),
+            log:info("emacs: ~s~n",[Cmd]),
+            os:cmd(Cmd),
+            OK;
+        Error ->
+            Error
+    end.
