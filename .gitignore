@@ -6,4 +6,6 @@ _build/
 *.env.sh
 out.list
 rebar.lock
-
+*~
+*.new
+*\#*\#

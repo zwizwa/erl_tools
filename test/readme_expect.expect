@@ -1,0 +1,24 @@
+%% -*- erlang -*-
+readme_expect_run() ->
+[
+{ %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+fun () ->
+	_ = "Combine Erlang code and expected results "
+	    "in one notebook-style file.",
+	_ = "See readme_expect.erl for more information.",
+	1 + 2
+end
+, %% =>
+3
+}
+,
+{ %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+fun () ->
+	_ = "This function is defined in the supporting "
+	    "module.",
+	add_one(1)
+end
+, %% =>
+2
+}
+].
