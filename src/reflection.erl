@@ -3,7 +3,7 @@
          module_source/1, module_source_unpack/1, module_source_raw/1,
          sync_file/3, update_file/4, fileinfo/1,
          inotifywait/1, inotifywait_handle/2, push_erl_change/2,
-         push_expect/2,
+         push_expect/2, run_expect/1,
          load_erl/3, run_erl/1, run_beam/3,
          push_change/2, describe_build_product/2, push_build_product/4,
          find_parent/2, redo/2, redo/3, copy/2, clone_module/2]).
@@ -302,18 +302,14 @@ push_erl_beam(Env, Node, Mod, Bin, RemoteFile) ->
     %% _ = RPC(log,info,["load: ~p~n",[Mod]]),
     _ = RPC(log,info,["load: ~p~n",[{Mod,RemoteFile}]]),
 
-    %% Optionally, run some code after loading.
+    %% Optionally, run some code after loading.  This is kept fairly
+    %% generic, in the form of code executed on the build host.
+
     %% log:info("Env = ~p~n", [Env]),
     OnLoadReport =
         case maps:find(on_load, Env) of
-            {ok, OnLoad} when is_atom(OnLoad) ->
-                case module_has_export(Node, Mod, {OnLoad, 0}) of
-                    true -> 
-                        log:info("on_load: ~p: ~p:~p()~n", [Node, Mod, OnLoad]),
-                        [{on_load, RPC(Mod,OnLoad,[])}];
-                    false ->
-                        []
-                end;
+            {ok, OnLoad} when is_function(OnLoad) ->
+                [{onload, OnLoad(maps:merge(Env, #{ node => Node, mod => Mod }))}];
             _ ->
                 []
         end,
@@ -644,6 +640,30 @@ clone_module(Node, Module) ->
     ok.
 
 
+run_expect(Mod) ->
+    try
+        %% Just ask the module
+        run_expect(Mod, Mod:expect_file())
+    catch C:E ->
+            log:info("run_expect: ~p~n", [{C,E,Mod}])
+    end.
+   
+run_expect(Mod,ExpectFile) ->
+    %% Compilation worked, now execute the test.
+    log:info("expect: running ~p:expect_test()~n", [Mod]),
+    Report = (catch Mod:expect_test()),
+    log:info("report: ~p~n", [Report]),
+    log:info("updating: ~s~n", [ExpectFile]),
+    file:copy(ExpectFile ++ ".new", ExpectFile),
+    %% FIXME: Notify emacs
+    Cmd = tools:format(
+            "emacsclient -e '(save-current-buffer (set-buffer (get-buffer ~p)) (revert-buffer t t))'", 
+            %% This is buffer name, not file path.  Full paths don't work here
+            [filename:basename(ExpectFile)]),
+    log:info("emacs: ~s~n",[Cmd]),
+    os:cmd(Cmd).
+    
+
 push_expect(F,PushErl) ->
     %% .expect files are always contained in side an Erlang module.
     %% Relpath is the relative path of .expect to .erl files.
@@ -657,19 +677,7 @@ push_expect(F,PushErl) ->
     %% Only push to build host, since nobody else has the source files.
     case PushErl(Erl, [{erl, node()}]) of
         {ok,_}=OK ->
-            %% Compilation worked, now execute the test.
-            log:info("expect: running ~p:expect_test()~n", [Mod]),
-            Report = (catch Mod:expect_test()),
-            log:info("report: ~p~n", [Report]),
-            log:info("updating: ~s~n", [F]),
-            file:copy(F ++ ".new", F),
-            %% FIXME: Notify emacs
-            Cmd = tools:format(
-                    "emacsclient -e '(progn (switch-to-buffer ~p) (revert-buffer t t))'", 
-                    %% This is buffer name, not file path.  Full paths don't work here
-                    [filename:basename(F)]),
-            log:info("emacs: ~s~n",[Cmd]),
-            os:cmd(Cmd),
+            run_expect(Mod,F),
             OK;
         Error ->
             Error
