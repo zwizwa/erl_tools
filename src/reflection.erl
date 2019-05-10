@@ -645,9 +645,6 @@ clone_module(Node, Module) ->
 
 
 push_expect(F,PushErl) ->
-    %% These only run in the build host.
-    N = [{erl, node()}],
-
     %% .expect files are always contained in side an Erlang module.
     %% Relpath is the relative path of .expect to .erl files.
 
@@ -657,12 +654,13 @@ push_expect(F,PushErl) ->
     Mod = list_to_atom(BN),
     Erl = module_source_raw(Mod),
 
-    case PushErl(Erl, N) of
+    %% Only push to build host, since nobody else has the source files.
+    case PushErl(Erl, [{erl, node()}]) of
         {ok,_}=OK ->
-            %% Compilation worked, now execute it on the build node.
+            %% Compilation worked, now execute the test.
             log:info("expect: running ~p:expect_test()~n", [Mod]),
             Report = (catch Mod:expect_test()),
-            log:info("report: ~s~n", [Report]),
+            log:info("report: ~p~n", [Report]),
             log:info("updating: ~s~n", [F]),
             file:copy(F ++ ".new", F),
             %% FIXME: Notify emacs
