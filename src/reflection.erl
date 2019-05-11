@@ -525,7 +525,7 @@ find_parent(Dir, File) ->
 
 copy(File, TypedNodes) ->
     Nodes = [Node || {erl, Node} <- TypedNodes],
-    tools:re_dispatch(
+    tools:re_case(
       File,
       %% Priv files can be placed in the remote priv directory.
       [{".*/(.*?)/priv/(.*)",
@@ -655,14 +655,8 @@ run_expect(Mod,ExpectFile) ->
     log:info("report: ~p~n", [Report]),
     log:info("updating: ~s~n", [ExpectFile]),
     file:copy(ExpectFile ++ ".new", ExpectFile),
-    %% FIXME: Notify emacs
-    Cmd = tools:format(
-            "emacsclient -e '(save-current-buffer (set-buffer (get-buffer ~p)) (revert-buffer t t))'", 
-            %% This is buffer name, not file path.  Full paths don't work here
-            [filename:basename(ExpectFile)]),
-    log:info("emacs: ~s~n",[Cmd]),
-    os:cmd(Cmd).
-    
+    %% Notify emacs.  FIXME: This is currently hardcoded
+    emacs:revert(filename:basename(ExpectFile)).
 
 push_expect(F,PushErl) ->
     %% .expect files are always contained in side an Erlang module.

@@ -49,7 +49,7 @@
          max_gt/2, max_i/2, min_i/2,
          map_inverse/1,
          first_ok/1,
-         re_dispatch/2,
+         re_case/2,
          become/1,
          process_dictionary_get_value/2,
          reload_from_beam_list/1,
@@ -765,14 +765,14 @@ first_ok([_|L])        -> first_ok(L);
 first_ok([])           -> error.
 
 %% Generic regexp router.
-re_dispatch(_, []) -> false;
-re_dispatch(Data, [{Regex,Fun}|Rest]) ->
+re_case(_, []) -> false;
+re_case(Data, [{Regex,Fun}|Rest]) ->
     case re:run(Data,Regex,[{capture,all,list}]) of
         {match,[_|Args]} ->
             Fun(Args);
         _Err ->
             %%tools:info("~p~n",[_Err]),
-            re_dispatch(Data, Rest)
+            re_case(Data, Rest)
     end.
 
 
