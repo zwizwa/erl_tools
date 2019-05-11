@@ -8,20 +8,7 @@
 %% - Diff of the expect file indicates change of meaning / error
 %% - A committed diff indicates accepted change of meaning
 
-%% This is integrated with the build system.  See Makefile rules
-%% "expect" and "expect_accept".
-
-%% Boilerplate example.
-%% This includes an .expect file for this module.
-%% See tools.erl for another example
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--include("../test/expect.expect").
-expect_test() ->
-    expect:run_form(
-      filename:dirname(?FILE)++"/../test/expect.expect",
-      fun expect_expect/0).
--endif.
+%% See readme_expect.expect and readme_expect.erl for an example.
 
 
 %% Syntax: single thunk, containing a single clause, containing a

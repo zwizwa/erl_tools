@@ -1,5 +1,5 @@
 -module(emacs).
--export([revert/1, lisp/1]).
+-export([revert/1, lisp/1, eval/1]).
 
 %% There are two main ways to send stuff to emacs:
 %% - emacsclient -e <lisp>
@@ -10,19 +10,19 @@
 %% let's use some distel functionality to so this.
 
 revert(File) ->
-    emacs(
+    eval(
       ['save-current-buffer',
        ['set-buffer', ['get-buffer', iolist_to_binary(File)]],
        ['revert-buffer', t, t]]).
 
-emacs(Lisp) ->
+eval(Lisp) ->
     %% FIXME: If there is an Erlang connection into distel, use that
     %% instead.  Otherwise fall back on assuming emacs is running
     %% locally, and we can use emacsclient.
-    emacsclient(Lisp).
-emacsclient(Lisp) ->
+    emacsclient_eval(Lisp).
+emacsclient_eval(Lisp) ->
     Cmd = tools:format("emacsclient -e '~s'", [lisp(Lisp)]),
-    log:info("emacs: ~s~n",[Cmd]),
+    %% log:info("emacs: ~s~n",[Cmd]),
     os:cmd(Cmd).
     
 
