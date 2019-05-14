@@ -44,13 +44,20 @@ handle(Msg, State) ->
 
 %% Get a pass/fail flag from log output.
 success(Logfile) ->
-    {ok, F} = file:open(Logfile,[read]),
-    {ok, Head} = file:read_line(F),
-    %% log:info("~p~n", [Head]),
-    file:close(F),
-    Ok=tools:re_dispatch(
-         Head,
-         [{"^All good", fun(_) -> true  end},
-          {"",          fun(_) -> false end}]),
-    %% log:info("ok: ~p~n", [Ok]),
-    Ok.
+    try
+        {ok, F} = file:open(Logfile,[read]),
+        {ok, Head} = file:read_line(F),
+        %% log:info("~p~n", [Head]),
+        file:close(F),
+        Ok=tools:re_case(
+             Head,
+             [{"^All good", fun(_) -> true  end},
+              {"",          fun(_) -> false end}]),
+        %% log:info("ok: ~p~n", [Ok]),
+        Ok
+    catch
+        %% There seems to be a race condition.
+        C:E ->
+            log:info("WARNING: ~p~n", [{C,E}]),
+            false
+    end.

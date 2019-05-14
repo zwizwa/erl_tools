@@ -16,22 +16,26 @@
          get_type_bin_val/2,
          prefixed/2,
          combined/2,
+         method/2,
          to_obj/1, to_obj_handle/2]).
 
-%% FIXME: rename these to the interface of obj.erl
+
+%% tools:apply/2 supports erl_tools' canonical lambda-lifted form.
+method({kvstore,F},Method) ->
+    tools:apply(F, [Method]).
 
 %% Simple abstract key-value store interface.
-put           ({kvstore, F}, Key, TypeVal)  -> (F(put))(Key, TypeVal).
-find          ({kvstore, F}, Key)           -> (F(find))(Key).
-to_list       ({kvstore, F})                -> (F(to_list))().
-to_map        ({kvstore, F})                -> (F(to_map))().
-put_map       ({kvstore, F}, Map)           -> (F(put_map))(Map).
-put_map_cond  ({kvstore, F}, Map, Check)    -> (F(put_map_cond))(Map, Check).
-put_list      ({kvstore, F}, Map)           -> (F(put_list))(Map).
-put_list_cond ({kvstore, F}, Lst, Check)    -> (F(put_list_cond))(Lst, Check).
-keys          ({kvstore, F})                -> (F(keys))().
-clear         ({kvstore, F})                -> (F(clear))().
-remove        ({kvstore, F}, Key)           -> (F(remove))(Key).
+put           (K, Key, TypeVal)  -> (method(K,put))(Key, TypeVal).
+find          (K, Key)           -> (method(K,find))(Key).
+to_list       (K)                -> (method(K,to_list))().
+to_map        (K)                -> (method(K,to_map))().
+put_map       (K, Map)           -> (method(K,put_map))(Map).
+put_map_cond  (K, Map, Check)    -> (method(K,put_map_cond))(Map, Check).
+put_list      (K, Map)           -> (method(K,put_list))(Map).
+put_list_cond (K, Lst, Check)    -> (method(K,put_list_cond))(Lst, Check).
+keys          (K)                -> (method(K,keys))().
+clear         (K)                -> (method(K,clear))().
+remove        (K, Key)           -> (method(K,remove))(Key).
 
 get_or_make(KVStore, Key, Make) ->
     case find(KVStore, Key) of
@@ -92,7 +96,7 @@ zero() ->
                    
 %% Wrap a kvstore with default generator or map
 %% FIXME: this isn't all that useful.  See also init_with_default
-with_default({kvstore, F}=Parent, DefaultFind) ->     
+with_default({kvstore, _}=Parent, DefaultFind) ->     
     {kvstore,
      fun(find) ->
              fun(Key) ->
@@ -103,7 +107,7 @@ with_default({kvstore, F}=Parent, DefaultFind) ->
              end;
         (Method) ->
              %% Delegate all the rest.
-             F(Method)
+             method(Parent,Method)
      end}.
              
              
@@ -111,8 +115,8 @@ with_default({kvstore, F}=Parent, DefaultFind) ->
 
 %% Prefix all names.
 %% FIXME: only partially implemented
-prefixed(Prefix, {kvstore,F}) ->
-    ToList = fun() -> [{{Prefix,K},TV} || {K,TV} <- (F(to_list))()] end,
+prefixed(Prefix, {kvstore,_}=Kvstore) ->
+    ToList = fun() -> [{{Prefix,K},TV} || {K,TV} <- (method(Kvstore,to_list))()] end,
     {kvstore,
      fun(to_map) ->
              fun() -> maps:from_list(ToList()) end;
@@ -121,13 +125,13 @@ prefixed(Prefix, {kvstore,F}) ->
         (put_list) ->
              fun(Lst) ->
                      %% FIXME: assert prefix
-                     (F(put_list))(
+                     (method(Kvstore,put_list))(
                        [{K,TV} || {{_Prefix, K}, TV} <- Lst])
              end;
         (find) ->
              fun(Key0={Pfx,Key}) -> 
                      case Pfx of
-                         Prefix -> (F(find))(Key);
+                         Prefix -> (method(Kvstore,find))(Key);
                          _ -> {error, {not_found, Key0}}
                      end
 

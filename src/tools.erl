@@ -50,6 +50,7 @@
          map_inverse/1,
          first_ok/1,
          re_case/2,
+         apply/2,
          become/1,
          process_dictionary_get_value/2,
          reload_from_beam_list/1,
@@ -775,6 +776,15 @@ re_case(Data, [{Regex,Fun}|Rest]) ->
             re_case(Data, Rest)
     end.
 
+
+%% Generalized function application: anonymous functions and
+%% lambda-lifted closures.
+apply({M,F,EnvArgs}, Args) when
+      is_atom(M) and is_atom(F) and is_list(EnvArgs) and is_list(Args) ->
+    erlang:apply(M,F,EnvArgs ++ Args);
+apply(F, Args) when
+      is_function(F) and is_list(Args) ->
+    erlang:apply(F, Args).
 
 
 become(Name) ->

@@ -620,6 +620,13 @@ describe_build_product(SrcPath, RelPath) ->
                 #{ base => Base,
                    ext  => b2a(Ext),
                    arch => b2a(Arch) };
+            %% When there is more variation than just host.  This
+            %% 'dot' is passed on to the target.
+            [Base,Kind,Arch,Ext] ->
+                #{ base => tools:format_binary("~s.~s",[Base,Kind]),
+                   ext  => b2a(Ext),
+                   arch => b2a(Arch) };
+
             %% Special cases
             [Base,<<"js">>=Ext] ->
                 #{ base => Base,
