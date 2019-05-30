@@ -632,6 +632,7 @@ describe_build_product(SrcPath, RelPath) ->
                 #{ base => Base,
                    ext  => b2a(Ext),
                    arch => b2a(Ext) }
+
         end,
     maps:merge(Common, Specific).
 

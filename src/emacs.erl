@@ -22,7 +22,7 @@ eval(Lisp) ->
     emacsclient_eval(Lisp).
 emacsclient_eval(Lisp) ->
     Cmd = tools:format("emacsclient -e '~s'", [lisp(Lisp)]),
-    log:info("emacs: ~s~n",[Cmd]),
+    %% log:info("emacs: ~s~n",[Cmd]),
     os:cmd(Cmd).
     
 
