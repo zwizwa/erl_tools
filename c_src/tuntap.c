@@ -26,6 +26,28 @@ static void log_packet(uint8_t *buf, ssize_t n) {
     LOG("\n");
 }
 
+static inline void test_send(int fd) {
+    while(1) {
+        sleep(1);
+        uint8_t test[] = {
+            0xff,0xff,0xff,0xff,0xff,0xff,
+            0xff,0xff,0xff,0xff,0xff,0xff,
+            0x20,0x20,
+            1,2,3,4
+        };
+        write(fd, &test[0], sizeof(test));
+    }
+}
+static inline void test_recv(int fd, const char *ifname) {
+    while(1) {
+        uint8_t buf[2048];
+        ssize_t nbytes;
+        ASSERT((nbytes = read(fd, &buf[0], sizeof(buf))) > 0);
+        LOG("%s: (%d)\n", ifname, (int)nbytes);
+        log_packet(&buf[0], nbytes);
+    }
+}
+
 int MAIN(int argc, char **argv) {
     ASSERT(argc > 1);
     int fd;
@@ -34,11 +56,8 @@ int MAIN(int argc, char **argv) {
     struct ifreq ifr = { .ifr_flags = IFF_TAP | IFF_NO_PI };
     strncpy(ifr.ifr_name, argv[1], IFNAMSIZ);
     ASSERT_ERRNO(ioctl(fd, TUNSETIFF, (void *) &ifr));
-    while(1) {
-        uint8_t buf[2048];
-        ssize_t nbytes = read(fd, buf, sizeof(buf));
-        LOG("%s: (%d)\n", ifr.ifr_name, (int)nbytes);
-        log_packet(&buf[0], nbytes);
-    }
+
+    //test_send(fd);
+    test_recv(fd, ifr.ifr_name);
     return 0;
 }
