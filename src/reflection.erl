@@ -19,11 +19,24 @@ module_has_export(Node,Module,Export) ->
     E = proplists:get_value(exports, MI),
     lists:member(Export,E).
 
-module_source_raw(Module) ->
-    Info = erlang:get_module_info(Module),
+module_info_source(Info) ->
     Compile = proplists:get_value(compile, Info),
     File = proplists:get_value(source, Compile),
     File.
+
+module_source_raw(Module) ->
+    Info =
+        try
+            erlang:get_module_info(Module)
+        catch 
+            error:badarg ->
+                %%throw({not_loaded, Module})
+                log:info("~p not loaded~n", [Module]),
+                c:l(Module),
+                erlang:get_module_info(Module)
+        end,
+    module_info_source(Info).
+            
 
 
 %% Often for cross-compilation, the source is not available on the
@@ -646,13 +659,15 @@ clone_module(Node, Module) ->
     {module, Module} = RPC(code,load_binary,[Module,BeamFile,Bin]),
     ok.
 
-
+%% This maps module to expect file. 
+%% FIXME: We also need a way to do the reverse.
 run_expect(Mod) ->
     try
         %% Just ask the module
         run_expect(Mod, Mod:expect_file())
-    catch C:E ->
-            log:info("run_expect: ~p~n", [{C,E,Mod}])
+    catch error:undef ->
+            log:info("reflection:run_expect: Module '~p' "
+                     "doesn't export expect_file/0~n", [Mod])
     end.
    
 run_expect(Mod,ExpectFile) ->
@@ -666,11 +681,11 @@ run_expect(Mod,ExpectFile) ->
     emacs:revert(filename:basename(ExpectFile)).
 
 push_expect(F,PushErl) ->
-    %% .expect files are always contained in side an Erlang module.
-    %% Relpath is the relative path of .expect to .erl files.
+    %% .expect files are always contained inside an Erlang module.
 
     Dir = filename:dirname(F),
     BN = filename:basename(F, ".expect"),
+
     log:info("expect: ~p~n", [{Dir,BN}]),
     Mod = list_to_atom(BN),
     Erl = module_source_raw(Mod),
