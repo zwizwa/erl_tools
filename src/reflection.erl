@@ -227,7 +227,9 @@ push_erl_change(File, #{ nodes := Nodes } = Env) ->
     Opts = [verbose,
             %% report_errors,report_warnings,
             return_errors, return_warnings,
-            binary],
+            binary,
+            {d,'TEST'}  %% Push test code as well
+           ],
     case compile:file(Path(File), Opts) of
         %% FIXME: Warnings are ignored.
         {ok, Mod, Bin, _Warnings} ->
@@ -681,8 +683,13 @@ run_expect(Mod,ExpectFile) ->
     %% Notify emacs.  FIXME: This is currently hardcoded
     emacs:revert(filename:basename(ExpectFile)).
 
+
+%% .expect files are always contained inside an Erlang module.  How to
+%% find those files?  To reduce need for annotation, it is assumed
+%% that the .expect file's basename is the module name, which then is
+%% used to find the source.
+
 push_expect(F,PushErl) ->
-    %% .expect files are always contained inside an Erlang module.
 
     Dir = filename:dirname(F),
     BN = filename:basename(F, ".expect"),
