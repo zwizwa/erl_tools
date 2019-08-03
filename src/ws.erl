@@ -70,7 +70,10 @@ init({tcp, http}, _Req, _Opts) ->
     {upgrade, protocol, cowboy_websocket}.
 handle(Req, State) ->
     log:info("ws: not expected: ~p~n", [Req]),
-    {ok, Req2} = cowboy_http_req:reply(404, [{'Content-Type', <<"text/html">>}]),
+    %% FIXME: xref complained about missing function.  I don't think this path is taken much.
+    %% {ok, Req2} = cowboy_http_req:reply(404, [{'Content-Type', <<"text/html">>}]),
+    ErrorBody = <<"Error">>,
+    {ok, Req2} = cowboy_req:reply(404, [{'Content-Type', <<"text/html">>}], ErrorBody, Req),
     {ok, Req2, State}.
 terminate(_Reason, _Req, _State) ->
     log:info("ws: terminate: ~p~n",[{_Reason, _Req, _State}]),

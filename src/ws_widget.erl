@@ -12,7 +12,7 @@
          kvstore_edit/1,
          repl/1,
          config/2,
-         table/1,
+         %% table/1,
          example/1]).
 
 %% Widgets are constructed out of HTML layout, client side
@@ -70,36 +70,6 @@ supervisor(Widgets, Env = #{ module := Module, ws := _Ws }) ->
     %% log:info("ws_widget:supervisor: ~p~n", [Rv]),
     Rv.
         
-%% A table edit widget.
-get_table(TableName) ->
-    db_html:q(rest_db:db(), {table,TableName}). 
-
-table(Cmd) ->
-    case Cmd of
-        {layout, Env} ->
-            {'div',[],
-             [{pre,[],[[<<"Example Table">>]]},
-              %% A table with <tr onclick=_> set to deliver the first
-              %% column of the row as an event.
-              ws_layout:tagged_table(
-                maps:merge(
-                  Env,
-                  #{ get_table => fun() -> get_table(test) end,
-                     event => {atom,click},
-                     send => "app." ++ ws:js_send_input(handle) }))
-             ]};
-        {serv_spec, #{ws := _Ws} = _Env} ->
-            {handler,
-             fun() -> #{}  end,
-             fun([{{_Path,ID},{_,click}}], State) ->
-                     log:info("ws_widget:table: click ~p~n", [ID]),
-                     State;
-                (Msg, State) ->
-                     log:info("ws_widget:table: ~p~n", [Msg]),
-                     State
-             end}
-    end.
-
 
 %% Example widget.
 
