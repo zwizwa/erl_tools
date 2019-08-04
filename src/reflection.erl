@@ -32,7 +32,7 @@ module_source_raw(Module) ->
             error:badarg ->
                 %%throw({not_loaded, Module})
                 log:info("~p not loaded~n", [Module]),
-                c:l(Module),
+                _ = c:l(Module),
                 erlang:get_module_info(Module)
         end,
     module_info_source(Info).
@@ -439,15 +439,15 @@ push_change({file, File}, Nodes0, PushType) ->
         catch {C,E} -> {error, {{File, Nodes}, {C,E}}}
         end,
     %% log:info("?MODULE:push_change: ~p~n", [Report]),
-    Report;
-push_change(_Msg, _Nodes, _) ->
-    Error = {error, {bad_command, _Msg, _Nodes}},
-    log:info("?MODULE:push_change: ~p~n", [Error]),
-    Error.
+    Report.
+%%push_change(_Msg, _Nodes, _) ->
+%%    Error = {error, {bad_command, _Msg, _Nodes}},
+%%    log:info("?MODULE:push_change: ~p~n", [Error]),
+%%    Error.
 
 
 
-resolve_node(A) when is_atom(A) -> A;
+%% resolve_node(A) when is_atom(A) -> A;
 resolve_node(B) when is_binary(B) -> binary_to_atom(B,utf8);
 resolve_node(L) -> list_to_atom(L).
     
@@ -557,7 +557,7 @@ copy(File, TypedNodes) ->
                                               throw(E);
                                           Priv ->
                                               RemoteFile = tools:format("~s/~s", [Priv, Rel]),
-                                              ?MODULE:update_file(Env, Node, RemoteFile, Bin),
+                                              _ = ?MODULE:update_file(Env, Node, RemoteFile, Bin),
                                               {Priv,Rel}
                                       end;
                                   Error ->
@@ -679,7 +679,7 @@ run_expect(Mod,ExpectFile) ->
     Report = (catch Mod:expect_test()),
     log:info("report: ~p~n", [Report]),
     log:info("updating: ~s~n", [ExpectFile]),
-    file:copy(ExpectFile ++ ".new", ExpectFile),
+    _ = file:copy(ExpectFile ++ ".new", ExpectFile),
     %% Notify emacs.  FIXME: This is currently hardcoded
     emacs:revert(filename:basename(ExpectFile)).
 
@@ -701,7 +701,7 @@ push_expect(F,PushErl) ->
     %% Only push to build host, since nobody else has the source files.
     case PushErl(Erl, [{erl, node()}]) of
         {ok,_}=OK ->
-            run_expect(Mod,F),
+            _ = run_expect(Mod,F),
             OK;
         Error ->
             Error

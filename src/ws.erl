@@ -73,7 +73,7 @@ handle(Req, State) ->
     %% FIXME: xref complained about missing function.  I don't think this path is taken much.
     %% {ok, Req2} = cowboy_http_req:reply(404, [{'Content-Type', <<"text/html">>}]),
     ErrorBody = <<"Error">>,
-    {ok, Req2} = cowboy_req:reply(404, [{'Content-Type', <<"text/html">>}], ErrorBody, Req),
+    {ok, Req2} = cowboy_req:reply(404, [{<<"Content-Type">>, <<"text/html">>}], ErrorBody, Req),
     {ok, Req2, State}.
 terminate(_Reason, _Req, _State) ->
     log:info("ws: terminate: ~p~n",[{_Reason, _Req, _State}]),
@@ -104,10 +104,10 @@ websocket_handle({text, Json}, Req, State) ->
         %% Interpret all incoming messages as JSON.
         {ok, EJson} ->
             NextState = handle_ejson_(EJson, State),  %% Async only
-            {ok, Req, NextState};
-        Error ->
-            log:info("not json: ~p~n", [{Json,Error}]),
-            {ok, Req, State}
+            {ok, Req, NextState}
+        %%Error ->
+        %%    log:info("not json: ~p~n", [{Json,Error}]),
+        %%    {ok, Req, State}
     end;
 
 websocket_handle({binary, Bin}, Req, State) -> 
