@@ -2,7 +2,7 @@
 
 -module(socks_proxy).
 -export([start_serv/1, on_accept/1, handle/2,
-         connect/5]).
+         connect_via_socks/5]).
 start_serv(#{ port := _ } = Spec) ->
     serv_tcp:start_link(
       maps:merge(
@@ -73,8 +73,8 @@ on_accept(#{ sock := Sock} = State) ->
         maps:get(
           connect,
           State,
-          %% fun(_,Hst,Prt,Opts) -> gen_tcp:connect(Hst,Prt,Opts,3000) end
-          fun(_,Hst,Prt,Opts) -> connect("localhost",1081,Hst,Prt,Opts) end
+          fun(_,Hst,Prt,Opts) -> gen_tcp:connect(Hst,Prt,Opts,3000) end
+          %% fun(_,Hst,Prt,Opts) -> connect_via_socks("localhost",1081,Hst,Prt,Opts) end
          ),
     {ok, DstSock} = 
         Connect(
@@ -124,7 +124,7 @@ handle(Msg,State) ->
 
 
 
-connect(ProxyHost,ProxyPort,
+connect_via_socks(ProxyHost,ProxyPort,
         Host,Port,Opts) ->
     {ok, Sock} = 
         gen_tcp:connect(
