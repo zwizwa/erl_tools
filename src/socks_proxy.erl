@@ -49,22 +49,77 @@ on_accept(#{ sock := Sock} = State) ->
 
     %% Handshake
     %% https://en.wikipedia.org/wiki/SOCKS
+
+    <<ProtoVersion>> = Recv(1),
+    case ProtoVersion of
+        5 -> on_accept_5(State, From, Send, Recv);
+        4 -> on_accept_4(State, From, Send, Recv)
+    end.
+
+
+recv_cstring(Recv) ->
+    case Recv(1) of
+        <<0>> -> [];
+        <<Char>> -> [Char | recv_cstring(Recv)]
+    end.
+            
+dotted({A,B,C,D}) ->            
+    tools:format("~p.~p.~p.~p", [A,B,C,D]).
+
+
+on_accept_4(#{ sock := Sock} = State, From, Send, Recv) ->
+    
+    <<CommandCode>> = Recv(1),
+    _ = case CommandCode of
+        1 -> ok  %% Only support connect
+    end,
+    <<Port:16,A,B,C,D>> = Recv(6),
+    Host = dotted({A,B,C,D}),
+    _User = recv_cstring(Recv),
+    log:info("on_accept_4: ~p~n", [{Host,Port,_User}]),
+
+    on_accept_finish(
+      State, 
+      From, Host, Port,
+      fun() ->
+              %% Arbitrary bytes?  Just pick 0.
+              Send(<<0, 16#5A, 0, 0, 0, 0, 0, 0>>)
+      end).
+    
+
+on_accept_5(#{ sock := Sock} = State, From, Send, Recv) ->
     %% Not checking _Auths.  Assume no auth is ok.    
-    <<5, NbAuths>> = Recv(2),
+
+    <<NbAuths>> = Recv(1),
     _Auths = Recv(NbAuths),
     Send(<<5, 0>>),
+
     <<5,1,0,Kind>> = Recv(4),
+
     {Host,Port} =
-        case Kind of
-            1 ->
-                <<A,B,C,D,P:16>> = Recv(6),
-                {{A,B,C,D},P};
-            3 ->
-                <<DomainLen>> = Recv(1),
-                Domain = Recv(DomainLen),
-                <<P:16>> = Recv(2),
-                {binary_to_list(Domain),P}
-        end,
+                case Kind of
+                    1 ->
+                        <<A,B,C,D,P:16>> = Recv(6),
+                        {dotted({A,B,C,D}),P};
+                    3 ->
+                        <<DomainLen>> = Recv(1),
+                        Domain = Recv(DomainLen),
+                        <<P:16>> = Recv(2),
+                        {binary_to_list(Domain),P}
+                end,
+
+    on_accept_finish(
+      State, 
+      From, Host, Port,
+      fun() ->
+              Send(<<5,0,0,1, 
+                     %% Does this matter?  This is what SSH sends
+                     0,0,0,0,0,0
+                     %% 127,0,0,1,100,0
+                   >>)
+      end).
+
+on_accept_finish(State = #{sock := Sock}, From, Host, Port, Ack) ->
 
     %% log:info("~p~n", [{Host,Port}]),
 
@@ -80,11 +135,8 @@ on_accept(#{ sock := Sock} = State) ->
         Connect(
           From, Host, Port,
           [{active,true},{packet,raw},binary,{send_timeout,3000}]),
-    Send(<<5,0,0,1, 
-           %% Does this matter?  This is what SSH sends
-           0,0,0,0,0,0
-           %% 127,0,0,1,100,0
-         >>),
+
+    Ack(),                             
     inet:setopts(Sock, [{active, true}]),
     maps:merge(
       State,
