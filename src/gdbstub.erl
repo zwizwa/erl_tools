@@ -3,12 +3,14 @@
          dev/1,
          csv_call/4, rsp_call/2,
          rcmd/2,mem_hex/3,word/2,sword/2,set_mem/3,
-         flash_erase/2,flash_erase/3,flash_write/3,flash_erase_write_page/3,flash_erase_write/3,
+         flash_erase/2,flash_erase/3,flash_write/3,
+         flash_erase_write_page/3,flash_erase_write/3,
          string/3,stringp/4,
          reset/1,
          uid/1,
          %% uc_tools gdbstub code
-         config/1,company/1,product/1,serial/1,firmware/1,version/1,config_start/0]).
+         config/1,company/1,product/1,serial/1,firmware/1,version/1,
+         config_start/0,protocol/1,protocol2/1]).
 
 %% All binding goes through dev/1.  Devices identified with a process
 %% id are supposed to support the {rsp_call,_} protocol.  Otherwise,
@@ -145,6 +147,9 @@ product(ID)   -> stringp(ID, config(1), 40, "unknown").
 serial(ID)    -> stringp(ID, config(2), 10, "unknown").
 firmware(ID)  -> stringp(ID, config(8), 80, "unknown").
 version(ID)   -> stringp(ID, config(9), 80, "unknown").
+
+protocol(ID)   -> stringp(ID, config(13), 80, "unknown").
+protocol2(ID)  -> stringp(ID, config(14), 80, "unknown").
     
 config_start() -> config(3). 
 

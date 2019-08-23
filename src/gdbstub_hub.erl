@@ -122,14 +122,16 @@ dev_start(#{ tty := Dev, id := {Host, _}, hub := Hub } = Init) ->
                spawn(
                  fun() ->
                          %% Identify the board and notify.
-                         obj:call(Pid, {set_uid, gdbstub:uid(Pid)}),
+                         obj:call(Pid, {set_meta, 
+                                        gdbstub:uid(Pid),
+                                        gdbstub:protocol(Pid),
+                                        gdbstub:protocol2(Pid)}),
                          Hub ! {up, Pid}
                  end),
 
                maps:merge(
                  Init,
                  #{ gdb => Gdb,
-                    decode => 4, %% see decode/1, for erlang:decode_packet
                     port => Port })
        end,
        fun gdbstub_hub:dev_handle/2}).
@@ -140,9 +142,16 @@ dev_handle(Msg,State) ->
     dev_handle_(Msg,State).
 dev_handle_(Msg={_,dump},State) ->
     obj:handle(Msg, State);
-dev_handle_({Pid,{set_uid, UID}}, State) ->
+dev_handle_({Pid,{set_meta, UID, Proto, Proto2_}}, State) ->
     obj:reply(Pid, ok),
-    maps:put(uid, UID, State);
+    Proto2 = case Proto2_ of "unknown" -> Proto; P2 -> P2 end,
+    %% Pick a decoder for Proto2
+    maps:merge(
+      State,
+      #{ uid => UID,
+         decode => decoder(Proto2),
+         proto => Proto,
+         proto2 => Proto2 });
 dev_handle_({Pid, {rsp_call, Request}}, 
             #{ port := Port } = State) ->
     true = port_command(Port, Request),
@@ -175,6 +184,7 @@ dev_handle_({send_term, Term},
 %% If the application sends something back, it is assumed to be a
 %% protocol understood by erlang:decode_packet.
 dev_handle_({Port, Msg}, #{ port := Port} = State) ->
+    %% log:info("Msg=~p~n", [Msg]),
     case Msg of
         {data, Bin} ->
             decode(Bin, State);
@@ -187,11 +197,11 @@ ignore(_Msg, State) ->
     State.
 
 %% Because port is in raw mode, we don't have proper segmentation.  Do
-%% that here.
-decode(NewBin, State = #{ decode := Type }) ->
+%% that here.  DecodePacket use the API of erlang:decode_packet/3.
+decode(NewBin, State = #{ decode := {DecodePacket, Type} }) ->
     PrevBin = maps:get(rest, State, <<>>),
     Bin = iolist_to_binary([PrevBin, NewBin]),
-    case erlang:decode_packet(Type,Bin,[]) of
+    case DecodePacket(Type,Bin,[]) of
         {more, _} ->
             maps:put(rest, Bin, State);
         {ok, Msg, RestBin} ->
@@ -314,7 +324,6 @@ info(ID) ->
         {ok, Pid} -> obj:dump(Pid);
         E -> E
     end.
-            
 
 find_uid(UID) ->
     maps:find(UID, uids()).
@@ -335,3 +344,36 @@ uids(Hub) ->
       end,
       #{},
       maps:to_list(obj:dump(Hub))).
+
+
+
+%% PROTOCOLS
+
+%% The protocol that runs over the virtual serial port can be
+%% anything.  What we need is a way for the board to specify how it
+%% wants to be hooked up.  Note that input and output prococols can be
+%% different.
+%%
+%% - raw
+%% - {packet,N}
+%% - {etf,N}         ETF wrapped in {packet,N}
+%% - eterm           Printed Erlang terms
+%% - sexp            s-expressions
+%% - {ethernet,N}    {packet,N} encoded ethernet
+
+decoder({packet,N}) -> {fun erlang:decode_packet/3, N};
+decoder(raw)        -> {fun erlang:decode_packet/3, raw};
+
+%% FIXME: Decoding should also do some routing in this case.  That
+%% can't be expressed yet.
+decoder({ethernet,N}) ->
+    decoder({packet,N});
+
+decoder(Str) when is_list(Str) ->
+    try
+        decoder(type:decode({pterm,list_to_binary(Str)}))
+    catch C:E ->
+            log:info("decoder: ~s unknown: ~p~n", [Str,{C,E}]),
+            %% FIXME: use raw instead
+            decoder(raw)
+    end.

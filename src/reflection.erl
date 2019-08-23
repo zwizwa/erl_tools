@@ -489,7 +489,7 @@ redo(File, Nodes, RedoRoot) ->
             "export PUSH_CHANGE_STATE=~s ; "
             "export REDO_VERBOSE_ENTER=1 ; "
             "cd ~s ; "
-            "redo -j$(nproc) --no-status --no-color install 2>&1"
+            "./redo.sh -j$(nproc) --no-status --no-color install 2>&1"
             "'", 
             [encode(PushChangeState),
              RedoRoot]),
