@@ -148,10 +148,20 @@ serial(ID)    -> stringp(ID, config(2), 10, "unknown").
 firmware(ID)  -> stringp(ID, config(8), 80, "unknown").
 version(ID)   -> stringp(ID, config(9), 80, "unknown").
 
-protocol(ID)   -> stringp(ID, config(13), 80, "unknown").
-protocol2(ID)  -> stringp(ID, config(14), 80, "unknown").
+protocol_(ID)   -> stringp(ID, config(13), 80, "unknown").
+protocol2_(ID)  -> stringp(ID, config(14), 80, "unknown").
     
 config_start() -> config(3). 
 
 uid(ID)        -> mem_hex(ID, 16#1FFFF7E8, 12).
 
+
+protocol(ID) -> parse_protocol(protocol_(ID)).
+protocol2(ID) -> parse_protocol(protocol2_(ID)).
+    
+parse_protocol(Str) ->
+    try
+        type:decode({pterm,list_to_binary(Str)})
+    catch _:_ ->
+            {error, Str}
+    end.

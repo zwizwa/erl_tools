@@ -3,6 +3,11 @@
 # $2 basename
 # $3 temp
 
+# So emacs compile mode knows where we are.
+if [ ! -z "REDO_VERBOSE_ENTER" ]; then 
+    echo "redo: Entering directory '$(readlink -f .)'" >&2
+fi
+
 # Object filename encodes target architecture.
 O=$1
 ARCH="${2##*.}"

@@ -13,10 +13,16 @@ start_link(#{ ghcid_cmd := Cmd } = Config) ->
      serv:start(
        {handler,
         fun() ->
-                Port = open_port({spawn, Cmd}, [use_stdio, binary]),
-                maps:put(port, Port, Config)
+                Port = open_port({spawn, Cmd}, [use_stdio, binary, exit_status]),
+                maps:merge(
+                  Config,
+                  #{ port => Port,
+                     port_info => erlang:port_info(Port) })
         end,
         fun ?MODULE:handle/2})}.
+
+%% The bell mechanism is crude.  A better approach is to send an event
+%% from the Haskell side at the end of the test script.
 
 %% Just capture ^G (7) BELL to get a notification that something
 %% happened, then poll the output file.
@@ -28,15 +34,23 @@ handle({Port,{data, Data}}, #{ port := Port } = State) ->
       binary_to_list(Data)),
     State;
 
+%
+
 handle(bell, State = #{notify := {M,F,A}}) ->
-    %% log:info("bell~n"),
     %% You probably want this to use success/1
     erlang:apply(M,F,A),
     State;
+handle(bell, State) ->
+    log:info("bell~n"),
+    State;
+
+handle({Port,{exit_status,_}}=Msg, #{ port := Port }) ->
+    exit(Msg);
 
 handle({Port,_}=_Msg, #{ port := Port } = State) ->
     log:info("~p~n", [_Msg]),
     State;
+
 
 handle(Msg, State) ->
     obj:handle(Msg, State).

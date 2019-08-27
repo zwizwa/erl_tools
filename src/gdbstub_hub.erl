@@ -114,7 +114,7 @@ dev_start(#{ tty := Dev, id := {Host, _}, hub := Hub } = Init) ->
       {handler,
        fun() ->
                log:info("connecting ~p~n", [{Host,Dev}]),
-               %% FIXME:
+               %% FIXME: Use tools:open_port/3 to dispatch
                Port = exo:open_ssh_port(Host, "gdbstub_connect", Dev, []),
                log:info("connected ~p~n",[Port]),
                Gdb = gdb_start(maps:merge(Init, #{ pid => self() })),
@@ -144,7 +144,7 @@ dev_handle_(Msg={_,dump},State) ->
     obj:handle(Msg, State);
 dev_handle_({Pid,{set_meta, UID, Proto, Proto2_}}, State) ->
     obj:reply(Pid, ok),
-    Proto2 = case Proto2_ of "unknown" -> Proto; P2 -> P2 end,
+    Proto2 = case Proto2_ of unknown -> Proto; P2 -> P2 end,
     %% Pick a decoder for Proto2
     maps:merge(
       State,
@@ -152,6 +152,9 @@ dev_handle_({Pid,{set_meta, UID, Proto, Proto2_}}, State) ->
          decode => decoder(Proto2),
          proto => Proto,
          proto2 => Proto2 });
+dev_handle_({set_peer, Peer}, State) ->
+    link(Peer),
+    maps:put(peer, Peer, State);
 dev_handle_({Pid, {rsp_call, Request}}, 
             #{ port := Port } = State) ->
     true = port_command(Port, Request),
@@ -213,7 +216,17 @@ decode(NewBin, State = #{ decode := {DecodePacket, Type} }) ->
     end.
 
 forward_msg(Msg, State) ->
-    print_etf(Msg, State).
+    case maps:find(peer, State) of
+        {ok, Pid} ->
+            %% log:info("to peer: ~p: ~p~n", [Pid, Msg]),
+            %% Size = size(Msg),
+            %% Pid ! {send, <<Size:32, Msg/binary>>},
+            Pid ! {send, Msg},
+            State;
+        %% No peer
+        _ ->
+            print_etf(Msg, State)
+    end.
 
 print(Msg, State) -> 
     log:info("~p~n", [Msg]),
@@ -361,19 +374,9 @@ uids(Hub) ->
 %% - sexp            s-expressions
 %% - {ethernet,N}    {packet,N} encoded ethernet
 
-decoder({packet,N}) -> {fun erlang:decode_packet/3, N};
-decoder(raw)        -> {fun erlang:decode_packet/3, raw};
+decoder({packet,N})   -> {fun erlang:decode_packet/3, N};
+decoder(raw)          -> {fun erlang:decode_packet/3, raw};
+decoder({ethernet,N}) -> decoder({packet,N});
+decoder(_) ->            raw.
 
-%% FIXME: Decoding should also do some routing in this case.  That
-%% can't be expressed yet.
-decoder({ethernet,N}) ->
-    decoder({packet,N});
-
-decoder(Str) when is_list(Str) ->
-    try
-        decoder(type:decode({pterm,list_to_binary(Str)}))
-    catch C:E ->
-            log:info("decoder: ~s unknown: ~p~n", [Str,{C,E}]),
-            %% FIXME: use raw instead
-            decoder(raw)
-    end.
+    

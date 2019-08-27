@@ -1,5 +1,5 @@
 -module(wrap_bert_rpc).
--export([start_link/1, handle/2]).
+-export([start_link/1, handle/2, call/5]).
 
 %% Wrapper / monitor for BERT RPC servers.
 %% Notes:
@@ -53,4 +53,32 @@ connect(State=#{spec := {Host,Port}}, Tries) ->
             %% blog:info("waiting ~p ms to reconnect~n", [Ms]),
             timer:sleep(Ms),
             connect(State, Tries-1)
+    end.
+
+
+
+%% Perform just a call
+call(Host,Port,M,F,Args) when is_atom(M) and is_atom(F) ->
+    try
+        {ok, Sock} = 
+            gen_tcp:connect(
+              Host, Port,
+              [binary, {packet, 4}, {active, false}]),
+        ok = gen_tcp:send(
+               Sock, 
+               term_to_binary(
+                 {call,
+                  M,
+                  F,
+                  lists:map(
+                    fun erlang:list_to_binary/1,
+                    Args)})),
+        Resp = gen_tcp:recv(Sock, 0, 3000),
+        %% Close before parsing.
+        ok = gen_tcp:close(Sock),
+        {ok, Bin} = Resp,
+        {reply, Rv} = binary_to_term(Bin),
+        {ok, Rv}
+    catch C:E ->
+            {error,{C,E}}
     end.

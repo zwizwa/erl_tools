@@ -455,6 +455,7 @@ resolve_node(L) -> list_to_atom(L).
 %% FIXME: This can be removed.  .push_node now uses the result syntax.
 resolve_any_node({erl,_}=N) -> N;
 resolve_any_node({elf,_}=N) -> N;
+resolve_any_node({bin,_}=N) -> N;
 resolve_any_node(B) when is_binary(B) ->
     case re:split(B,":") of
         [<<"elf">>,Platform,SSH] ->
@@ -489,20 +490,29 @@ redo(File, Nodes, RedoRoot) ->
             "export PUSH_CHANGE_STATE=~s ; "
             "export REDO_VERBOSE_ENTER=1 ; "
             "cd ~s ; "
-            "./redo.sh -j$(nproc) --no-status --no-color install 2>&1"
+            "./redo.sh "
+            "-j$(nproc) "
+            "--no-status --no-color install 2>&1"
             "'", 
             [encode(PushChangeState),
              RedoRoot]),
+    log:info("redo: start~n"),
     %% log:info("~s~n", [Cmd]),
-    case run:script_output(Cmd, infinity) of
-        {ok, Out} ->
-            {ok, {see_output,
-                  tools:format("~s~n~s~n", [Cmd, Out])}};
-        {error, {E, Out}} ->
-            Short = tools:format("~p",[{error,E}]),
-            Long  = tools:format("~s~n~s~n", [Cmd, Out]),
-            {error, {Short, Long}}
-    end.
+    {_Out,Rv} = 
+        case run:script_output(Cmd, infinity) of
+            {ok, Out} ->
+                {Out,
+                 {ok, {see_output,
+                       tools:format("~s~n~s~n", [Cmd, Out])}}};
+            {error, {E, Out}} ->
+                Short = tools:format("~p",[{error,E}]),
+                Long  = tools:format("~s~n~s~n", [Cmd, Out]),
+                {Out,
+                 {error, {Short, Long}}}
+    end,
+    log:info("redo:~n~s", [_Out]),
+    log:info("redo: end~n"),
+    Rv.
 
 redo_root(File) ->
     try
@@ -646,8 +656,11 @@ describe_build_product(SrcPath, RelPath) ->
             [Base,<<"js">>=Ext] ->
                 #{ base => Base,
                    ext  => b2a(Ext),
-                   arch => b2a(Ext) }
-
+                   arch => b2a(Ext) };
+            [Base] ->
+                #{ base => Base,
+                   ext  => none,
+                   arch => none }
         end,
     maps:merge(Common, Specific).
 

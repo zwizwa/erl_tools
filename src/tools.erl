@@ -43,7 +43,7 @@
          filter_tag/2, filter_tags/2,
          register/2,
          register_suffix/2,
-         port_pid/1, port_kill/2,
+         port_pid/1, port_kill/2, spawn_port/3,
          xmlElement_attributes/1, xmlAttribute_pair/1, xmlElement_attributes_proplist/1,
          proxy/1,
          max_gt/2, max_i/2, min_i/2,
@@ -63,7 +63,7 @@
          tmpdir/2
         ]).
 
--ifdef(TEST).
+-ifdef(EUINIT).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
@@ -188,7 +188,7 @@ getter(Dict) ->
 %% themselves need to be word-aligned.  See fold:chunks for a more
 %% flexible approach.
 
--ifdef(TEST).
+-ifdef(EUNIT).
 unpack_test_() ->
     [?_assert(unpack_u16(<<1,2,3,4>>)         =:= [16#0201, 16#0403]),
      ?_assert(unpack_u16([<<1,2>>,<<3,4>>])   =:= [16#0201, 16#0403]),
@@ -228,7 +228,7 @@ unpack_s16(L) ->
 
 
 %% integer division with positive and negative remainder.
--ifdef(TEST).
+-ifdef(EUNIT).
 p_n_test_() ->
     [?_assert(p_div_rem( 10,3) =:= { 3, 1}),
      ?_assert(p_div_rem(-10,3) =:= {-4, 2}),
@@ -370,7 +370,7 @@ as_atom(X) when is_list(X) -> list_to_atom(X).
      
      
 %% Parallel map
--ifdef(TEST).
+-ifdef(EUNIT).
 pmap_test_() ->
     F = fun(X) -> X + 1 end,
     [?_assert(pmap(F, [1, 2, 3])         =:= #{1 => 2, 2 => 3, 3 => 4}),
@@ -742,6 +742,34 @@ port_kill(Port,Signal) ->
 
 
 
+%% Abstract open_port
+
+%% Context: if you can't run Erlang on a particular piece of hardware,
+%% instead run a C program that exposes the node's hardware (sensors,
+%% actuators, communication devices) as a port program, and run the
+%% Erlang side of the driver somewhere else in the hive.  I've used
+%% this on tiny OpenWRT nodes that start port programs through
+%% dropbear SSH, and on hub nodes that expose a collection of
+%% USB-connected microcontrollers.
+
+spawn_port(Env = #{ spawn_port := SpawnPort }, Program, Opts) ->
+    log:info("~p~n", [Env]),
+    SpawnPort(Env, Program, Opts);
+spawn_port(_Env = #{ port_dir := PortDir }, Program, Opts) ->
+    log:info("~p~n", [_Env]),
+    open_port({spawn, tools:format("~s/~s",[PortDir,Program])}, Opts);
+spawn_port(_Env = #{ app := App }, Program, Opts) ->
+    log:info("~p~n", [_Env]),
+    spawn_port(#{ port_dir => code:priv_dir(App) }, Program, Opts);
+spawn_port(_Env, Program, Opts) ->
+    log:info("~p~n", [_Env]),
+    spawn_port(#{ app => erl_tools }, Program, Opts).
+
+
+    
+
+
+
 %% FIXME: this hangs: (include-lib "xmerl/include/xmerl.hrl"), so
 %% define accessors based on actual tuple structure instead.
 xmlElement_attributes({xmlElement,_,_,_,_,_,_,As,_,_,_,_}) -> As.
@@ -922,7 +950,7 @@ expect_test() ->
 
 
 %% Keep these here.  They don't pretty-print well as expect tests.
--ifdef(TEST).
+-ifdef(EUNIT).
 hex_test_() ->
     [?_assert(hex16(16#0123) =:= "0123"),
      ?_assert(hex8 (16#01)   =:= "01"),
