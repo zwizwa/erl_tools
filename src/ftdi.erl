@@ -1,5 +1,5 @@
 -module(ftdi).
--export([start_link/1, handle/2, push_bin/2]).
+-export([start_link/1, handle/2, push_bin/2, test/1]).
 
 start_link(Config) ->
     {ok,
@@ -64,3 +64,18 @@ push_bin(Path,File) ->
         Unknown ->
             log:info("ftdi:push_bin: unknown: ~p~n", [Unknown])
     end.
+
+
+test(core) ->
+    push_bin("/home/tom/exo/ghcid/fpga",
+             "f_soc.breakout.ice40.bin");
+
+%% After programming core, the first prog3 fails.  Second is ok.  What
+%% also works: core, restart ftdi, prog3.
+test(prog3) ->
+    push_bin("/home/tom/exo/ghcid/fpga",
+             "f_soc.prog3.ram.bin");
+test(prog4) ->
+    push_bin("/home/tom/exo/ghcid/fpga",
+             "f_soc.prog4.ram.bin").
+

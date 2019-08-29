@@ -72,10 +72,12 @@ void send_spi(const uint8_t *data, int n) {
 void send_spi_chunked(const uint8_t *buf, uint32_t len) {
     while (len > 0) {
         uint32_t chunk = len > 4096 ? 4096 : len;
+        // LOG("left: %d\n", len);
         send_spi(buf, chunk);
         buf += chunk;
-        len -= len;
+        len -= chunk;
     }
+    usleep(10000);
 }
 
 void set_gpio(int slavesel_b, int creset_b) {
@@ -159,11 +161,16 @@ void prog_sram(const char *filename) {
     send_byte(0x00);
 
     LOG("cdone: %s\n", get_cdone() ? "high" : "low");
+
+    set_gpio(1, 1);
+
+
 }
 
 
 
 void raw_spi_write(const uint8_t *buf, uint32_t len) {
+
     set_gpio(0, 1);
     usleep(1000);
     LOG("sending..\n");

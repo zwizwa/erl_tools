@@ -12,7 +12,8 @@
          %% Internal, for reloads
          ignore/2, print/2, print_etf/2,
          dev_start/1, dev_handle/2,
-         hub_handle/2
+         hub_handle/2,
+         encode_packet/3
 ]).
 
 %% This module is a hub for uc_tools gdbstub-based devices.  See also
@@ -150,6 +151,7 @@ dev_handle_({Pid,{set_meta, UID, Proto, Proto2_}}, State) ->
       State,
       #{ uid => UID,
          decode => decoder(Proto2),
+         encode => encoder(Proto),
          proto => Proto,
          proto2 => Proto2 });
 dev_handle_({set_peer, Peer}, State) ->
@@ -173,6 +175,11 @@ dev_handle_({send, RawData},
             #{ port := Port } = State) ->
     true = port_command(Port, RawData),
     State;
+dev_handle_({send_packet, Packet},
+            #{ encode := {EncodePacket,Type} } = State) ->
+    Encoded = EncodePacket(Type,Packet,[]),
+    %% log:info("Encoded=~p~n",[Encoded]),
+    dev_handle({send, Encoded}, State);
 dev_handle_({send_term, Term},
             #{ port := Port } = State) ->
     %% sm_etf uses {packet,4} wrapping
@@ -377,6 +384,20 @@ uids(Hub) ->
 decoder({packet,N})   -> {fun erlang:decode_packet/3, N};
 decoder(raw)          -> {fun erlang:decode_packet/3, raw};
 decoder({ethernet,N}) -> decoder({packet,N});
-decoder(_) ->            raw.
+decoder(_) ->            decoder(raw).
 
+%% There doesn't seem to be a corresponding erlang:encode_packet, so
+%% just implement some here.
+encoder({packet,N})   -> {fun ?MODULE:encode_packet/3, N};
+encoder(raw)          -> {fun ?MODULE:encode_packet/3, raw};
+encoder({ethernet,N}) -> encoder({packet,N});
+encoder(_) ->            encoder(raw).
+
+encode_packet(Type,Bin,[]) ->
+    Size = size(Bin),
+    case Type of
+        4   -> [<<Size:32>>, Bin];
+        raw -> bin
+    end.     
+            
     
