@@ -13,7 +13,8 @@
          ignore/2, print/2, print_etf/2,
          dev_start/1, dev_handle/2,
          hub_handle/2,
-         encode_packet/3
+         encode_packet/3,
+         decode_packet/3
 ]).
 
 %% This module is a hub for uc_tools gdbstub-based devices.  See also
@@ -157,6 +158,10 @@ dev_handle_({Pid,{set_meta, UID, Proto, Proto2_}}, State) ->
 dev_handle_({set_peer, Peer}, State) ->
     link(Peer),
     maps:put(peer, Peer, State);
+
+dev_handle_({set_forward, Handle}, State) ->
+    maps:put(forward, Handle, State);
+
 dev_handle_({Pid, {rsp_call, Request}}, 
             #{ port := Port } = State) ->
     true = port_command(Port, Request),
@@ -178,7 +183,7 @@ dev_handle_({send, RawData},
 dev_handle_({send_packet, Packet},
             #{ encode := {EncodePacket,Type} } = State) ->
     Encoded = EncodePacket(Type,Packet,[]),
-    %% log:info("Encoded=~p~n",[Encoded]),
+    log:info("Packet=~p, Encoded=~p, EncodePacket=~p, Type=~p~n",[Packet,Encoded,EncodePacket,Type]),
     dev_handle({send, Encoded}, State);
 dev_handle_({send_term, Term},
             #{ port := Port } = State) ->
@@ -215,28 +220,42 @@ decode(NewBin, State = #{ decode := {DecodePacket, Type} }) ->
         {more, _} ->
             maps:put(rest, Bin, State);
         {ok, Msg, RestBin} ->
-            forward_msg(Msg, State),
-            decode(<<>>, maps:put(rest, RestBin, State));
+            State1 = forward_msg(Msg, State),
+            decode(<<>>, maps:put(rest, RestBin, State1));
         {error,_}=E ->
             log:info("~p~n",[{E,Bin}]),
             maps:put(rest, <<>>, State)
     end.
 
+forward_msg(<<>>, State) ->
+    %% Empty messages are side effects of the transport encoding, and
+    %% do not have any in-band meaning.
+    State;
 forward_msg(Msg, State) ->
-    case maps:find(peer, State) of
-        {ok, Pid} ->
+    %% log:info("forward_msg: ~p~n", [Msg]),
+    case {maps:find(peer, State),
+          maps:find(forward, State)} of
+        {_,{ok, Forward}} ->
+            %% log:info("forward: ~p ~p~n", [Forward, Msg]),
+            Forward(Msg, State);
+        {{ok, Pid}, _} ->
             %% log:info("to peer: ~p: ~p~n", [Pid, Msg]),
             %% Size = size(Msg),
             %% Pid ! {send, <<Size:32, Msg/binary>>},
             Pid ! {send, Msg},
             State;
-        %% No peer
+        %% Nowhere to go.  Just print it.
         _ ->
-            print_etf(Msg, State)
+            print(Msg, State)
     end.
 
-print(Msg, State) -> 
-    log:info("~p~n", [Msg]),
+print(<<Tag,_/binary>>=Msg, State) ->
+    case Tag of
+        131 -> print_etf(Msg, State);
+        _ -> print_packet(Msg, State)
+    end.
+print_packet(Msg, State) -> 
+    log:info("packet: ~p~n", [Msg]),
     State.
 print_etf(Msg, State) -> 
     try
@@ -244,9 +263,9 @@ print_etf(Msg, State) ->
         %% Assume this is from uc_lib/gdb/sm_etf.c
         case Term of
             [{123,LogData}] ->
-                log:info("~s", [LogData]);
+                log:info("term: ~s", [LogData]);
             _ ->
-                log:info("~p~n", [Term])
+                log:info("term decode failed: ~p~n", [Term])
         end
     catch _C:_E -> 
             %% log:info("~p~n",[{_C,_E}]),
@@ -379,25 +398,53 @@ uids(Hub) ->
 %% - {etf,N}         ETF wrapped in {packet,N}
 %% - eterm           Printed Erlang terms
 %% - sexp            s-expressions
-%% - {ethernet,N}    {packet,N} encoded ethernet
+%% - {driver,M,P}    Packet protocol P with some driver module M
 
 decoder({packet,N})   -> {fun erlang:decode_packet/3, N};
 decoder(raw)          -> {fun erlang:decode_packet/3, raw};
-decoder({ethernet,N}) -> decoder({packet,N});
-decoder(_) ->            decoder(raw).
+decoder(slip)         -> {fun ?MODULE:decode_packet/3, slip};
+decoder({driver,_,P}) -> decoder(P);
+decoder(_Dec) -> 
+    log:info("WARNING: unknown decoder ~p~n", [_Dec]),
+    decoder(raw).
 
 %% There doesn't seem to be a corresponding erlang:encode_packet, so
 %% just implement some here.
 encoder({packet,N})   -> {fun ?MODULE:encode_packet/3, N};
+encoder(slip)         -> {fun ?MODULE:encode_packet/3, slip};
 encoder(raw)          -> {fun ?MODULE:encode_packet/3, raw};
-encoder({ethernet,N}) -> encoder({packet,N});
-encoder(_) ->            encoder(raw).
+encoder({driver,_,P}) -> encoder(P);
+encoder(_Enc) -> 
+    log:info("WARNING: unknown encoder ~p~n", [_Enc]),
+    encoder(raw).
 
-encode_packet(Type,Bin,[]) ->
+encode_packet(slip,Bin,[]) when is_binary(Bin) ->
+    Lst = binary_to_list(Bin),
+    Rv = iolist_to_binary([192,slip_body(Lst),192]),
+    %% log:info("slip_encode: ~p -> ~p~n", [Bin, Rv]),
+    Rv;
+
+encode_packet(Type,Bin,[]) when is_binary(Bin) ->
     Size = size(Bin),
     case Type of
         4   -> [<<Size:32>>, Bin];
-        raw -> bin
+        raw -> Bin
     end.     
-            
+
+slip_body([]) -> [];
+slip_body([192|Tail])  -> [219,220|slip_body(Tail)];
+slip_body([219|Tail])  -> [219,221|slip_body(Tail)];
+slip_body([Head|Tail]) -> [Head|slip_body(Tail)].
     
+                
+decode_packet(slip,Bin,[]) when is_binary(Bin) ->
+    slip_decode(binary_to_list(Bin),[]).
+
+slip_decode([192|Rest],    Stack) ->
+    {ok, list_to_binary(lists:reverse(Stack)), list_to_binary(Rest)};
+slip_decode([219,220|Rest],Stack) -> slip_decode(Rest, [192|Stack]);
+slip_decode([219,221|Rest],Stack) -> slip_decode(Rest, [219|Stack]);
+slip_decode([219,_|_],_)          -> error(slip_decode);
+slip_decode([219],         _)     -> {more, undefined};
+slip_decode([],            _)     -> {more, undefined};
+slip_decode([Char|Rest],   Stack) -> slip_decode(Rest, [Char|Stack]).
