@@ -1,6 +1,6 @@
 -module(usbtree).
 -export([kvstore/0,
-         last_tty/1,
+         last_tty_devpath/1,
          save/2,
          test/0]).
 
@@ -25,19 +25,19 @@
 kvstore() ->
     exo:kvstore(bluepill).
 
-last_tty(Name) ->    
+last_tty_devpath(Name) ->    
     case kvstore:find(kvstore(), Name) of
         {ok, {pterm, Info}} ->  
             #{ host := Host, devpath := DevPath } = Info,
             Dev = devpath_to_dev(DevPath),
-            {Host, Dev};
+            {Host, Dev, DevPath};
         {error,{not_found, Name}} ->
             throw({usbtree_last_tty_not_found,Name})
     end.
     
 devpath_to_dev(DevPath) ->
     [TTY|_] = lists:reverse(re:split(DevPath,"/")),
-    tools:format("/dev/~s", [TTY]).
+    tools:format_binary("/dev/~s", [TTY]).
 
 
 save(Name, #{ host := Host, devpath := DevPath, uid := UID }) ->

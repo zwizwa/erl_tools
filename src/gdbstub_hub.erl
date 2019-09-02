@@ -153,7 +153,7 @@ dev_start(#{ tty := Dev, id := {Host, _}, hub := Hub, app := AppRunning } = Init
     serv:start(
       {handler,
        fun() ->
-               log:set_info_name({init,{Host,Dev}}),
+               log:set_info_name({Host,Dev}),
                log:info("connecting...~n"),
                %% FIXME: Use tools:open_port/3 to dispatch
                Port = exo:open_ssh_port(Host, "gdbstub_connect", Dev, []),
@@ -269,6 +269,15 @@ dev_handle_({send_term, Term},
     true = port_command(Port, [<<Size:32>>,Bin]),
     State;
 
+
+%% Generic RPC call.   See ?TAG_REPLY case below.
+dev_handle_({Pid, {call, Packet}}, State) ->
+    {Wait, State1} = wait(Pid, State),
+    %% log:info("wait: ~p~n",[{Wait,Pid}]),
+    Ack = term_to_binary(Wait),
+    dev_handle_({send_packet, [Packet,size(Ack),Ack]}, State1);
+
+
 %% For GDB RSP, all {data,_} messages should arrive in the
 %% {rsp_call,_} handler.
 
@@ -350,9 +359,21 @@ default_handle_packet(<<?TAG_GDB:16, Msg/binary>>, State) ->
 default_handle_packet(<<?TAG_INFO:16, Msg/binary>>, State) ->
     log:info("info: ~p~n", [Msg]),
     State;
-default_handle_packet(<<?TAG_REPLY:16, Msg/binary>>, State) ->
-    log:info("reply: ~p~n", [Msg]),
-    State;
+default_handle_packet(<<?TAG_REPLY:16,L,Ack/binary>>=Msg, State) ->
+    log:info("ack: ~p~n",[Ack]),
+    try
+        Wait = binary_to_term(Ack, [safe]),
+        {Pid, State1} = unwait(Wait, State),
+        Rpl = binary:part(Ack, L, size(Ack)-L),
+        obj:reply(Pid, Rpl),
+        State1
+    catch _:_ ->
+            %% This case is for acks that are generated outside of
+            %% the {call,Packet} mechanism above.
+            log:info("bad ack in TAG_REPLY message: ~p~n",[Msg]),
+            State
+    end;
+
 
 %% For anything else, we're just guessing.
 default_handle_packet(<<Tag,_/binary>>=Msg, State) ->
@@ -519,7 +540,7 @@ decoder(_Dec) ->
     decoder(raw).
 
 decode_packet(slip,Bin,[]) when is_binary(Bin) ->
-    slip:decode(Bin).
+    slip_decode(Bin).
 
 
 %% There doesn't seem to be a corresponding erlang:encode_packet, so
@@ -533,7 +554,7 @@ encoder(_Enc) ->
     encoder(raw).
 
 encode_packet(slip,Bin,[]) when is_binary(Bin) ->
-    slip:encode(Bin);
+    slip_encode(Bin);
 
 encode_packet(Type,Bin,[]) when is_binary(Bin) ->
     Size = size(Bin),
@@ -542,3 +563,48 @@ encode_packet(Type,Bin,[]) when is_binary(Bin) ->
         raw -> Bin
     end.     
 
+
+%% Simple registry for pending requests.
+wait(Term, State) ->
+    wait(Term, State, 0).
+wait(Term, State, N) ->
+    case maps:find({wait, N}, State) of
+        {ok,_} -> wait(Term, State, N+1);
+        _ -> {N, maps:put({wait, N}, Term, State)}
+    end.
+unwait(N, State) ->
+    {maps:get({wait, N}, State),
+     maps:remove({wait, N}, State)}.
+
+
+
+%% Export encode/decode as well.
+
+slip_encode(IOList) ->
+    Bin = iolist_to_binary(IOList),     %% log:info("Bin ~p~n",[Bin]),
+    Lst = binary_to_list(Bin),          %% log:info("List ~p~n",[Lst]),
+    IOList1 = [192,slip_body(Lst),192], %% log:info("IOList1 ~p~n",[IOList1]),
+    Bin1 = iolist_to_binary(IOList1),   %% log:info("Bin1 ~p~n",[Bin1]),
+    Bin1.
+
+slip_body([]) -> [];
+slip_body([192|Tail])  -> [219,220|slip_body(Tail)];
+slip_body([219|Tail])  -> [219,221|slip_body(Tail)];
+slip_body([Head|Tail]) -> [Head|slip_body(Tail)].
+    
+                
+slip_decode(Bin) when is_binary(Bin) ->
+    slip_decode(binary_to_list(Bin),[]).
+slip_decode([192|Rest],    Stack) ->
+    {ok, list_to_binary(lists:reverse(Stack)), list_to_binary(Rest)};
+slip_decode([219,220|Rest],Stack) -> slip_decode(Rest, [192|Stack]);
+slip_decode([219,221|Rest],Stack) -> slip_decode(Rest, [219|Stack]);
+slip_decode([219,_|_],_)          -> error(slip_decode);
+slip_decode([219],         _)     -> {more, undefined};
+slip_decode([],            _)     -> {more, undefined};
+slip_decode([Char|Rest],   Stack) -> slip_decode(Rest, [Char|Stack]).
+
+
+
+%% High level calls
+ping(Pid) -> <<>> = obj:call(Pid, {call,<<16#FFFC:16>>}, 3000).
