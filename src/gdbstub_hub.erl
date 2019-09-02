@@ -17,14 +17,16 @@
          decode_packet/3
 ]).
 
+-include("slip.hrl").
+
 %% This module is a hub for uc_tools gdbstub-based devices.  See also
 %% gdbstub.erl
 
 %% Singal flow:
 %% - gdbstub_hub board gets enumerated on some host
 %% - hosts's udev config connects to exo_notify
-%% - gdbstub_hub hub gets an 'add' message
-%% - a process is started for the particular device
+%% - gdbstub_hub hub gets an 'add_tty' message
+%% - dev_start/1 will start a process for this device
 %% - this process starts a GDB server process for GDBRSP over TCP
 %% - the server supports multiple connections
 
@@ -32,7 +34,7 @@
 %% zoe:/etc/net/udev/tty/zoe_usb_9-2.sh
 
 %% The script sends a line to the exo_notify daemon:
-%% bluepoll add zoe /dev/ttyACM1 /devices/pci0000:00/0000:00:16.0/usb9/9-2/9-2.4/9-2.4:1.0/tty/ttyACM1
+%% bluepill add zoe /dev/ttyACM1 /devices/pci0000:00/0000:00:16.0/usb9/9-2/9-2.4/9-2.4:1.0/tty/ttyACM1
 
 %% The host name + devpath is enough to uniquely identify the location
 %% of the device.
@@ -72,7 +74,7 @@ hub_handle({add_tty,BHost,TTYDev,DevPath}=_Msg, State)
             <<Offset:14,_:2,_/binary>> = crypto:hash(sha, [BHost,DevPath]),
             TcpPort = 10000 + Offset,
 
-            Pid = gdbstub_hub:dev_start(
+            Pid = ?MODULE:dev_start(
                     #{ hub => Hub,
                        log => fun gdbstub_hub:ignore/2,
                        %% log => fun(Msg) -> log:info("~p~n",[Msg]) end,
@@ -108,14 +110,18 @@ hub_handle(Msg, State) ->
     obj:handle(Msg, State).
 
 
-%% The main purpose of this process is to provide mutually exclusive
-%% access to the GDB port.  Two cases are supported.
+%% Start a process as a companion to the device.  In essence, this
+%% manages the serial port, which is a multiplexed channel.  When
+%% starting up however, the channel is gdbstub only.  This is done to
+%% be able to use the devices in stand-alone mode without gdbstub_hub
+%% managing startup.
 
 dev_start(#{ tty := Dev, id := {Host, _}, hub := Hub } = Init) ->      
     serv:start(
       {handler,
        fun() ->
-               log:info("connecting ~p~n", [{Host,Dev}]),
+               log:set_info_name({init,{Host,Dev}}),
+               log:info("connecting...~n"),
                %% FIXME: Use tools:open_port/3 to dispatch
                Port = exo:open_ssh_port(Host, "gdbstub_connect", Dev, []),
                log:info("connected ~p~n",[Port]),
@@ -123,7 +129,10 @@ dev_start(#{ tty := Dev, id := {Host, _}, hub := Hub } = Init) ->
                Pid = self(),
                spawn(
                  fun() ->
-                         %% Identify the board and notify.
+                         %% This needs to be a separate process
+                         %% because it interacts with the device's
+                         %% main process before finalizing some
+                         %% information.
                          obj:call(Pid, {set_meta, 
                                         gdbstub:uid(Pid),
                                         gdbstub:protocol(Pid),
@@ -162,8 +171,13 @@ dev_handle_({set_peer, Peer}, State) ->
 dev_handle_({set_forward, Handle}, State) ->
     maps:put(forward, Handle, State);
 
+%% FIXME: This needs to be abstracted.  Once the device has switched
+%% protocol, we need to a) wrap port_command/2, and b) spawn a task to
+%% wait for the message, or turn recv into a state machine.
+
 dev_handle_({Pid, {rsp_call, Request}}, 
             #{ port := Port } = State) ->
+    %% log:info("rsp_call: ~p~n", [Request]),
     true = port_command(Port, Request),
     obj:reply(
       Pid,
@@ -183,7 +197,7 @@ dev_handle_({send, RawData},
 dev_handle_({send_packet, Packet},
             #{ encode := {EncodePacket,Type} } = State) ->
     Encoded = EncodePacket(Type,Packet,[]),
-    log:info("Packet=~p, Encoded=~p, EncodePacket=~p, Type=~p~n",[Packet,Encoded,EncodePacket,Type]),
+    %% log:info("~nPacket=~p,~nEncoded=~p,~nEncodePacket=~p,~nType=~p~n",[Packet,Encoded,EncodePacket,Type]),
     dev_handle({send, Encoded}, State);
 dev_handle_({send_term, Term},
             #{ port := Port } = State) ->
@@ -202,7 +216,7 @@ dev_handle_({Port, Msg}, #{ port := Port} = State) ->
     %% log:info("Msg=~p~n", [Msg]),
     case Msg of
         {data, Bin} ->
-            decode(Bin, State);
+            decode_and_forward(Bin, State);
         _ ->
             log:info("ERROR: ~p~n",[Msg]),
             exit(Msg)
@@ -213,7 +227,7 @@ ignore(_Msg, State) ->
 
 %% Because port is in raw mode, we don't have proper segmentation.  Do
 %% that here.  DecodePacket use the API of erlang:decode_packet/3.
-decode(NewBin, State = #{ decode := {DecodePacket, Type} }) ->
+decode_and_forward(NewBin, State = #{ decode := {DecodePacket, Type} }) ->
     PrevBin = maps:get(rest, State, <<>>),
     Bin = iolist_to_binary([PrevBin, NewBin]),
     case DecodePacket(Type,Bin,[]) of
@@ -221,16 +235,19 @@ decode(NewBin, State = #{ decode := {DecodePacket, Type} }) ->
             maps:put(rest, Bin, State);
         {ok, Msg, RestBin} ->
             State1 = forward_msg(Msg, State),
-            decode(<<>>, maps:put(rest, RestBin, State1));
+            decode_and_forward(<<>>, maps:put(rest, RestBin, State1));
         {error,_}=E ->
             log:info("~p~n",[{E,Bin}]),
             maps:put(rest, <<>>, State)
     end.
 
+%% Empty messages are side effects of the transport encoding, and do
+%% not have any in-band meaning.
 forward_msg(<<>>, State) ->
-    %% Empty messages are side effects of the transport encoding, and
-    %% do not have any in-band meaning.
     State;
+
+%% After frameing, the first option is to send the packets to some
+%% specified destination.
 forward_msg(Msg, State) ->
     %% log:info("forward_msg: ~p~n", [Msg]),
     case {maps:find(peer, State),
@@ -249,11 +266,25 @@ forward_msg(Msg, State) ->
             print(Msg, State)
     end.
 
+%% To print, assume first that the message supports the 2-byte type
+%% tags which are used to transport generic system-level messages.
+print(<<?TAG_GDB:16, Msg/binary>>, State) ->
+    log:info("gdb: ~p~n", [Msg]),
+    State;
+print(<<?TAG_INFO:16, Msg/binary>>, State) ->
+    log:info("info: ~p~n", [Msg]),
+    State;
+print(<<?TAG_REPLY:16, Msg/binary>>, State) ->
+    log:info("reply: ~p~n", [Msg]),
+    State;
+
+%% For anything else, we're just guessing.
 print(<<Tag,_/binary>>=Msg, State) ->
     case Tag of
         131 -> print_etf(Msg, State);
-        _ -> print_packet(Msg, State)
+        _   -> print_packet(Msg, State)
     end.
+
 print_packet(Msg, State) -> 
     log:info("packet: ~p~n", [Msg]),
     State.
@@ -278,17 +309,20 @@ print_etf(Msg, State) ->
 
 %% GDB RSP server.
 
-gdb_start(#{ tcp_port := TCPPort } = Init) ->
+gdb_start(#{ tty := Dev, id := {Host, _}, tcp_port := TCPPort } = Init) ->
     serv:start(
       {handler,
        fun() ->
+               log:set_info_name({gdb_serv,{Dev,Host}}),
                log:info("GDB remote access on TCP port ~p~n",[TCPPort]),
                serv_tcp:init(
                  [TCPPort], 
                  %% loop/2 uses blocking code (rsp:recv/1)
                  {body, 
                   fun(Sock, _) -> 
-                          log:info("new connection~n"),
+                          log:set_info_name({gdb_conn,{Dev,Host}}),
+                          log:info("connection from ~999p~n", [inet:peername(Sock)]),
+                          %% log:info("new connection~n"),
                           gdb_loop(maps:put(sock, Sock, Init))
                   end})
        end,
@@ -408,6 +442,10 @@ decoder(_Dec) ->
     log:info("WARNING: unknown decoder ~p~n", [_Dec]),
     decoder(raw).
 
+decode_packet(slip,Bin,[]) when is_binary(Bin) ->
+    slip:decode(Bin).
+
+
 %% There doesn't seem to be a corresponding erlang:encode_packet, so
 %% just implement some here.
 encoder({packet,N})   -> {fun ?MODULE:encode_packet/3, N};
@@ -419,10 +457,7 @@ encoder(_Enc) ->
     encoder(raw).
 
 encode_packet(slip,Bin,[]) when is_binary(Bin) ->
-    Lst = binary_to_list(Bin),
-    Rv = iolist_to_binary([192,slip_body(Lst),192]),
-    %% log:info("slip_encode: ~p -> ~p~n", [Bin, Rv]),
-    Rv;
+    slip:encode(Bin);
 
 encode_packet(Type,Bin,[]) when is_binary(Bin) ->
     Size = size(Bin),
@@ -431,20 +466,3 @@ encode_packet(Type,Bin,[]) when is_binary(Bin) ->
         raw -> Bin
     end.     
 
-slip_body([]) -> [];
-slip_body([192|Tail])  -> [219,220|slip_body(Tail)];
-slip_body([219|Tail])  -> [219,221|slip_body(Tail)];
-slip_body([Head|Tail]) -> [Head|slip_body(Tail)].
-    
-                
-decode_packet(slip,Bin,[]) when is_binary(Bin) ->
-    slip_decode(binary_to_list(Bin),[]).
-
-slip_decode([192|Rest],    Stack) ->
-    {ok, list_to_binary(lists:reverse(Stack)), list_to_binary(Rest)};
-slip_decode([219,220|Rest],Stack) -> slip_decode(Rest, [192|Stack]);
-slip_decode([219,221|Rest],Stack) -> slip_decode(Rest, [219|Stack]);
-slip_decode([219,_|_],_)          -> error(slip_decode);
-slip_decode([219],         _)     -> {more, undefined};
-slip_decode([],            _)     -> {more, undefined};
-slip_decode([Char|Rest],   Stack) -> slip_decode(Rest, [Char|Stack]).
