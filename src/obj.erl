@@ -1,7 +1,7 @@
 %% (c) 2018 Tom Schouten -- see LICENSE file
 
 -module(obj).
--export([init/0, handle/2, call/2, call/3, reply/2,
+-export([init/0, handle/2, call/2, call/3, reply/2, %% reply_from/3,
          get/2, get/3, set/3, gets/2, values/1,
          update/3, update/2, find/2, dump/1, replace/2, merge/2,
          update/4, remove/2,
@@ -27,6 +27,7 @@ init() -> #{}.
 %% Allow replies to be disabled to implement casts. for set, replace, update.
 
 reply(no_reply, _) -> ok;
+%% reply_from(Pid, Val, Self) -> when is_pid(Pid) -> Pid ! {self(), obj_reply, Val}, ok;
 reply(Pid, Val) when is_pid(Pid) -> Pid ! {self(), obj_reply, Val}, ok;
 reply({Tag,Pid}, Val) when is_pid(Pid) -> Pid ! {{Tag,self()}, obj_reply, Val}, ok.
 

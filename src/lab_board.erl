@@ -38,5 +38,6 @@ handle(<<?TAG_STATUS:16,_Status/binary>>, State) ->
 
 
 handle(Msg, State) ->
-    log:info("lab_board: unknown: ~p~n",[Msg]),
-    State.
+    %% log:info("lab_board: passing on: ~p~n",[Msg]),
+    gdbstub_hub:default_handle_packet(Msg, State).
+

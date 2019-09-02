@@ -10,9 +10,10 @@
          devpath_usb_port/1,
 
          %% Internal, for reloads
-         ignore/2, print/2, print_etf/2,
+         ignore/2, print_etf/2,
          dev_start/1, dev_handle/2,
          hub_handle/2,
+         default_handle_packet/2,
          encode_packet/3,
          decode_packet/3
 ]).
@@ -143,6 +144,7 @@ dev_start(#{ tty := Dev, id := {Host, _}, hub := Hub } = Init) ->
                maps:merge(
                  Init,
                  #{ gdb => Gdb,
+                    app => false,
                     port => Port })
        end,
        fun gdbstub_hub:dev_handle/2}).
@@ -171,12 +173,11 @@ dev_handle_({set_peer, Peer}, State) ->
 dev_handle_({set_forward, Handle}, State) ->
     maps:put(forward, Handle, State);
 
-%% FIXME: This needs to be abstracted.  Once the device has switched
-%% protocol, we need to a) wrap port_command/2, and b) spawn a task to
-%% wait for the message, or turn recv into a state machine.
 
+%% This only works in boot loader mode.  Once app is started, a
+%% different mechanism is needed.
 dev_handle_({Pid, {rsp_call, Request}}, 
-            #{ port := Port } = State) ->
+            #{ port := Port, app := false } = State) ->
     %% log:info("rsp_call: ~p~n", [Request]),
     true = port_command(Port, Request),
     obj:reply(
@@ -187,13 +188,43 @@ dev_handle_({Pid, {rsp_call, Request}},
       end),
     State;
 
+%% For now, assume TAG_GDB 0xFFFD tagging.
+dev_handle_({CallerPid, {rsp_call, Request}}, 
+            #{ app := true } = State) ->
+    %% Spawn a process for each request.  That's going to be a lot
+    %% simpler than trying to manage state machines here.  FIXME: this
+    %% no longer handles mutual exclusion.  It will just fail.
+    case maps:find(rsp_call_waiting, State) of
+        {ok, PrevRspCall} ->
+            exit({already_have_rsp_call_waiting, PrevRspCall});
+        _ ->
+            BinReq = iolist_to_binary(Request),
+            MainPid = self(),
+            WaiterPid = 
+                spawn(
+                  fun() ->
+                          %% log:info("to_gdbstub: ~p~n", [BinReq]),
+                          MainPid ! {send_packet, <<?TAG_GDB:16, BinReq/binary>>},
+                          Reply = 
+                              case Request of
+                                  "+" -> "";
+                                  _   -> rsp:recv_data(3000)
+                              end,
+                          MainPid ! {rsp_call_reply, Reply}
+                  end),
+            maps:put(rsp_call_waiting, {WaiterPid, CallerPid}, State)
+    end;
+dev_handle_({rsp_call_reply, Reply},
+            #{ rsp_call_waiting := {_,CallerPid} } = State) ->
+    obj:reply(CallerPid, Reply),
+    maps:remove(rsp_call_waiting, State);
 
 %% Initially, ports speak GDB RSP.  Once we send something else, the
 %% gdbstub connects the application.
 dev_handle_({send, RawData},
             #{ port := Port } = State) ->
     true = port_command(Port, RawData),
-    State;
+    maps:put(app, true, State);
 dev_handle_({send_packet, Packet},
             #{ encode := {EncodePacket,Type} } = State) ->
     Encoded = EncodePacket(Type,Packet,[]),
@@ -216,26 +247,29 @@ dev_handle_({Port, Msg}, #{ port := Port} = State) ->
     %% log:info("Msg=~p~n", [Msg]),
     case Msg of
         {data, Bin} ->
-            decode_and_forward(Bin, State);
+            decode_and_handle_packet(Bin, State);
         _ ->
             log:info("ERROR: ~p~n",[Msg]),
             exit(Msg)
     end.
+
+
+
 
 ignore(_Msg, State) ->
     State.
 
 %% Because port is in raw mode, we don't have proper segmentation.  Do
 %% that here.  DecodePacket use the API of erlang:decode_packet/3.
-decode_and_forward(NewBin, State = #{ decode := {DecodePacket, Type} }) ->
+decode_and_handle_packet(NewBin, State = #{ decode := {DecodePacket, Type} }) ->
     PrevBin = maps:get(rest, State, <<>>),
     Bin = iolist_to_binary([PrevBin, NewBin]),
     case DecodePacket(Type,Bin,[]) of
         {more, _} ->
             maps:put(rest, Bin, State);
         {ok, Msg, RestBin} ->
-            State1 = forward_msg(Msg, State),
-            decode_and_forward(<<>>, maps:put(rest, RestBin, State1));
+            State1 = handle_packet(Msg, State),
+            decode_and_handle_packet(<<>>, maps:put(rest, RestBin, State1));
         {error,_}=E ->
             log:info("~p~n",[{E,Bin}]),
             maps:put(rest, <<>>, State)
@@ -243,13 +277,13 @@ decode_and_forward(NewBin, State = #{ decode := {DecodePacket, Type} }) ->
 
 %% Empty messages are side effects of the transport encoding, and do
 %% not have any in-band meaning.
-forward_msg(<<>>, State) ->
+handle_packet(<<>>, State) ->
     State;
 
 %% After frameing, the first option is to send the packets to some
 %% specified destination.
-forward_msg(Msg, State) ->
-    %% log:info("forward_msg: ~p~n", [Msg]),
+handle_packet(Msg, State) ->
+    %% log:info("handle_packet: ~p~n", [Msg]),
     case {maps:find(peer, State),
           maps:find(forward, State)} of
         {_,{ok, Forward}} ->
@@ -261,25 +295,36 @@ forward_msg(Msg, State) ->
             %% Pid ! {send, <<Size:32, Msg/binary>>},
             Pid ! {send, Msg},
             State;
-        %% Nowhere to go.  Just print it.
+        %% Nowhere to go.  Use default, which is mostly just a
+        %% print-to-console endpoint.
         _ ->
-            print(Msg, State)
+            default_handle_packet(Msg, State)
     end.
 
 %% To print, assume first that the message supports the 2-byte type
 %% tags which are used to transport generic system-level messages.
-print(<<?TAG_GDB:16, Msg/binary>>, State) ->
-    log:info("gdb: ~p~n", [Msg]),
+default_handle_packet(<<?TAG_GDB:16, Msg/binary>>, State) ->
+    case maps:find(rsp_call_waiting, State) of
+        {ok, {WaiterPid,_}} ->
+            %% There is a waiting RSP call.  Pass all the chunks
+            %% there.  The waiter will finish once a complete message
+            %% has arrived.
+            WaiterPid ! {data, binary_to_list(Msg)};
+        _ ->
+            %% No actual RSP call waiting.
+            log:info("from_gdbstub: ~p~n", [Msg]),
+            ok
+    end,
     State;
-print(<<?TAG_INFO:16, Msg/binary>>, State) ->
+default_handle_packet(<<?TAG_INFO:16, Msg/binary>>, State) ->
     log:info("info: ~p~n", [Msg]),
     State;
-print(<<?TAG_REPLY:16, Msg/binary>>, State) ->
+default_handle_packet(<<?TAG_REPLY:16, Msg/binary>>, State) ->
     log:info("reply: ~p~n", [Msg]),
     State;
 
 %% For anything else, we're just guessing.
-print(<<Tag,_/binary>>=Msg, State) ->
+default_handle_packet(<<Tag,_/binary>>=Msg, State) ->
     case Tag of
         131 -> print_etf(Msg, State);
         _   -> print_packet(Msg, State)
@@ -299,8 +344,8 @@ print_etf(Msg, State) ->
                 log:info("term decode failed: ~p~n", [Term])
         end
     catch _C:_E -> 
-            %% log:info("~p~n",[{_C,_E}]),
-            print(Msg, State)
+            log:info("~p~n",[{_C,_E}])
+            %% print(Msg, State)
     end,
     State.
 
