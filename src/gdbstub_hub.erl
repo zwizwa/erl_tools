@@ -51,11 +51,16 @@ start_link(HubHandle) ->
 
 %% Udev events will eventuall propagate to here.
 
-%% Add a TTY device, most likely USB.
-%% DevPath is used to uniquely identify the device, based on the
-%% physical USB port location.
-hub_handle({add_tty,BHost,TTYDev,DevPath}=_Msg, State)
-  when is_binary(BHost) and is_binary(TTYDev) ->
+%% Add a TTY device, most likely USB.  DevPath is used to uniquely
+%% identify the device, based on the physical USB port location.  It
+%% is assumed the device is still in gdbstub mode (app not running).
+hub_handle({add_tty,BHost,TTYDev,DevPath}, State) ->
+    hub_handle({add_tty,BHost,TTYDev,DevPath,false}, State);
+
+hub_handle({add_tty,BHost,TTYDev,DevPath,AppRunning}=_Msg, State)
+  when is_binary(BHost) and
+       is_binary(TTYDev) and
+       is_binary(DevPath) ->
     Host = binary_to_atom(BHost, utf8),
     log:info("~p~n", [_Msg]),
     ID = case devpath_usb_port(DevPath) of
@@ -83,7 +88,9 @@ hub_handle({add_tty,BHost,TTYDev,DevPath}=_Msg, State)
                        tty => TTYDev,
                        devpath => DevPath,
                        tcp_port => TcpPort,
+                       app => AppRunning,
                        id => ID }),
+            _Ref = erlang:monitor(process, Pid),
             log:info("adding ~p~n", [{ID,Pid}]),
             maps:put(ID, Pid, State)
     end;
@@ -92,16 +99,16 @@ hub_handle({up, Pid}, State) when is_pid(Pid) ->
     %% Ignore here.  Useful for Handle override.
     State;
 
-hub_handle({'EXIT',Pid,_Reason}=_Msg,State) ->
+hub_handle({'DOWN',_,_,Pid,_}=_Msg, State) ->
     log:info("~p~n", [_Msg]),
-    IState = tools:maps_inverse(State),
-    case maps:find(Pid, IState) of
-        {ok, ID} ->
-            maps:remove(ID, State);
-        _ ->
-            log:info("Warning: ~p not registered~n", [Pid]),
-            State
-    end;
+    hub_remove_pid(Pid, State);
+
+hub_handle({'EXIT',_Pid,__Reason}=_Msg,State) ->
+    %% Monitor handles children.
+    %% log:info("~p~n", [_Msg]),
+    %% hub_remove_pid(Pid, State);
+    State;
+
 
 hub_handle({Pid, {dev_pid, ID}}, State) ->
     obj:reply(Pid, maps:find(ID, State)),
@@ -110,6 +117,16 @@ hub_handle({Pid, {dev_pid, ID}}, State) ->
 hub_handle(Msg, State) ->
     obj:handle(Msg, State).
 
+hub_remove_pid(Pid, State) ->
+    IState = tools:maps_inverse(State),
+    case maps:find(Pid, IState) of
+        {ok, ID} ->
+            maps:remove(ID, State);
+        _ ->
+            log:info("Warning: ~p not registered~n", [Pid]),
+            State
+    end.
+
 
 %% Start a process as a companion to the device.  In essence, this
 %% manages the serial port, which is a multiplexed channel.  When
@@ -117,7 +134,22 @@ hub_handle(Msg, State) ->
 %% be able to use the devices in stand-alone mode without gdbstub_hub
 %% managing startup.
 
-dev_start(#{ tty := Dev, id := {Host, _}, hub := Hub } = Init) ->      
+dev_start(#{ tty := Dev, id := {Host, _}, hub := Hub, app := AppRunning } = Init0) ->
+    Init =
+        case AppRunning of
+            false ->
+                Init0;
+            true  ->
+                %% When app is running we need to make an assumption
+                %% about the application protocol.
+                maps:merge(
+                  Init0,
+                  #{ decode => decoder(slip),
+                     encode => encoder(slip)
+                   })
+        end,
+                          
+    
     serv:start(
       {handler,
        fun() ->
@@ -144,7 +176,6 @@ dev_start(#{ tty := Dev, id := {Host, _}, hub := Hub } = Init) ->
                maps:merge(
                  Init,
                  #{ gdb => Gdb,
-                    app => false,
                     port => Port })
        end,
        fun gdbstub_hub:dev_handle/2}).

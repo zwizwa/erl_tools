@@ -17,6 +17,11 @@
 %% The convention is to use the high range for system packets, and the
 %% low range for applciation.
 
+%% FIXME: The object interface here is probably not necessary.  If the
+%% application supports RSP tunneling (e.g. via 2-byte ?TAG_GDB
+%% prefix), it should be possible to create a gdbstub object.
+
+
 -include("slip.hrl").
 
 start(Host,TTY) ->
