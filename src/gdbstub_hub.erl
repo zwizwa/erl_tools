@@ -5,6 +5,7 @@
          %% Some high level calls
          info/1,
          find_uid/1, uids/0,
+         ping/1,
 
          %% Debug
          devpath_usb_port/1,
@@ -89,6 +90,7 @@ hub_handle({add_tty,BHost,TTYDev,DevPath,AppRunning}=_Msg, State)
                        devpath => DevPath,
                        tcp_port => TcpPort,
                        app => AppRunning,
+                       line_buf => <<>>,
                        id => ID }),
             _Ref = erlang:monitor(process, Pid),
             log:info("adding ~p~n", [{ID,Pid}]),
@@ -128,28 +130,26 @@ hub_remove_pid(Pid, State) ->
     end.
 
 
-%% Start a process as a companion to the device.  In essence, this
-%% manages the serial port, which is a multiplexed channel.  When
-%% starting up however, the channel is gdbstub only.  This is done to
-%% be able to use the devices in stand-alone mode without gdbstub_hub
-%% managing startup.
-
+%% Start a process as a companion to the device, communicating over
+%% serial port.  If app is not running, the wire protcol is RSP.  If
+%% app is running it can have its own protocol.  The common case is
+%% SLIP supporting wrapped RSP.
 dev_start(#{ tty := Dev, id := {Host, _}, hub := Hub, app := AppRunning } = Init0) ->
+    %% When app is running we need to make an assumption about the
+    %% application's serial port framing protocol.  SLIP is a good
+    %% standard.  It is also assumed that the packet level supports
+    %% the 2-byte tags.
     Init =
         case AppRunning of
             false ->
                 Init0;
             true  ->
-                %% When app is running we need to make an assumption
-                %% about the application protocol.
                 maps:merge(
                   Init0,
                   #{ decode => decoder(slip),
                      encode => encoder(slip)
                    })
         end,
-                          
-    
     serv:start(
       {handler,
        fun() ->
@@ -204,6 +204,9 @@ dev_handle_({set_peer, Peer}, State) ->
 dev_handle_({set_forward, Handle}, State) ->
     maps:put(forward, Handle, State);
 
+dev_handle_({set_name, Name}, State) ->
+    maps:put(name, Name, State);
+
 
 %% This only works in boot loader mode.  Once app is started, a
 %% different mechanism is needed.
@@ -257,10 +260,14 @@ dev_handle_({send, RawData},
     true = port_command(Port, RawData),
     maps:put(app, true, State);
 dev_handle_({send_packet, Packet},
-            #{ encode := {EncodePacket,Type} } = State) ->
+            #{ encode := {EncodePacket,Type} } = State)
+  when is_binary(Packet) ->
     Encoded = EncodePacket(Type,Packet,[]),
     %% log:info("~nPacket=~p,~nEncoded=~p,~nEncodePacket=~p,~nType=~p~n",[Packet,Encoded,EncodePacket,Type]),
     dev_handle({send, Encoded}, State);
+dev_handle_({send_packet, IOList}, State) ->
+    dev_handle_({send_packet, iolist_to_binary(IOList)}, State);
+
 dev_handle_({send_term, Term},
             #{ port := Port } = State) ->
     %% sm_etf uses {packet,4} wrapping
@@ -357,14 +364,17 @@ default_handle_packet(<<?TAG_GDB:16, Msg/binary>>, State) ->
     end,
     State;
 default_handle_packet(<<?TAG_INFO:16, Msg/binary>>, State) ->
-    log:info("info: ~p~n", [Msg]),
-    State;
+    decode_info(Msg, State);
+
+%% See {call,_} case in dev_handle_/2
 default_handle_packet(<<?TAG_REPLY:16,L,Ack/binary>>=Msg, State) ->
-    log:info("ack: ~p~n",[Ack]),
+    %% log:info("ack: ~p~n",[Ack]),
     try
         Wait = binary_to_term(Ack, [safe]),
+        %% log:info("wait: ~p~n",[Wait]),
         {Pid, State1} = unwait(Wait, State),
         Rpl = binary:part(Ack, L, size(Ack)-L),
+        %% log:info("reply: ~p~n",[Rpl]),
         obj:reply(Pid, Rpl),
         State1
     catch _:_ ->
@@ -401,6 +411,15 @@ print_etf(Msg, State) ->
     end,
     State.
 
+decode_info(Msg, State = #{ line_buf := Buf }) ->
+    Msg1 = iolist_to_binary([Buf,Msg]),
+    case erlang:decode_packet(line, Msg1, []) of
+        {ok, Line, Buf1} ->
+            log:info("info: ~s", [Line]),
+            decode_info(<<>>, maps:put(line_buf, Buf1, State));
+        {more, _} ->
+            maps:put(line_buf, Msg1, State)
+    end.
     
 
 
@@ -555,13 +574,13 @@ encoder(_Enc) ->
 
 encode_packet(slip,Bin,[]) when is_binary(Bin) ->
     slip_encode(Bin);
-
 encode_packet(Type,Bin,[]) when is_binary(Bin) ->
     Size = size(Bin),
     case Type of
         4   -> [<<Size:32>>, Bin];
         raw -> Bin
-    end.     
+    end.
+
 
 
 %% Simple registry for pending requests.

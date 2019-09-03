@@ -22,14 +22,6 @@ init(Pid, _PacketProto) ->
     %%log:info("lab_board: ~p~n",[Info]),
     ok.
 
-handle(<<?TAG_REPLY:16,Ack/binary>>, State) ->
-    log:info("relay ack: ~p~n",[Ack]),
-    State;
-
-handle(<<?TAG_INFO:16,Log/binary>>, State) ->
-    log:info("log: ~p~n", [Log]),
-    State;
-
 handle(<<?TAG_STATUS:16,_Status/binary>>, State) ->
     %% log:info("lab_board: status: ~p~n", [_Status]),
     NbStatus = maps:get(nb_status, State, 0),
