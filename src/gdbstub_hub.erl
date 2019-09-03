@@ -6,6 +6,7 @@
          info/1,
          find_uid/1, uids/0,
          ping/1,
+         call/3,
 
          %% Debug
          devpath_usb_port/1,
@@ -626,4 +627,8 @@ slip_decode([Char|Rest],   Stack) -> slip_decode(Rest, [Char|Stack]).
 
 
 %% High level calls
-ping(Pid) -> <<>> = obj:call(Pid, {call,<<16#FFFC:16>>}, 3000).
+ping(Pid) -> 
+    <<>> = call(Pid, <<?TAG_PING:16>>, 3000).
+        
+call(Pid, Msg, Timeout) ->
+    obj:call(Pid, {call,Msg}, Timeout).
