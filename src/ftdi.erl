@@ -1,5 +1,5 @@
 -module(ftdi).
--export([start_link/1, handle/2, push_bin/2, test/1]).
+-export([start_link/1, handle/2, push_bin/2, push_bin/3, test/1]).
 
 start_link(Config) ->
     {ok,
@@ -8,7 +8,9 @@ start_link(Config) ->
         fun() ->
                 Port = 
                     tools:spawn_port(
-                      Config, "ftdi_connect.elf i:0x0403:0x6010",
+                      Config,
+                      "ftdi_connect.elf i:0x0403:0x6010",
+                      %% "ftdi_connect.elf",
                       [use_stdio, binary, exit_status, {packet,4}]),
                 maps:merge(
                   Config,
@@ -45,7 +47,8 @@ wait_ack(Port) ->
 
 %% FIXME: This is a "router" for .ram.bin and .ice40.bin files
 %% Change the extensions to reflect only the necessary information.
-push_bin(Path,File) ->
+
+push_bin(Pid,Path,File) ->
     log:info("ftdi: ~p~n", [{Path,File}]),
     Load =
         fun() ->
@@ -53,8 +56,6 @@ push_bin(Path,File) ->
                 {ok, Bin} = file:read_file(F),
                 Bin
         end,
-
-    Pid = rpc:call('exo@10.1.3.2',exo,need,[ftdi]), %% FIXME
 
     case lists:reverse(re:split(File,"\\.")) of
         [<<"bin">>,<<"ram">>|_] ->
@@ -65,6 +66,11 @@ push_bin(Path,File) ->
             log:info("ftdi:push_bin: unknown: ~p~n", [Unknown])
     end.
 
+
+push_bin(Path, File) ->
+    Hub = rpc:call('exo@10.1.3.29',exo,need,[ftdi_hub]),
+    [Pid|_] = ftdi_hub:pids(Hub),
+    push_bin(Pid, Path, File).
 
 test(core) ->
     push_bin("/home/tom/exo/ghcid/fpga",
