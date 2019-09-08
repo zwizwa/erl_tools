@@ -2,6 +2,7 @@
 -export([kvstore/0,
          last_tty_devpath/1,
          save/2,
+         map/0,
          test/0]).
 
 %% This mechanism is generic enough to factor it out.  Originally part
@@ -40,10 +41,11 @@ devpath_to_dev(DevPath) ->
     tools:format_binary("/dev/~s", [TTY]).
 
 
-save(Name, #{ host := Host, devpath := DevPath, uid := UID }) ->
+save(Name, #{ host := Host, devpath := DevPath, uid := UID, usbport := Usbport }) ->
     Store = exo:kvstore(bluepill),
     Info0 = #{ host => Host,
                devpath => DevPath,
+               usbport => Usbport,
                uid => UID},
     kvstore:put(Store, Name, {pterm, Info0}).
 
@@ -54,3 +56,7 @@ save(Name, #{ host := Host, devpath := DevPath, uid := UID }) ->
 %% 
 test() ->
     ok.
+
+map() ->
+    kvstore:to_map(kvstore()).
+

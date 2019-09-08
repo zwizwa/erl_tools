@@ -43,8 +43,11 @@ handle(Msg, State) ->
 
 up(_Hub, Pid) ->
     log:info("~p~n",[Pid]),
+    log:info("FIXME: Map board to firmware.~n"),
+
     Dir = "/home/tom/exo/ghcid/fpga",
     ftdi:push_bin(Pid, Dir, "f_soc.breakout.ice40.bin"),
+    %% FIXME: First time doesn't work.
     ftdi:push_bin(Pid, Dir, "f_soc.prog3.ram.bin"),
     ftdi:push_bin(Pid, Dir, "f_soc.prog3.ram.bin").
     

@@ -35,7 +35,14 @@
 
 #define _GNU_SOURCE
 
+/* Why is this different on openwrt?  Is it libftdi vs libftdi1 ?
+ * I've disabled building the binary for anything other than host. */
+//#if UCTOOLS_ARCH_nexx
+//#include <libftdi1/ftdi.h>
+//#else
 #include <ftdi.h>
+//#endif
+
 #include <poll.h>
 
 #include "system.h"

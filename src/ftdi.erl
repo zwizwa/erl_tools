@@ -49,7 +49,7 @@ wait_ack(Port) ->
 %% Change the extensions to reflect only the necessary information.
 
 push_bin(Pid,Path,File) ->
-    log:info("ftdi: ~p~n", [{Path,File}]),
+    log:info("ftdi: ~999p~n", [{Path,File}]),
     Load =
         fun() ->
                 F = tools:format("~s/~s", [Path, File]),
@@ -68,9 +68,15 @@ push_bin(Pid,Path,File) ->
 
 
 push_bin(Path, File) ->
-    Hub = rpc:call('exo@10.1.3.29',exo,need,[ftdi_hub]),
-    [Pid|_] = ftdi_hub:pids(Hub),
-    push_bin(Pid, Path, File).
+    %% FIXME: Caller needs to find hub.
+    try
+        Hub = rpc:call('exo@10.1.3.29',exo,need,[ftdi_hub]),
+        [Pid|_] = ftdi_hub:pids(Hub),
+        push_bin(Pid, Path, File)
+    catch C:E ->
+            log:info("ftdi: push_bin: ~p~n",[{Path,File,C,E}])
+    end.
+        
 
 test(core) ->
     push_bin("/home/tom/exo/ghcid/fpga",

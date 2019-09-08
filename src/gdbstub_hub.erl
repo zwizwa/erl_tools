@@ -65,10 +65,12 @@ hub_handle({add_tty,BHost,TTYDev,DevPath,AppRunning}=_Msg, State)
        is_binary(DevPath) ->
     Host = binary_to_atom(BHost, utf8),
     log:info("~p~n", [_Msg]),
-    ID = case devpath_usb_port(DevPath) of
-             {ok, UsbPort} -> {Host,UsbPort};
-             _ -> {Host,{tty,TTYDev}}
-         end,
+
+    {ID,Info0} = 
+        case devpath_usb_port(DevPath) of
+            {ok, UsbPort} -> {{Host,UsbPort}, #{ usbport => UsbPort }};
+            _ -> {{Host,{tty,TTYDev}}, #{}}
+        end,
     case maps:find(ID, State) of
         {ok, Pid} ->
             log:info("already have ~p~n", [{ID,Pid}]),
@@ -83,16 +85,18 @@ hub_handle({add_tty,BHost,TTYDev,DevPath,AppRunning}=_Msg, State)
             TcpPort = 10000 + Offset,
 
             Pid = ?MODULE:dev_start(
-                    #{ hub => Hub,
-                       log => fun gdbstub_hub:ignore/2,
-                       %% log => fun(Msg) -> log:info("~p~n",[Msg]) end,
-                       host => Host,
-                       tty => TTYDev,
-                       devpath => DevPath,
-                       tcp_port => TcpPort,
-                       app => AppRunning,
-                       line_buf => <<>>,
-                       id => ID }),
+                     maps:merge(
+                       Info0,
+                       #{ hub => Hub,
+                          log => fun gdbstub_hub:ignore/2,
+                          %% log => fun(Msg) -> log:info("~p~n",[Msg]) end,
+                          host => Host,
+                          tty => TTYDev,
+                          devpath => DevPath,
+                          tcp_port => TcpPort,
+                          app => AppRunning,
+                          line_buf => <<>>,
+                          id => ID })),
             _Ref = erlang:monitor(process, Pid),
             log:info("adding ~p~n", [{ID,Pid}]),
             maps:put(ID, Pid, State)

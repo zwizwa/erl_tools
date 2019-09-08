@@ -69,7 +69,7 @@ host/%.o: %.c
 # Simple stand-alone build
 build/host/%.elf: %.c Makefile
 	mkdir -p $$(dirname $@)
-	gcc -o $@ $< -I../include -DMAIN=main -Wall -ljpeg -g
+	gcc -o $@ $< -I../include -I../ -DMAIN=main -Wall -ljpeg -g
 
 # Abstract cross-compilation.  Top level Makefile will set TARGET and
 # TARGET_BUILD to provide a build mechanism.  We call that with

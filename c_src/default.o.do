@@ -21,7 +21,7 @@ ENV=$ARCH.env.sh
 redo-ifchange $C env.sh $ENV
 . ./$ENV
 
-$GCC $CFLAGS -MD -MF $3.deps.tmp -o $3 -c $C >&2 || exit 1
+$GCC $CFLAGS -DUCTOOLS_ARCH_${ARCH} -MD -MF $3.deps.tmp -o $3 -c $C >&2 || exit 1
 
 # Transform the Makefile style dependency list into just a list of
 # prerequisites.
