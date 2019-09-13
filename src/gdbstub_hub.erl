@@ -17,7 +17,8 @@
          hub_handle/2,
          default_handle_packet/2,
          encode_packet/3,
-         decode_packet/3
+         decode_packet/3,
+         decode_info/2
 ]).
 
 -include("slip.hrl").
