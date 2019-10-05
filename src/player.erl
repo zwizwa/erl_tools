@@ -65,14 +65,19 @@ handle({open, N}, #{ dir := Dir } = State) ->
     end,
     IndexFileName = Dir ++ recorder:num_to_filename(index, N),
     DataFileName = Dir ++ recorder:num_to_filename(data, N),
-    {ok, IndexFile} = file:open(IndexFileName, [raw,read,binary]),
-    {ok, DataFile} = file:open(DataFileName, [raw,read,binary]),
-    %% log:info("playback: ~s~n", [FileName]),
-    maps:merge(
-      State,
-      #{ chunk => N,
-         index => IndexFile,
-         data  => DataFile });
+    try
+        {ok, IndexFile} = file:open(IndexFileName, [raw,read,binary]),
+        {ok, DataFile} = file:open(DataFileName, [raw,read,binary]),
+        %% log:info("playback: ~s~n", [FileName]),
+        maps:merge(
+          State,
+          #{ chunk => N,
+             index => IndexFile,
+             data  => DataFile })
+    catch C:E ->
+            log:info("player: open: ~p~n", [{C,E}]),
+            State
+    end;
 
 handle({Pid, next}, #{ data := DataFile, chunk := Chunk  }=State) ->
     case file:read(DataFile, 4) of

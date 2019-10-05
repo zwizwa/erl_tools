@@ -168,14 +168,22 @@ dev_start(#{ tty := Dev, id := {Host, _}, hub := Hub, app := AppRunning } = Init
                Pid = self(),
                spawn(
                  fun() ->
+                         log:info("getting meta info~n"),
                          %% This needs to be a separate process
                          %% because it interacts with the device's
                          %% main process before finalizing some
                          %% information.
-                         obj:call(Pid, {set_meta, 
-                                        gdbstub:uid(Pid),
-                                        gdbstub:protocol(Pid),
-                                        gdbstub:protocol2(Pid)}),
+                         try
+                             obj:call(Pid, {set_meta, 
+                                            gdbstub:uid(Pid),
+                                            gdbstub:protocol(Pid),
+                                            gdbstub:protocol2(Pid)},
+                                      6001)
+                         catch
+                             C:E ->
+                                 log:info("error getting meta info~n~p~n", [{C,E}])
+                         end,
+                         log:info("got meta info~n"),
                          Hub ! {up, Pid}
                  end),
 
@@ -224,7 +232,7 @@ dev_handle_({Pid, {rsp_call, Request}},
       Pid,
       case Request of
           "+" -> "";
-          _   -> rsp:recv_port(Port, 3000)
+          _   -> rsp:recv_port(Port, 6004)
       end),
     State;
 
@@ -248,7 +256,7 @@ dev_handle_({CallerPid, {rsp_call, Request}},
                           Reply = 
                               case Request of
                                   "+" -> "";
-                                  _   -> rsp:recv_data(3000)
+                                  _   -> rsp:recv_data(6005)
                               end,
                           MainPid ! {rsp_call_reply, Reply}
                   end),
@@ -265,12 +273,14 @@ dev_handle_({send, RawData},
             #{ port := Port } = State) ->
     true = port_command(Port, RawData),
     maps:put(app, true, State);
+
 dev_handle_({send_packet, Packet},
             #{ encode := {EncodePacket,Type} } = State)
   when is_binary(Packet) ->
     Encoded = EncodePacket(Type,Packet,[]),
-    %% log:info("~nPacket=~p,~nEncoded=~p,~nEncodePacket=~p,~nType=~p~n",[Packet,Encoded,EncodePacket,Type]),
+    log:info("~nPacket=~p,~nEncoded=~p,~nEncodePacket=~p,~nType=~p~n",[Packet,Encoded,EncodePacket,Type]),
     dev_handle({send, Encoded}, State);
+
 dev_handle_({send_packet, IOList}, State) ->
     dev_handle_({send_packet, iolist_to_binary(IOList)}, State);
 
@@ -304,8 +314,12 @@ dev_handle_({Port, Msg}, #{ port := Port} = State) ->
         _ ->
             log:info("ERROR: ~p~n",[Msg]),
             exit(Msg)
-    end.
+    end;
 
+%% Other ports have ad-hoc routing.
+dev_handle_({Port, _}=Msg, State) when is_port(Port) ->
+    Handle = maps:get({handle,Port}, State),
+    Handle(Msg, State).
 
 
 
@@ -464,7 +478,7 @@ gdb_loop(State = #{ sock := Sock, log := Log }) ->
     gdb_loop(State).
 
 gdb_dispatch(#{ pid := Pid}, Request) ->
-    obj:call(Pid, {rsp_call, Request}).
+    obj:call(Pid, {rsp_call, Request}, 6002).
 
 %%devpath_usb_port(test) ->
 %%    devpath_usb_port(
@@ -508,7 +522,7 @@ devpath_usb_port(Bin) ->
 
 %% FIXME: Resolution isn't done very well.
 send(Msg) -> gdbstub_hub ! Msg.
-call(Msg) -> obj:call(gdbstub_hub, Msg).
+call(Msg) -> obj:call(gdbstub_hub, Msg, 6003).
 
 dev(Pid) when is_pid(Pid) -> Pid;
 dev(ID) -> {ok, Pid} = call({dev_pid, ID}), Pid.
@@ -561,7 +575,7 @@ decoder(raw)          -> {fun erlang:decode_packet/3, raw};
 decoder(slip)         -> {fun ?MODULE:decode_packet/3, slip};
 decoder({driver,_,P}) -> decoder(P);
 decoder(_Dec) -> 
-    log:info("WARNING: unknown decoder ~p~n", [_Dec]),
+    log:info("WARNING: unknown decoder=~p~n", [_Dec]),
     decoder(raw).
 
 decode_packet(slip,Bin,[]) when is_binary(Bin) ->
@@ -587,6 +601,10 @@ encode_packet(Type,Bin,[]) when is_binary(Bin) ->
         raw -> Bin
     end.
 
+%%as_binary(Bin) when is_binary(Bin) ->
+%%    Bin;
+%%as_binary(IOList) ->
+%%    iolist_to_binary(IOList).
 
 
 %% Simple registry for pending requests.
@@ -633,7 +651,9 @@ slip_decode([Char|Rest],   Stack) -> slip_decode(Rest, [Char|Stack]).
 
 %% High level calls
 ping(Pid) -> 
-    <<>> = call(Pid, <<?TAG_PING:16>>, 3000).
+    <<>> = call(Pid, <<?TAG_PING:16>>, 6006).
         
 call(Pid, Msg, Timeout) ->
     obj:call(Pid, {call,Msg}, Timeout).
+
+

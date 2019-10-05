@@ -1,5 +1,5 @@
 -module(lab_board).
--export([init/2, handle/2]).
+-export([init/2, handle/2, handle_pty/2]).
 
 %% companion to uc_tools/gdb/lab_board.c
 
@@ -28,15 +28,42 @@ handle(<<?TAG_STATUS:16,_Status/binary>>, State) ->
     %% Status update.
     maps:put(nb_status, NbStatus+1, State);
 
+%% Print data to erlang console, like info messages.
 %%handle(<<?TAG_UART:16,Data/binary>>, State) ->
-%%    log:info("lab_board: uart: ~p~n", [Data]),
-%%    State;
+%%    gdbstub_hub:decode_info(Msg, State);
 
-%% FIXME: Connect this to an actual serial port (pty) via socat.
-handle(<<?TAG_UART:16, Msg/binary>>, State) ->
-    gdbstub_hub:decode_info(Msg, State);
+%
+% FIXME: Connect this to an actual serial port (pty) via socat.
+%% Use the name as the board as the link parameter.
+%% Use a generic tag<->Erlang port mapper
+%% FIXME: Standardize the key name and filesystem link so it can
+%% also be used elsewhere.  Also, opening a TCP port might be
+%% better?
+handle(<<?TAG_UART:16, Data/binary>>, State) ->
+    {Port, State1} =
+        case maps:find(uart_pty, State) of
+            {ok, P} ->
+                {P, State};
+            _ ->
+                Link = "/tmp/uart",
+                log:info("open pty ~p~n", [Link]),
+                P = socat:pty(Link),
+                {P, maps:merge(
+                      State,
+                      #{ uart_pty => P,
+                         {handle, P} => fun ?MODULE:handle_pty/2 })}
+        end,                                
+    Port ! {self(), {command, Data}},
+    State1;
 
 handle(Msg, State) ->
     %% log:info("lab_board: passing on: ~p~n",[Msg]),
     gdbstub_hub:default_handle_packet(Msg, State).
 
+
+%% See handle/2 ?TAG_UART clause
+handle_pty({_Port, {data,Data}}, State) ->
+    Packet = <<?TAG_UART:16, Data/binary>>,
+    %% log:info("handle_pty: ~p~n", [Packet]),
+    self() ! {send_packet, Packet},
+    State.
