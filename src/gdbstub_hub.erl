@@ -319,9 +319,16 @@ dev_handle_({Port, Msg}, #{ port := Port} = State) ->
 %% Other ports have ad-hoc routing.
 dev_handle_({Port, _}=Msg, State) when is_port(Port) ->
     Handle = maps:get({handle,Port}, State),
-    Handle(Msg, State).
+    Handle(Msg, State);
 
 
+%% Any other message gets passed to the "driver", which originally
+%% only handled incoming binary messages, but can just as well be
+%% repurposed to also handle messages sent to the proxy process.  This
+%% isn't pretty as we're mixing two protocols, but it is terribly
+%% convenient.
+dev_handle_(Msg, #{ forward := Forward } = State) ->
+    Forward(Msg, State).
 
 ignore(_Msg, State) ->
     State.
