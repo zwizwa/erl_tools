@@ -1,3 +1,1 @@
-rm -rf *.beam *~ tmp out.list
-
-
+rm -rf out.list beam.tar *~
