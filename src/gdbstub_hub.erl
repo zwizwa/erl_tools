@@ -278,7 +278,7 @@ dev_handle_({send_packet, Packet},
             #{ encode := {EncodePacket,Type} } = State)
   when is_binary(Packet) ->
     Encoded = EncodePacket(Type,Packet,[]),
-    log:info("~nPacket=~p,~nEncoded=~p,~nEncodePacket=~p,~nType=~p~n",[Packet,Encoded,EncodePacket,Type]),
+    %% log:info("~nPacket=~p,~nEncoded=~p,~nEncodePacket=~p,~nType=~p~n",[Packet,Encoded,EncodePacket,Type]),
     dev_handle({send, Encoded}, State);
 
 dev_handle_({send_packet, IOList}, State) ->

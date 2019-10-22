@@ -1,5 +1,5 @@
 -module(lab_board).
--export([init/2, handle/2, handle_pty/2]).
+-export([init/2, handle/2, handle_from_pty/2]).
 
 %% companion to uc_tools/gdb/lab_board.c
 
@@ -32,38 +32,45 @@ handle(<<?TAG_STATUS:16,_Status/binary>>, State) ->
 %%handle(<<?TAG_UART:16,Data/binary>>, State) ->
 %%    gdbstub_hub:decode_info(Msg, State);
 
-%
-% FIXME: Connect this to an actual serial port (pty) via socat.
-%% Use the name as the board as the link parameter.
-%% Use a generic tag<->Erlang port mapper
-%% FIXME: Standardize the key name and filesystem link so it can
-%% also be used elsewhere.  Also, opening a TCP port might be
-%% better?
-handle(<<?TAG_UART:16, Data/binary>>, State) ->
-    {Port, State1} =
-        case maps:find(uart_pty, State) of
-            {ok, P} ->
-                {P, State};
-            _ ->
-                Link = "/tmp/uart",
-                log:info("open pty ~p~n", [Link]),
-                P = socat:pty(Link),
-                {P, maps:merge(
-                      State,
-                      #{ uart_pty => P,
-                         {handle, P} => fun ?MODULE:handle_pty/2 })}
-        end,                                
-    Port ! {self(), {command, Data}},
-    State1;
+
+%% These tags are bridged via socat.
+handle(<<?TAG_UART:16, _/binary>>=Msg, State) ->
+    handle_to_pty(uart_pty, {pty,"/tmp/uart"}, Msg, State);
+
+handle(<<?TAG_PLUGIO:16, _/binary>>=Msg, State) ->
+    handle_to_pty(plugin_pty, {pty,"/tmp/plugin"}, Msg, State);
+
+handle(<<?TAG_FORTH:16, _/binary>>=Msg, State) ->
+    handle_to_pty(forth_pty, {pty,"/tmp/forth"}, Msg, State);
 
 handle(Msg, State) ->
     %% log:info("lab_board: passing on: ~p~n",[Msg]),
     gdbstub_hub:default_handle_packet(Msg, State).
 
 
-%% See handle/2 ?TAG_UART clause
-handle_pty({_Port, {data,Data}}, State) ->
-    Packet = <<?TAG_UART:16, Data/binary>>,
+%% Handle traffic to and from pty.  These are created on demand by
+%% data coming from the uC.
+
+handle_from_pty({Port, {data,Data}}, State) ->
+    Tag = maps:get({tag,Port}, State),
+    Packet = <<Tag:16, Data/binary>>,
     %% log:info("handle_pty: ~p~n", [Packet]),
     self() ! {send_packet, Packet},
     State.
+
+handle_to_pty(PtyName, {SocatType,Link}, <<Tag:16,Data/binary>>, State) ->
+    {Port, State1} =
+        case maps:find(PtyName, State) of
+            {ok, P} ->
+                {P, State};
+            _ ->
+                log:info("open pty ~p~n", [Link]),
+                P = socat:SocatType(Link),
+                {P, maps:merge(
+                      State,
+                      #{ PtyName => P,
+                         {tag, P} => Tag,
+                         {handle, P} => fun ?MODULE:handle_from_pty/2 })}
+        end,                                
+    Port ! {self(), {command, Data}},
+    State1.

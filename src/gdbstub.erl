@@ -8,6 +8,7 @@
          string/3,stringp/4,
          reset/1,
          uid/1,
+         elf_sections/1, elf_mem_top/2, mem_ld/1,
          %% uc_tools gdbstub code
          config/1,company/1,product/1,serial/1,firmware/1,version/1,
          config_start/0,protocol/1,protocol2/1]).
@@ -165,3 +166,77 @@ parse_protocol(Str) ->
     catch _:_ ->
             {error, Str}
     end.
+
+
+
+%% Elf access.
+%% There are two straightforward ways: 1) objdump, 2) load .elf and ask gdb.
+%% gdbstub:elf_sections("/home/tom/exo/deps/uc_tools/gdb/lab_board.x8.f103.elf").
+
+%% $ arm-none-eabi-objdump -h lab_board.x8.f103.elf 
+%%
+%% lab_board.x8.f103.elf:     file format elf32-littlearm
+%%
+%% Sections:
+%% Idx Name          Size      VMA       LMA       File off  Algn
+%%   0 .text         00000c64  08003000  08003000  00003000  2**3
+%%                   CONTENTS, ALLOC, LOAD, READONLY, CODE
+%%   1 .data         00000004  20002000  08003c64  0000a000  2**2
+%%                   CONTENTS, ALLOC, LOAD, DATA
+%% ...
+
+elf_sections(File) ->
+    %% This is very ad-hoc, but I really don't want to go through a C library.
+    Report = os:cmd("arm-none-eabi-objdump -h " ++ File),
+    [_,_,_,_,_|Tail] = re:split(Report,"\\n",[notempty,trim]),
+    maps:from_list(elf_sections_tail(Tail)).
+
+elf_sections_tail([]) -> [];
+elf_sections_tail([Row,_Flags|Rest]) -> 
+    [elf_sections_row(Row) | elf_sections_tail(Rest)].
+
+elf_sections_row(Row) ->    
+    [_,_,Name,Size,VMA,LMA|_] = re:split(Row,"\\ *",[notempty,trim]),
+    {Name,{Size,VMA,LMA}}.
+
+%% Returns something like this, together with sections we don't care
+%% about.
+%%
+%% #{<<".config">> => {<<"000000dc">>,<<"08002800">>,<<"08002800">>},
+%%   <<".text">>   => {<<"00000c64">>,<<"08003000">>,<<"08003000">>},
+%%   <<".data">>   => {<<"00000004">>,<<"20002000">>,<<"08003c64">>},
+%%   <<".bss">>    => {<<"00001264">>,<<"20002004">>,<<"08003c68">>},
+%%
+
+%% Now the objective is to find RAM and Flash regions that can be used
+%% to construct a linker script for new code.
+%%
+%% Since we control the linker file that generated this, we can make
+%% some assumptions: .bss SIZE and VMA give RAM top.  .bss LMA is
+%% meaningless, but it is set to the correct value of the next free
+%% Flash byte.  We round that up to the next erase block.
+
+elf_mem_top(Elf, FlashBS) ->
+    #{ <<".bss">> := {HexRamAddr, HexRamSize, HexFlashAddr} }
+        = elf_sections(Elf),
+    [RamAddr,RamSize,FlashAddr] =
+        [list_to_integer(binary_to_list(H),16)
+         || H <- [HexRamAddr, HexRamSize, HexFlashAddr]],
+    RamBlock = tools:n_div(RamAddr + RamSize, 4),  %% 32-bit align
+    RamTop = 4 * RamBlock,
+    FlashBS = 4096,
+    FlashBlock = tools:n_div(FlashAddr, FlashBS),
+    FlashTop = FlashBlock * FlashBS,
+    #{ rom => FlashTop, ram => RamTop}.
+
+mem_ld(#{ rom := FlashTop, ram := RamTop }) ->    
+    Script = 
+        %% We don't know length, so set it to something large so it
+        %% won't trigger linker errors.
+        tools:format(
+          "MEMORY {\n"
+          "        rom (rx)  : ORIGIN = 0x~8.16.0B, LENGTH = 0xFFFFFFFF\n"
+          "        ram (rwx) : ORIGIN = 0x~8.16.0B, LENGTH = 0xFFFFFFFF\n"
+          "}\n",
+          [FlashTop,RamTop]),
+    Script.

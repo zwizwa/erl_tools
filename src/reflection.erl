@@ -498,20 +498,43 @@ redo(File, Nodes, RedoRoot) ->
              RedoRoot]),
     log:info("redo: start~n"),
     %% log:info("~s~n", [Cmd]),
-    {_Out,Rv} = 
-        case run:script_output(Cmd, infinity) of
-            {ok, Out} ->
-                {Out,
-                 {ok, {see_output,
-                       tools:format("~s~n~s~n", [Cmd, Out])}}};
-            {error, {E, Out}} ->
-                Short = tools:format("~p",[{error,E}]),
-                Long  = tools:format("~s~n~s~n", [Cmd, Out]),
-                {Out,
-                 {error, {Short, Long}}}
-    end,
-    log:info("redo:~n~s", [_Out]),
-    log:info("redo: end~n"),
+    %% This used to use run:script_output/2, but since we're not
+    %% really doing anything with the output it is best to print
+    %% it as early as possible.
+
+    %% {_Out, Rv} =
+    %%     case run:script_output(Cmd, infinity) of
+    %%         {ok, Out} ->
+    %%             {Out,
+    %%              {ok, {see_output,
+    %%                    tools:format("~s~n~s~n", [Cmd, Out])}}};
+    %%         {error, {E, Out}} ->
+    %%             Short = tools:format("~p",[{error,E}]),
+    %%             Long  = tools:format("~s~n~s~n", [Cmd, Out]),
+    %%             {Out,
+    %%              {error, {Short, Long}}}
+    %%     end,
+    %% log:info("redo:~n~s", [_Out]),
+    
+    {ok, %% Allways runs up to script exit.
+     {ExitCode, Out}} =
+        run:fold_script(
+          Cmd, 
+          fun({data,{eol,Line}}, Lines) ->
+                  tools:info("~s~n",[Line]),
+                  {cont, [Line ++ "\n"|Lines]};
+             ({exit_status, ECode},Lines) ->
+                  {done, {ECode, lists:flatten(lists:reverse(Lines))}}
+          end,
+          [],
+          infinity,
+          [{line, 1024}]),
+    Rv = 
+        case ExitCode of
+            0 -> {ok, {"redo ok", Out}};
+            _ -> {error, {"redo error", Out}}
+        end,
+    log:info("redo: end (exit=~p)~n",[ExitCode]),
     Rv.
 
 redo_root(File) ->
