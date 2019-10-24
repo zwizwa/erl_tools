@@ -38,10 +38,8 @@ handle(<<?TAG_UART:16, _/binary>>=Msg, State) ->
     handle_to_pty(uart_pty, {pty,"/tmp/uart"}, Msg, State);
 
 handle(<<?TAG_PLUGIO:16, _/binary>>=Msg, State) ->
+    %% log:info("TAG_PLUGIO: ~p~n", [Msg]),
     handle_to_pty(plugin_pty, {pty,"/tmp/plugin"}, Msg, State);
-
-handle(<<?TAG_FORTH:16, _/binary>>=Msg, State) ->
-    handle_to_pty(forth_pty, {pty,"/tmp/forth"}, Msg, State);
 
 handle(Msg, State) ->
     %% log:info("lab_board: passing on: ~p~n",[Msg]),
