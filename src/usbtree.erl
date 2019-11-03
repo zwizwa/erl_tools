@@ -3,6 +3,9 @@
          last_tty_devpath/1,
          save/2,
          map/0,
+         tty_map/0,
+         find_dev/1,
+         find_tty_sh/1,
          test/0]).
 
 %% This mechanism is generic enough to factor it out.  Originally part
@@ -60,3 +63,30 @@ test() ->
 map() ->
     kvstore:to_map(kvstore()).
 
+find_dev(Name) ->
+    case maps:find(Name, map()) of
+        {ok, {pterm, #{ devpath := DevPath, host := Host }}} ->
+            {ok, {Host, devpath_to_dev(DevPath)}};
+        error ->
+            {error, Name}
+    end.
+
+%% Shell bridge: takes list of arguments, returns single text body
+%% that is easily interpreted in a script.
+find_tty_sh(Name0) ->
+    Name =
+        case maps:find(Name0, tty_map()) of
+            {ok, N} -> N;
+            _ -> Name0
+        end,
+    {ok, {Host, Dev}} = find_dev({tty,Name}),
+    {ok, tools:format("~s\n~s\n", [Host,Dev])}.
+
+
+
+%% FIXME: Put this config somewhere else
+tty_map() -> 
+    #{
+       "bbb0" => "10c4-ea60-cp210x-1"
+     }.
+    

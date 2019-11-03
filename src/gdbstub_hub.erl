@@ -490,15 +490,26 @@ gdb_dispatch(#{ pid := Pid}, Request) ->
 %%devpath_usb_port(test) ->
 %%    devpath_usb_port(
 %%      <<"/devices/pci0000:00/0000:00:16.0/usb9/9-2/9-2.4/9-2.4:1.0/tty/ttyACM1\n">>);
+
+%% gdbstub_hub:devpath_usb_port(<<"/devices/pci0000:00/0000:00:16.0/usb9/9-2/9-2.4/9-2.4:1.0/tty/ttyACM1\n">>);
+
+%% gdbstub_hub:devpath_usb_port(<<"/devices/pci0000:00/0000:00:12.2/usb1/1-1/1-1.3/1-1.3.4/1-1.3.4.4/1-1.3.4.4:1.0/ttyUSB0/tty/ttyUSB0">>).
+
 devpath_usb_port(Bin) ->
+    Split =
+        fun(UsbPort) ->
+                case re:split(UsbPort,"-") of
+                    [Interface,Chain] ->
+                        ChainList = re:split(Chain,"\\."),
+                        {ok, [binary_to_integer(C) || C <- [Interface | ChainList]]};
+                    _ -> error
+                end
+        end,
     case lists:reverse(re:split(Bin,"/")) of
-        [_ttyACMx,<<"tty">>,_,UsbPort|_] ->
-            case re:split(UsbPort,"-") of
-                [Interface,Chain] ->
-                    ChainList = re:split(Chain,"\\."),
-                    {ok, [binary_to_integer(C) || C <- [Interface | ChainList]]};
-                _ -> error
-            end;
+        %% Why are there two forms?  The former was discovered more
+        %% recently (rackhub exo_notify.sh from tty rename script).
+        [_ttyUSBx,<<"tty">>,_ttyUSBx,_,UsbPort|_] -> Split(UsbPort);
+        [_ttyACMx,<<"tty">>,_,UsbPort|_] -> Split(UsbPort);
         _ -> error
     end.
 
