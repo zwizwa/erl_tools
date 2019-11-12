@@ -2,8 +2,8 @@
 -export([kvstore/0,
          last_tty_devpath/1,
          save/2,
-         map/0,
-         tty_map/0,
+         map/0, keys/0, ttys/0,
+         aliases/0,
          find_dev/1,
          find_tty_sh/1,
          test/0]).
@@ -62,20 +62,31 @@ test() ->
 
 map() ->
     kvstore:to_map(kvstore()).
+keys() ->
+    maps:keys(map()).
+ttys() ->
+    [{tty,ID} || {tty,ID} <- keys()].
 
 find_dev(Name) ->
-    case maps:find(Name, map()) of
-        {ok, {pterm, #{ devpath := DevPath, host := Host }}} ->
+    PhysDev =
+        case maps:find(Name, aliases()) of
+            {ok, Dev} -> Dev;
+            error -> Name
+        end,
+    log:info("~p -> ~p~n", [Name, PhysDev]),
+    case maps:find(PhysDev, map()) of
+        {ok, {pterm, #{ devpath := DevPath, host := Host }=_Info}} ->
+            log:info("~p -> ~p~n", [Name,_Info]),
             {ok, {Host, devpath_to_dev(DevPath)}};
         error ->
             {error, Name}
     end.
 
-%% Shell bridge: takes list of arguments, returns single text body
-%% that is easily interpreted in a script.
+    
+    
 find_tty_sh(Name0) ->
     Name =
-        case maps:find(Name0, tty_map()) of
+        case maps:find(Name0, aliases()) of
             {ok, N} -> N;
             _ -> Name0
         end,
@@ -84,9 +95,10 @@ find_tty_sh(Name0) ->
 
 
 
-%% FIXME: Put this config somewhere else
-tty_map() -> 
+%% High level name aliases.
+%% FIXME: Put this config somewhere else.
+aliases() -> 
     #{
-       "bbb0" => "10c4-ea60-cp210x-1"
+       {tty, "bone0"} => {tty, "10c4-ea60-cp210x-1"}
      }.
     

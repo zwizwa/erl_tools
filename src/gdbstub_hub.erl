@@ -140,7 +140,9 @@ hub_remove_pid(Pid, State) ->
 %% serial port.  If app is not running, the wire protcol is RSP.  If
 %% app is running it can have its own protocol.  The common case is
 %% SLIP supporting wrapped RSP.
-dev_start(#{ tty := Dev, id := {Host, _}, hub := Hub, app := AppRunning } = Init0) ->
+dev_start(#{ tty := Dev, id := {Host, _},
+             hub := Hub,
+             app := AppRunning } = Init0) ->
     %% When app is running we need to make an assumption about the
     %% application's serial port framing protocol.  SLIP is a good
     %% standard.  It is also assumed that the packet level supports
@@ -161,8 +163,13 @@ dev_start(#{ tty := Dev, id := {Host, _}, hub := Hub, app := AppRunning } = Init
        fun() ->
                log:set_info_name({Host,Dev}),
                log:info("connecting...~n"),
-               %% FIXME: Use tools:open_port/3 to dispatch
-               Port = exo:open_ssh_port(Host, "gdbstub_connect", Dev, []),
+               %% FIXME: Use the more general tools:open_port/3 to
+               %% dispatch, and pass in context to daemon start.
+               Port =
+                   exo_port:spawn_port(
+                     #{ host => Host },
+                     {"gdbstub_connect", [Dev]},
+                     [use_stdio, binary, exit_status]),
                log:info("connected ~p~n",[Port]),
                Gdb = gdb_start(maps:merge(Init, #{ pid => self() })),
                Pid = self(),

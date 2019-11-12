@@ -43,7 +43,7 @@
          filter_tag/2, filter_tags/2,
          register/2,
          register_suffix/2,
-         port_pid/1, port_kill/2, spawn_port/3,
+         port_pid/1, port_kill/2, spawn_port/3, cmdline/2,
          xmlElement_attributes/1, xmlAttribute_pair/1, xmlElement_attributes_proplist/1,
          proxy/1,
          max_gt/2, max_i/2, min_i/2,
@@ -752,20 +752,36 @@ port_kill(Port,Signal) ->
 %% dropbear SSH, and on hub nodes that expose a collection of
 %% USB-connected microcontrollers.
 
-spawn_port(Env = #{ spawn_port := SpawnPort }, Program, Opts) ->
+%% case: Spawner is abstract and defined in the local environment.
+%% This can e.g. be used when starting of an Erlang port management
+%% process is done in an environment that has some global
+%% infrastructure, e.g. exo's SSH nodes.
+spawn_port(Env = #{ spawn_port := SpawnPort }, Program={_Cmd,_ArgList}, Opts) ->
     log:info("~p~n", [Env]),
     SpawnPort(Env, Program, Opts);
-spawn_port(_Env = #{ port_dir := PortDir }, Program, Opts) ->
+
+
+%% case: To start a local process, we only need to know the directory
+%% of the port binary.
+spawn_port(_Env = #{ port_dir := PortDir }, {Cmd,ArgList}, Opts) ->
     log:info("~p~n", [_Env]),
-    open_port({spawn, tools:format("~s/~s",[PortDir,Program])}, Opts);
+    CmdLine = cmdline(tools:format("~s/~s",[PortDir,Cmd]), ArgList),
+    open_port({spawn, CmdLine}, Opts);
+
+%% case: If the port belongs to an app, we can find the port dir.
 spawn_port(_Env = #{ app := App }, Program, Opts) ->
     log:info("~p~n", [_Env]),
     spawn_port(#{ port_dir => code:priv_dir(App) }, Program, Opts);
+
+%% case: The default case is a program exported in this app.
 spawn_port(_Env, Program, Opts) ->
     log:info("~p~n", [_Env]),
     spawn_port(#{ app => erl_tools }, Program, Opts).
 
 
+%% FIXME: This will need proper shell escaping.
+cmdline(Cmd,ArgList) ->
+    [Cmd | [[" ", Arg] || Arg <- ArgList]].
     
 
 

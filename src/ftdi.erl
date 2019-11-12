@@ -9,7 +9,7 @@ start_link(Config) ->
                 Port = 
                     tools:spawn_port(
                       Config,
-                      "ftdi_connect.elf i:0x0403:0x6010",
+                      {"ftdi_connect.elf", ["i:0x0403:0x6010"]},
                       %% "ftdi_connect.elf",
                       [use_stdio, binary, exit_status, {packet,4}]),
                 maps:merge(
