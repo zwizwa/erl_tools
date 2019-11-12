@@ -10,17 +10,21 @@
 %% port process.  In the application, ssh's authorized_keys mechanism
 %% is used to securely connect to the node.
 
-port(Cmd) ->
-    open_port({spawn, Cmd}, [use_stdio, {packet,4}, exit_status, binary]).
+%% Assume we are started with Env set up properly for tools:spawn_port/3.
+port(Env = #{ dev := Dev }) ->
+    tools:spawn_port(
+      Env,
+      {"v4l", [Dev]},
+      [use_stdio, {packet,4}, exit_status, binary]).
 
 next(Port) ->
     port_command(Port, <<>>).
 
-obj(Cmd) ->
+obj(Env) ->
     serv:start(
       {handler,
        fun() -> 
-               Port = port(Cmd),
+               Port = port(Env),
                next(Port),
                #{ port => Port, bc => serv:bc_start() } 
        end,
