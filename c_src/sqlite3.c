@@ -97,7 +97,7 @@ static struct bert_object* binary(struct reader *r, uint32_t nb_bytes) {
 
 
 static void parse_error(struct reader *r, const char *msg) {
-    ERROR(msg);
+    ERROR("%s",msg);
 }
 
 /* Generic send */

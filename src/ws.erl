@@ -553,10 +553,6 @@ reload_all() ->
 reload(Ws) ->
     Ws !  #{ type => reload }, ok.
 
-
-
-
-
 %% Encode/decode for tunneling through JSON, cookies, embedded JS,
 %% URLs, ...  Use base64 encoding.
 hmac_encode(GetKey,Obj) ->
