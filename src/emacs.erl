@@ -1,5 +1,8 @@
 -module(emacs).
--export([revert/1, lisp/1, eval/1]).
+-export([revert/1, lisp/1, eval/1,
+         emacsclient_eval/1,
+         distel_send_lisp/1,
+         distel_node/0]).
 
 %% There are two main ways to send stuff to emacs:
 %% - emacsclient -e <lisp>
@@ -17,14 +20,21 @@ revert(File) ->
 
 eval(Lisp) ->
     %% FIXME: If there is an Erlang connection into distel, use that
-    %% instead.  Otherwise fall back on assuming emacs is running
-    %% locally, and we can use emacsclient.
+    %% instead!
     emacsclient_eval(Lisp).
+
+-define(DEVNODE,'exo@10.1.3.29').
+
 emacsclient_eval(Lisp) ->
-    Cmd = tools:format("emacsclient -e '~s'", [lisp(Lisp)]),
-    %% log:info("emacs: ~s~n",[Cmd]),
-    os:cmd(Cmd).
-    
+    %% FIXME: Emacsclient is only assumed to run on the dev node
+    case node() of
+        ?DEVNODE ->
+            Cmd = tools:format("emacsclient -e '~s'", [lisp(Lisp)]),
+            %% log:info("emacs: ~s~n",[Cmd]),
+            os:cmd(Cmd);
+        _ ->
+            rpc:call(?DEVNODE,emacs,emacsclient_eval,[Lisp])
+    end.
 
 %% This is an approximate mapping.
 lisp([]) ->
@@ -41,6 +51,31 @@ lisp(Bin) when is_binary(Bin) ->
     io_lib:format("~p", [binary_to_list(Bin)]);
 lisp(Any) -> 
     io_lib:format("~p", [Any]).
-    
 
+
+%% Naming scheme is  distel_<emacspid>@<hostname>
+%% So we see someting like distel_995@panda 
+distel_node() ->
+    distel_node(nodes(hidden)).
+distel_node([]) -> error;
+distel_node([N|Ns]) ->
+    case lists:sublist(atom_to_list(N),1,6) of
+        "distel" -> {ok,N};
+        _ -> distel_node(Ns)
+    end.
+    
+distel_send_lisp(Lisp) ->
+    distel_send({eval, Lisp}).
+distel_send(Msg) ->
+    case {distel_node(), node()} of
+        {{ok, Node}, _} -> 
+            {exo_handle, Node} ! Msg;
+        {error, ?DEVNODE} ->
+            exit('no_distel_on_29');
+        {error, _} ->
+            rpc:call(?DEVNODE, emacs, distel_send_lisp, Msg)
+    end.
+
+
+%% E.g. emacs:distel_send_lisp([message, [format, "%s", self()]]).
 
