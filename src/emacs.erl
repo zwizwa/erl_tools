@@ -1,5 +1,5 @@
 -module(emacs).
--export([revert/1, lisp/1, eval/1,
+-export([revert/1, lisp/1, send_lisp/1,
          emacsclient_eval/1,
          distel_send_lisp/1,
          distel_node/0]).
@@ -13,15 +13,16 @@
 %% let's use some distel functionality to so this.
 
 revert(File) ->
-    eval(
+    send_lisp(
       ['save-current-buffer',
        ['set-buffer', ['get-buffer', iolist_to_binary(File)]],
        ['revert-buffer', t, t]]).
 
-eval(Lisp) ->
-    %% FIXME: If there is an Erlang connection into distel, use that
-    %% instead!
-    emacsclient_eval(Lisp).
+%% Unidirectional send.
+send_lisp(Lisp) ->
+    %% emacsclient_eval(Lisp).
+    distel_send_lisp(Lisp),
+    ok.
 
 -define(DEVNODE,'exo@10.1.3.29').
 
@@ -65,6 +66,7 @@ distel_node([N|Ns]) ->
     end.
     
 distel_send_lisp(Lisp) ->
+    log:info("elisp: ~999p~n", [Lisp]),
     distel_send({eval, Lisp}).
 distel_send(Msg) ->
     case {distel_node(), node()} of
