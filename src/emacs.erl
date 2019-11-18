@@ -1,7 +1,10 @@
 -module(emacs).
--export([revert/1, send_lisp/1,
+-export([revert/1, message/1,
+         send_lisp/1,
          %% Internals
-         lisp/1, 
+         lisp/1,
+         connect/0,
+         hop_node/0,
          emacsclient_send_lisp/1,
          distel_send_lisp/1,
          distel_node/0]).
@@ -20,6 +23,12 @@ send_lisp(Lisp) ->
     distel_send_lisp(Lisp),
     %% emacsclient_send_lisp(Lisp).
     ok.
+
+
+message(Bin) when is_binary(Bin) ->
+    send_lisp(['message', Bin]);
+message(Term) ->
+    message(tools:format_binary("~p",[Term])).
 
 
 revert(File) ->
@@ -57,8 +66,52 @@ distel_send(Msg) ->
         {error, ?DEVNODE} ->
             exit('no_distel_on_29');
         {error, _} ->
-            rpc:call(?DEVNODE, emacs, distel_send_lisp, Msg)
+            case connect() of
+                {ok, Node} -> 
+                    {exo_handle, Node} ! Msg;
+                error ->
+                    error
+            end
     end.
+
+
+connect() ->
+    case distel_node() of
+        error ->
+            %% Attempt to set up a connection via another node that is
+            %% connected.
+            case hop_node() of
+                error -> error;
+                {ok, HopNode} ->
+                    rpc:call(HopNode, emacs, distel_send_lisp,
+                             [['erl-connect', ['quote', node()]]]),
+                    wait_connect(50,100)
+            end;
+        Ok -> Ok
+    end.
+wait_connect(0,_) -> error;
+wait_connect(N,T) -> 
+    case distel_node() of
+        error ->
+            timer:sleep(T),
+            wait_connect(N-1,T);
+        Ok -> Ok
+    end.
+
+hop_node() ->
+    hop_node(nodes()).
+hop_node([]) -> error;
+hop_node([Node|Nodes]) ->
+    case rpc:call(Node, emacs, distel_node, []) of
+        {ok, _} -> {ok, Node};
+        _Error -> hop_node(Nodes)
+    end.
+
+            
+    
+                     
+
+
 
 
 %% E.g. emacs:distel_send_lisp([message, [format, "%s", self()]]).
@@ -78,7 +131,7 @@ emacsclient_send_lisp(Lisp) ->
             %% log:info("emacs: ~s~n",[Cmd]),
             os:cmd(Cmd);
         _ ->
-            rpc:call(?DEVNODE,emacs,emacsclient_eval,[Lisp])
+            rpc:call(?DEVNODE,emacs,emacsclient_send_lisp,[Lisp])
     end.
 
 %% This is an approximate mapping.
