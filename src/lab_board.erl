@@ -42,8 +42,28 @@ handle(<<?TAG_PLUGIO:16, _/binary>>=Msg, State) ->
     %% handle_to_pty(plugin_pty, {pty,"/tmp/plugin"}, Msg, State);
     handle_to_port(plugin_port, {tcp_listen,5555}, Msg, State);
 
+%% Support the fine-grained sinks protocol.  See exo_connect.erl
+handle({epid_send_sink,Sink,Msg}, State) ->
+    case Sink of
+        {relay, Relay} when is_number(Msg) ->
+            %% Translate to relay protocol
+            Self = self(),
+            spawn(
+              fun() -> 
+                      true = lists:member(Relay, "ABCD"),
+                      Off = Relay + $\a - $\A,
+                      On  = Relay,
+                      Code = case Msg of 0 -> Off; _ -> On end,
+                      gdbstub_hub:call(Self, <<0,0,Code>>, 1000)
+              end),
+            ok;
+        _ ->
+            log:info("WARNING: message ~p for unkown Sink ~p~n", [Msg, Sink])
+    end,
+    State;
+
 handle(Msg, State) ->
-    %% log:info("lab_board: passing on: ~p~n",[Msg]),
+    log:info("lab_board: passing on: ~p~n",[Msg]),
     gdbstub_hub:default_handle_packet(Msg, State).
 
 
