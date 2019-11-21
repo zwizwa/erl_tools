@@ -127,25 +127,54 @@ disconnect(Source, Sink) ->
 %%   to test:
 %%   epid:connect({epid, {midi_raw,'exo@10.1.3.19'}, {{zora,1},{cc,0,14}}}, {epid, {relay_solderstation, 'exo@10.1.3.29'}, {relay, $B}}).
 %%   epid:connect({epid, exo:pid(midi_raw), {{roza,1},{cc,0,14}}}, {epid, {relay_solderstation, 'exo@10.1.3.29'}, {relay, $B}}).
+%%   epid:connect({epid, exo:pid(midi_raw), {{zora,1},{cc,0,14}}}, {epid, {exo_handle, element(2,emacs:distel_node())}, message}).
 
 
 
 %% Some mechanics for implementing a registry.  See midi_hub.erl
 
-%% There are 3 phases:
-%% - register:   set up local state for dispatch and unregister
-%% - dispatch:   look up epids and forward
-%% - unregsiter: clean up dead connection
 
-%% FIXME: Disconnect needs to be implemented as well.
+%% - dispatch:           send event to registered epids
+%% - subscribe:          set up local state for dispatch (idempotent)
+%% - unsibscribe, down:  remove dispatch state
+
+%% Datastructure is optimzed for dispatch.
+dispatch(EventId, Msg, State) ->    
+    case maps:find({epid_dispatch,EventId}, State) of
+        {ok, Epids} ->
+            lists:foreach(
+              fun(Epid) -> send(Epid, Msg) end,
+              Epids);
+        error ->
+            ok
+    end,
+    State.
+
+%% Set up the data structure necessary for dispatch.  Processes are
+%% monitored, so we can tear down connections if proxy process fails.
+subscribe({epid_send, EventId, {epid_subscribe, {epid, Pid, _}=Epid}}, State) ->
+    case Pid of
+        Name when is_atom(Name) -> ok;
+        {Name, Node} when is_atom(Name) and is_atom(Node) -> ok;
+        _ -> _Ref = erlang:monitor(process, Pid), ok
+    end,
+    DList0 = maps:get({epid_dispatch, EventId}, State, []),
+    DList = case lists:member(Epid, DList0) of
+                true -> DList0;
+                false -> [Epid | DList0]
+            end,
+    maps:merge(
+      State,
+      #{ {epid_dispatch, EventId} => DList }).
+
 
 %% There are two "entries" to disconnect:
 %% - The target proxy pid disappearing
 %% - A specific disconnect event (pid might still have other connections)
 
-%% Disconnects are much more rare than dispatch, so datastructure
-%% access can be O(N): simply check each connection to see if it is
-%% still valid.
+%% These two mechanisms are simple to implement if we use a generic
+%% connection filter.  Since they are rare, it's ok for this to be
+%% O(N).
 filter_connections(Filter, State) ->
     State1 =
         maps:map(
@@ -166,7 +195,6 @@ filter_connections(Filter, State) ->
     maps:filter(
       fun({epid_dispatch,_}, []) -> false; (_,_) -> true end, State1).
 
-
 unsubscribe({epid_send, EventId, {epid_unsubscribe, {epid, _, _}=Epid}}, State) ->
     filter_connections(
       fun(Src, Dst) -> not ((Src == EventId) and (Dst == Epid)) end,
@@ -177,31 +205,5 @@ down({'DOWN', _Ref, process, Pid, _Reason}=_Msg, State) ->
       fun(_Src0, {epid, Pid0, _}) -> Pid /= Pid0 end,
       State).
 
-subscribe({epid_send, EventId, {epid_subscribe, {epid, Pid, _}=Epid}}, State) ->
-
-    %% For each registration, create a separate monitor that we can
-    %% use to remove the epid from the list.
-    _Ref = erlang:monitor(process, Pid),
-
-    %% Each event is forwarded to a list of epids.  This is a map
-    %% indexed by EventId as that is the most common operation.
-    DList0 = maps:get({epid_dispatch, EventId}, State, []),
-    DList = [Epid | DList0],
-    
-    maps:merge(
-      State,
-      #{ {epid_dispatch, EventId} => DList }).
-    
-dispatch(EventId, Msg, State) ->    
-    case maps:find({epid_dispatch,EventId}, State) of
-        {ok, Epids} ->
-            lists:foreach(
-              fun(Epid) -> send(Epid, Msg) end,
-              Epids);
-        error ->
-            ok
-    end,
-    State.
-    
     
 
