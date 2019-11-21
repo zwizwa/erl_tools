@@ -140,7 +140,7 @@ connect(Source, Sink) ->
 register({epid_send, EventId, {epid_subscribe, {epid, Pid, _}=Epid}}, State) ->
 
     %% Each event is forwarded to a list of epids.
-    Epids0 = maps:get(EventId, State, []),
+    Epids0 = maps:get({dispatch,EventId}, State, []),
     Epids = [Epid|Epids0],
     
     %% For each registration, create a separate monitor that we can
@@ -150,19 +150,19 @@ register({epid_send, EventId, {epid_subscribe, {epid, Pid, _}=Epid}}, State) ->
     %% Create maps in two directions to make lookup simpler.
     maps:merge(
       State,
-      #{ Ref => {EventId, Epid},  %% For 'DOWN'
-         EventId => Epids }).     %% For dispatch
+      #{ {monitor,Ref} => {EventId, Epid},  %% For 'DOWN'
+         {dispatch,EventId} => Epids }).    %% For dispatch
     
 unregister({'DOWN',Ref,process,_Pid,_Reason}=_Msg, State) ->
     %% log:info("epid:unregister:~p~n",[_Msg]),
     case maps:find(Ref, State) of
         {ok, {EventId, Epid}} ->
-            Epids0 = maps:get(EventId, State),
+            Epids0 = maps:get({dispatch,EventId}, State),
             Epids = lists:delete(Epid, Epids0),
             {true,
              maps:put(
-               EventId, Epids, 
-               maps:remove(Ref, State))};
+               {dispatch,EventId}, Epids, 
+               maps:remove({monitor,Ref}, State))};
         error ->
             %% Returning false allows chaining, e.g. caller doesn't
             %% need to know if Ref corresponds to an epid or to some
@@ -171,7 +171,7 @@ unregister({'DOWN',Ref,process,_Pid,_Reason}=_Msg, State) ->
     end.
 
 dispatch(EventId, Msg, State) ->    
-    case maps:find(EventId, State) of
+    case maps:find({dispatch,EventId}, State) of
         {ok, Epids} ->
             lists:foreach(
               fun(Epid) -> send(Epid, Msg) end,
