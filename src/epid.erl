@@ -1,9 +1,7 @@
 -module(epid).
--export([send/2, connect/2,
+-export([send/2, connect/2, disconnect/2,
          %% Machinery for aggregating proxy.
-         register/2,
-         unregister/2,
-         dispatch/3]).
+         subscribe/2, unsubscribe/2, down/2, dispatch/3]).
 
 %% INTRODUCTION
 %%
@@ -46,6 +44,9 @@ send({epid, ProxyPid, SinkId}, Msg) ->
 %% sink.
 connect(Source, Sink) ->    
     send(Source, {epid_subscribe, Sink}).
+
+disconnect(Source, Sink) ->    
+    send(Source, {epid_unsubscribe, Sink}).
 
 %% I've found that in typical setups there will be an "aggregator"
 %% process that recevies all events from the external world, but the
@@ -136,42 +137,63 @@ connect(Source, Sink) ->
 %% - dispatch:   look up epids and forward
 %% - unregsiter: clean up dead connection
 
+%% FIXME: Disconnect needs to be implemented as well.
 
-register({epid_send, EventId, {epid_subscribe, {epid, Pid, _}=Epid}}, State) ->
+%% There are two "entries" to disconnect:
+%% - The target proxy pid disappearing
+%% - A specific disconnect event (pid might still have other connections)
 
-    %% Each event is forwarded to a list of epids.
-    Epids0 = maps:get({dispatch,EventId}, State, []),
-    Epids = [Epid|Epids0],
-    
+%% Disconnects are much more rare than dispatch, so datastructure
+%% access can be O(N): simply check each connection to see if it is
+%% still valid.
+filter_connections(Filter, State) ->
+    State1 =
+        maps:map(
+        fun({epid_dispatch, EventId}, DList) ->
+                lists:foldr(
+                  fun(Epid, Stack) ->
+                          case Filter(EventId, Epid) of
+                              true -> [Epid|Stack];
+                              false -> Stack
+                          end
+                  end,
+                  [], lists:reverse(DList));
+           (_Key, Val) -> 
+                Val
+        end,
+          State),
+    %% Removes empties to avoid leaks.
+    maps:filter(
+      fun({epid_dispatch,_}, []) -> false; (_,_) -> true end, State1).
+
+
+unsubscribe({epid_send, EventId, {epid_unsubscribe, {epid, _, _}=Epid}}, State) ->
+    filter_connections(
+      fun(Src, Dst) -> not ((Src == EventId) and (Dst == Epid)) end,
+      State).
+
+down({'DOWN', _Ref, process, Pid, _Reason}=_Msg, State) ->
+    filter_connections(
+      fun(_Src0, {epid, Pid0, _}) -> Pid /= Pid0 end,
+      State).
+
+subscribe({epid_send, EventId, {epid_subscribe, {epid, Pid, _}=Epid}}, State) ->
+
     %% For each registration, create a separate monitor that we can
     %% use to remove the epid from the list.
-    Ref = erlang:monitor(process, Pid),
+    _Ref = erlang:monitor(process, Pid),
 
-    %% Create maps in two directions to make lookup simpler.
+    %% Each event is forwarded to a list of epids.  This is a map
+    %% indexed by EventId as that is the most common operation.
+    DList0 = maps:get({epid_dispatch, EventId}, State, []),
+    DList = [Epid | DList0],
+    
     maps:merge(
       State,
-      #{ {monitor,Ref} => {EventId, Epid},  %% For 'DOWN'
-         {dispatch,EventId} => Epids }).    %% For dispatch
+      #{ {epid_dispatch, EventId} => DList }).
     
-unregister({'DOWN',Ref,process,_Pid,_Reason}=_Msg, State) ->
-    %% log:info("epid:unregister:~p~n",[_Msg]),
-    case maps:find(Ref, State) of
-        {ok, {EventId, Epid}} ->
-            Epids0 = maps:get({dispatch,EventId}, State),
-            Epids = lists:delete(Epid, Epids0),
-            {true,
-             maps:put(
-               {dispatch,EventId}, Epids, 
-               maps:remove({monitor,Ref}, State))};
-        error ->
-            %% Returning false allows chaining, e.g. caller doesn't
-            %% need to know if Ref corresponds to an epid or to some
-            %% other monitor.
-            {false, State}
-    end.
-
 dispatch(EventId, Msg, State) ->    
-    case maps:find({dispatch,EventId}, State) of
+    case maps:find({epid_dispatch,EventId}, State) of
         {ok, Epids} ->
             lists:foreach(
               fun(Epid) -> send(Epid, Msg) end,
