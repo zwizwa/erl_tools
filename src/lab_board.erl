@@ -43,7 +43,7 @@ handle(<<?TAG_PLUGIO:16, _/binary>>=Msg, State) ->
     handle_to_port(plugin_port, {tcp_listen,5555}, Msg, State);
 
 %% Support the fine-grained sinks protocol.  See exo_connect.erl
-handle({epid_send_sink,Sink,Msg}, State) ->
+handle({epid_send,Sink,Msg}, State) ->
     case Sink of
         {relay, Relay} when is_number(Msg) ->
             %% Translate to relay protocol
