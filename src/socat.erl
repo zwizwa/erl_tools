@@ -1,8 +1,10 @@
--module(socat). %% FIXME: This outgrew its name.
+%% FIXME: Rename to ecat
+-module(socat).
 
 -export([pty/1,tcp_listen/1,
-         erlcat/2, erlcat_port/1, erlcat_port_handle/2,
-         test/0]).
+         ecat/2, ecat_port/1, ecat_port_handle/2,
+         epid_proxy/1, epid_proxy_handle/2,
+         test/1]).
 
 %% 1) PROCESS SPEC
 
@@ -45,12 +47,12 @@ cmd(Spec) ->
 
 %% Bridge two bi-directional ports on separate nodes.  Run until one
 %% of them exits.  Basically, socat, but transporting between Erlang
-%% processes.
-erlcat(SrcSpec, DstSpec) ->
+%% processes.  This doesn't use epid proxies.
+ecat(SrcSpec, DstSpec) ->
     Open =
         fun({Node, Spec}) ->
                 case rpc:call(
-                       Node, ?MODULE, erlcat_port,
+                       Node, ?MODULE, ecat_port,
                        [#{ spec => Spec }]) of
                     Pid when is_pid(Pid) ->
                         {Pid, erlang:monitor(process, Pid)};
@@ -85,13 +87,13 @@ erlcat(SrcSpec, DstSpec) ->
 %% the problem and put all the logic in a wrapper process, one for
 %% each port.
 
-erlcat_port(#{ spec := _ } = Init) ->
+ecat_port(#{ spec := _ } = Init) ->
     serv:start(
       {handler,
        fun() -> Init end,
-       fun ?MODULE:erlcat_port_handle/2}).
+       fun ?MODULE:ecat_port_handle/2}).
 
-erlcat_port_handle({connect, Other}, State = #{spec := Spec} ) ->
+ecat_port_handle({connect, Other}, State = #{spec := Spec} ) ->
     %% Hold off opening port until we have something to forward to.
     Port = open_spec(Spec),
     maps:merge(
@@ -99,7 +101,7 @@ erlcat_port_handle({connect, Other}, State = #{spec := Spec} ) ->
       #{ other => Other,
          port  => Port });
 
-erlcat_port_handle(Msg, State = #{port := Port, other := Other}) ->
+ecat_port_handle(Msg, State = #{port := Port, other := Other}) ->
     case Msg of
         {_,dump} ->
             obj:handle(Msg,State);
@@ -121,18 +123,62 @@ erlcat_port_handle(Msg, State = #{port := Port, other := Other}) ->
                     exit(normal)
                 end;
         _ ->
-            exit({erlcat_port_handle,Msg})
+            exit({ecat_port_handle,Msg})
     end.
 
-
-test() ->    
-    erlcat(
-      {'exo@10.1.3.29', {read_file, "/tmp/test"}},
-      {'exo@10.1.3.20', {pipe, [{cmd,"lz4c"}, {write_file, "/tmp/test"}]}}).
 
 
 
 %% 3) EPID
 
-%% Note that this looks almost like epids, but the proxy processes
-%% here are nodes.
+%% Similar to ecat, but go via epid proxies instead of rpc.  See test.
+epid_proxy(Init) ->
+    {ok,
+     serv:start(
+       {handler,
+        fun() -> Init end,
+        fun ?MODULE:epid_proxy_handle/2})}.
+epid_proxy_handle(Msg, State) ->
+    case Msg of
+        {_, dump} ->
+            obj:handle(Msg, State);
+
+        %% This only implements the epid interface.  Is this taking it too far?
+        {epid_send, SrcSpec, {push, {epid, DstProxy, DstSpec}}} ->
+            Src = ecat_port(#{spec => SrcSpec}),
+            %% FIXME: Handle special case.  Can't do obj:call on self.
+            false = (DstProxy == self()),
+            {ok, Dst} = obj:call(DstProxy, {new_port, DstSpec}),
+            %% FIXME: monitors?
+            Src ! {connect, Dst},
+            Dst ! {connect, Src},
+            maps:put(Src, SrcSpec, State);
+
+        {Caller, {new_port, DstSpec}} ->
+            Dst = ecat_port(#{spec => DstSpec}),
+            obj:reply(Caller, {ok, Dst}),
+            maps:put(Dst, DstSpec, State)
+
+    end.
+
+            
+
+                 
+                 
+test(ecat) ->    
+    ecat(
+      {'exo@10.1.3.29', {read_file, "/tmp/test"}},
+      {'exo@10.1.3.20', {pipe, [{cmd,"lz4c"}, {write_file, "/tmp/test"}]}});
+
+test(epid1) -> 
+    epid:push(
+      {epid, {ecat, 'exo@10.1.3.29'}, {read_file, "/tmp/test"}},
+      {epid, {ecat, 'exo@10.1.3.20'}, {write_file, "/tmp/test"}});
+
+test(epid2) -> 
+    exo:push(vybrid_img, kingston_sd).
+
+
+
+    
+
