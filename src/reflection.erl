@@ -586,8 +586,10 @@ copy(File, TypedNodes) ->
                                   {ok, Bin} ->
                                       Env = #{},
                                       case rpc:call(Node, code, priv_dir, [App]) of
-                                          {badrpc,_}=E ->
-                                              throw(E);
+                                          %%{badrpc,_}=E ->
+                                          %%    throw({reflection_copy,Node,E});
+                                          {badrpc,nodedown}=Report_ ->
+                                              Report_;
                                           Priv ->
                                               RemoteFile = tools:format("~s/~s", [Priv, Rel]),
                                               _ = ?MODULE:update_file(Env, Node, RemoteFile, Bin),

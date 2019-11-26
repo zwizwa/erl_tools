@@ -1,5 +1,5 @@
 -module(epid).
--export([send/2, connect/2, disconnect/2,
+-export([send/2, connect/2, disconnect/2, push/2, pull/2,
          %% Machinery for aggregating proxy.
          subscribe/2, unsubscribe/2, down/2, dispatch/3]).
 
@@ -54,6 +54,16 @@ disconnect(Source, Sink) ->
 %% producing events.  In this case the aggregator can use the
 %% subscribe mechanism to filter events and send them to their
 %% destination.  See midi_raw.erl for an example of this.
+
+
+%% Aside from streaming connections, there is also the case of a
+%% single transaction.  Two forms are provided, however in practice it
+%% seems that push is more natural, and pull can be generally
+%% translated to push.
+
+push(Src, Dst) -> send(Src, {push, Dst}).
+pull(Dst, Src) -> send(Dst, {pull, Src}).
+
 
 
 

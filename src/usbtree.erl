@@ -99,6 +99,7 @@ find_tty_sh(Name0) ->
 %% FIXME: Put this config somewhere else.
 aliases() -> 
     #{
-       {tty, "bone0"} => {tty, "10c4-ea60-cp210x-1"}
+       {tty, "bone0"}  => {tty, "10c4-ea60-cp210x-1"},
+       {tty, "vybrid"} => {tty, "0711-0230-093844"}
      }.
     

@@ -103,11 +103,24 @@ input_(_Env, {Key, {clickable, {Tag,As,Es}}})  ->
            attr_decoder(button)]),
      Es};
 
+%% On buttons: I've found it useful to change the payload of the
+%% button without changing the state, so there are two kinds here: the
+%% "value-less" button that doesn't change meaning and only carries
+%% the key as information, ...
 input_(_Env, {Key, {button, Label}}) ->
     true = is_binary(Label),
     {button,
      [{name,encode_key(Key)},
       {value, "_"}, %% Value-less event 
+      attr_decoder(button)],
+     [[Label]]};
+
+%% ... and the value button that passes on its current label as value.
+input_(_Env, {Key, {value_button, Label}}) ->
+    true = is_binary(Label),
+    {button,
+     [{name,encode_key(Key)},
+      {value, Label}, %% Value-less event 
       attr_decoder(button)],
      [[Label]]};
 
