@@ -1,5 +1,4 @@
-%% FIXME: Rename to ecat
--module(socat).
+-module(ecat).
 
 -export([pty/1,tcp_listen/1,
          ecat/2, ecat_port/1, ecat_port_handle/2,
@@ -138,27 +137,59 @@ epid_proxy(Init) ->
        {handler,
         fun() -> Init end,
         fun ?MODULE:epid_proxy_handle/2})}.
-epid_proxy_handle(Msg, State) ->
-    case Msg of
+epid_proxy_handle(TopMsg, State) ->
+    case TopMsg of
         {_, dump} ->
-            obj:handle(Msg, State);
-
-        %% This only implements the epid interface.  Is this taking it too far?
-        {epid_send, SrcSpec, {push, {epid, DstProxy, DstSpec}}} ->
-            Src = ecat_port(#{spec => SrcSpec}),
-            %% FIXME: Handle special case.  Can't do obj:call on self.
-            false = (DstProxy == self()),
-            {ok, Dst} = obj:call(DstProxy, {new_port, DstSpec}),
-            %% FIXME: monitors?
-            Src ! {connect, Dst},
-            Dst ! {connect, Src},
-            maps:put(Src, SrcSpec, State);
-
-        {Caller, {new_port, DstSpec}} ->
-            Dst = ecat_port(#{spec => DstSpec}),
-            obj:reply(Caller, {ok, Dst}),
-            maps:put(Dst, DstSpec, State)
-
+            obj:handle(TopMsg, State);
+        {cleanup, Spec} ->
+            log:info("~p~n", [TopMsg]),
+            Port = maps:get(Spec, State),
+            maps:remove(Spec, maps:remove(Port, State));
+        %% epid message router
+        {epid_send, Spec, Msg} ->
+            case Msg of
+                %% This is the api call.
+                {push, DstEpid} ->
+                    %% Create local and remote ports
+                    SrcEpid = {epid, self(), Spec},
+                    epid:send(DstEpid, {push_connect, SrcEpid}),
+                    epid:send(SrcEpid, {push_connect, DstEpid}),
+                    State;
+                {push_connect, Epid} ->
+                    error = maps:find(Spec, State),  %% Do this better
+                    Port = open_spec(Spec),
+                    maps:merge(
+                      State,
+                      #{ Spec => Port,
+                         Port => {Spec, Epid} });
+                {data, Data} ->
+                    Port = maps:get(Spec, State),
+                    port_command(Port, Data),
+                    State;
+                eof ->
+                    Port = maps:get(Spec, State),
+                    port_close(Port),
+                    epid_proxy_handle({cleanup, Spec}, State)
+            end;
+        %% port message router
+        {Port, Msg} when is_port(Port) ->
+            case maps:find(Port, State) of
+                error ->
+                    log:info("WARNING: ignoring: ~p~n",[{Port,Msg}]),
+                    State;
+                {ok, {Spec, Epid}} ->
+                    case Msg of
+                        {data, Data} ->
+                            epid:send(Epid, {data, Data}),
+                            State;
+                        {exit_status,_} ->
+                            epid:send(Epid, eof),
+                            epid_proxy_handle({cleanup, Spec}, State);
+                        closed ->
+                            epid:send(Epid, eof),
+                            epid_proxy_handle({cleanup, Spec}, State)
+                    end
+            end
     end.
 
             
@@ -173,10 +204,10 @@ test(ecat) ->
 test(epid1) -> 
     epid:push(
       {epid, {ecat, 'exo@10.1.3.29'}, {read_file, "/tmp/test"}},
-      {epid, {ecat, 'exo@10.1.3.20'}, {write_file, "/tmp/test"}});
+      {epid, {ecat, 'exo@10.1.3.19'}, {write_file, "/tmp/test"}}).
 
-test(epid2) -> 
-    exo:push(vybrid_img, kingston_sd).
+%%test(epid2) -> 
+%%    exo:push(vybrid_img, kingston_sd).
 
 
 
