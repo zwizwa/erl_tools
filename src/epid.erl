@@ -1,8 +1,10 @@
 -module(epid).
--export([send/2, connect/2, disconnect/2,
-         connect2/2,
-         %% Machinery for aggregating proxy.
-         subscribe/2, unsubscribe/2, down/2, dispatch/3]).
+-export([send/2,
+         connect/2, disconnect/2,
+         connect2/2, disconnect2/2,
+         %% Machinery for implementing an aggregating proxy.
+         subscribe/3, unsubscribe/3, unsubscribe_all/2, down/2,
+         subscribers/2, dispatch/3]).
 
 %% INTRODUCTION
 %%
@@ -28,11 +30,14 @@
 %%
 %% - Erlang C nodes: avoids multi-component identifiers by mapping
 %%   internal process resources to actual Erlang pids.
+%%
+%% - Typed channels vs. mailboxes.  While messages remain dynamically
+%%   typed, the types can usually be much simpler.
 
 %% PROTOCOL
 %%
 %% Messages can be sent to an epid, just like a normal process.  The
-%% ProxyPid will implement delivery.
+%% ProxyPid will implement delivery to SinkId.
 %%
 send({epid, ProxyPid, SinkId}, Msg) ->
     ProxyPid ! {epid_send, SinkId, Msg}.
@@ -43,7 +48,7 @@ send({epid, ProxyPid, SinkId}, Msg) ->
 %% subscribe message sent to the epid of the event source, carrying
 %% enough information such that events can be sent to the epid of a
 %% sink.
-connect(Source, Sink) ->    
+connect(Source, Sink) ->
     send(Source, {epid_subscribe, Sink}),
     ok.
 
@@ -52,9 +57,8 @@ disconnect(Source, Sink) ->
     ok.
 
 %% bi-directional
-connect2(A,B) ->
-    connect(A,B),
-    connect(B,A).
+connect2(Src,Dst)    -> connect(Dst,Src),    connect(Src,Dst).
+disconnect2(Src,Dst) -> disconnect(Src,Dst), disconnect(Dst,Src).
 
 %% I've found that in typical setups there will be an "aggregator"
 %% process that recevies all events from the external world, but the
@@ -62,14 +66,6 @@ connect2(A,B) ->
 %% producing events.  In this case the aggregator can use the
 %% subscribe mechanism to filter events and send them to their
 %% destination.  See midi_raw.erl for an example of this.
-
-
-%% Aside from streaming connections, there is also the case of a
-%% single transaction.  Two forms are provided, however in practice it
-%% seems that push is more natural, and pull can be generally
-%% translated to push.
-
-push(Src, Dst) -> send(Src, {push, Dst}).
 
 
 
@@ -156,20 +152,17 @@ push(Src, Dst) -> send(Src, {push, Dst}).
 %% - unsibscribe, down:  remove dispatch state
 
 %% Datastructure is optimzed for dispatch.
-dispatch(EventId, Msg, State) ->    
-    case maps:find({epid_dispatch,EventId}, State) of
-        {ok, Epids} ->
-            lists:foreach(
-              fun(Epid) -> send(Epid, Msg) end,
-              Epids);
-        error ->
-            ok
-    end,
-    State.
+subscribers(EventId, State) ->
+    maps:get({epid_dispatch,EventId}, State, []).
+
+dispatch(EventId, Msg, State) ->
+    lists:foreach(
+      fun(Epid) -> send(Epid, Msg) end,
+      subscribers(EventId, State)).
 
 %% Set up the data structure necessary for dispatch.  Processes are
 %% monitored, so we can tear down connections if proxy process fails.
-subscribe({epid_send, EventId, {epid_subscribe, {epid, Pid, _}=Epid}}, State) ->
+subscribe(EventId, {epid, Pid, _}=Epid, State) ->
     case Pid of
         Name when is_atom(Name) -> ok;
         {Name, Node} when is_atom(Name) and is_atom(Node) -> ok;
@@ -212,10 +205,16 @@ filter_connections(Filter, State) ->
     maps:filter(
       fun({epid_dispatch,_}, []) -> false; (_,_) -> true end, State1).
 
-unsubscribe({epid_send, EventId, {epid_unsubscribe, {epid, _, _}=Epid}}, State) ->
+unsubscribe(EventId, {epid, _, _}=Epid, State) ->
     filter_connections(
       fun(Src, Dst) -> not ((Src == EventId) and (Dst == Epid)) end,
       State).
+
+unsubscribe_all(EventId, State) ->
+    filter_connections(
+      fun(Src, _Dst) -> not (Src == EventId) end,
+      State).
+    
 
 down({'DOWN', _Ref, process, Pid, _Reason}=_Msg, State) ->
     filter_connections(
