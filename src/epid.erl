@@ -1,5 +1,6 @@
 -module(epid).
--export([send/2, connect/2, disconnect/2, push/2,
+-export([send/2, connect/2, disconnect/2,
+         connect2/2,
          %% Machinery for aggregating proxy.
          subscribe/2, unsubscribe/2, down/2, dispatch/3]).
 
@@ -43,10 +44,17 @@ send({epid, ProxyPid, SinkId}, Msg) ->
 %% enough information such that events can be sent to the epid of a
 %% sink.
 connect(Source, Sink) ->    
-    send(Source, {epid_subscribe, Sink}).
+    send(Source, {epid_subscribe, Sink}),
+    ok.
 
 disconnect(Source, Sink) ->    
-    send(Source, {epid_unsubscribe, Sink}).
+    send(Source, {epid_unsubscribe, Sink}),
+    ok.
+
+%% bi-directional
+connect2(A,B) ->
+    connect(A,B),
+    connect(B,A).
 
 %% I've found that in typical setups there will be an "aggregator"
 %% process that recevies all events from the external world, but the
@@ -108,7 +116,7 @@ push(Src, Dst) -> send(Src, {push, Dst}).
 %% - The tradeoff to creating C nodes is not well understood.
 %%   Currently going by the assumption that 2-step routing is much
 %%   simpler to implement, and also easier to debug.
-
+%%
 
 
 

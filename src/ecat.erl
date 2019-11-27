@@ -1,8 +1,10 @@
+%% Generalize the socat idea.  Implemented on top of epid.erl
 -module(ecat).
 
 -export([pty/1,tcp_listen/1,
-         ecat/2, ecat_port/1, ecat_port_handle/2,
-         epid_proxy/1, epid_proxy_handle/2,
+         open_spec/1,cmd/1,
+         
+         start_link/1, handle/2,
          test/1]).
 
 %% 1) PROCESS SPEC
@@ -42,102 +44,21 @@ cmd(Spec) ->
     end.
 
 
-%% 2) INTER-NODE BRIDGE     
+%% 2) EPID PROXY
 
-%% Bridge two bi-directional ports on separate nodes.  Run until one
-%% of them exits.  Basically, socat, but transporting between Erlang
-%% processes.  This doesn't use epid proxies.
-ecat(SrcSpec, DstSpec) ->
-    Open =
-        fun({Node, Spec}) ->
-                case rpc:call(
-                       Node, ?MODULE, ecat_port,
-                       [#{ spec => Spec }]) of
-                    Pid when is_pid(Pid) ->
-                        {Pid, erlang:monitor(process, Pid)};
-                    Error ->
-                        throw({error, Error})
-                end
-        end,
-    try
-        {Src, MonSrc} = Open(SrcSpec),
-        {Dst, MonDst} = Open(DstSpec),
-        Src ! {connect, Dst},
-        Dst ! {connect, Src},
-
-        %% Wait until both are finished.  They send messages to each
-        %% other to ensure teardown.
-        receive {'DOWN', _, _, Src, SrcReason} -> ok end,
-        receive {'DOWN', _, _, Dst, DstReason} -> ok end,
-        erlang:demonitor(MonSrc),
-        erlang:demonitor(MonDst),
-        case Reasons = {SrcReason,DstReason} of
-            {normal, normal} -> ok;
-            _ -> throw({error, Reasons})
-        end
-    catch C:E ->
-            {error, {C,E}}
-    end.
-        
-            
-%% It appears that the Pid associated to a port needs to be a local
-%% process.  I don't find this in the manual, but I do get 'badarg'
-%% errors for remote pids on any port operations.  So just sidestep
-%% the problem and put all the logic in a wrapper process, one for
-%% each port.
-
-ecat_port(#{ spec := _ } = Init) ->
-    serv:start(
-      {handler,
-       fun() -> Init end,
-       fun ?MODULE:ecat_port_handle/2}).
-
-ecat_port_handle({connect, Other}, State = #{spec := Spec} ) ->
-    %% Hold off opening port until we have something to forward to.
-    Port = open_spec(Spec),
-    maps:merge(
-      State,
-      #{ other => Other,
-         port  => Port });
-
-ecat_port_handle(Msg, State = #{port := Port, other := Other}) ->
-    case Msg of
-        {_,dump} ->
-            obj:handle(Msg,State);
-        {to_port, PortMsg} ->
-            Port ! {self(), PortMsg},
-            State;
-        {Port, PortMsg} when is_port(Port) ->
-            case PortMsg of
-                {data, Data} ->
-                    Other ! {to_port, {command, Data}},
-                    State;
-                {exit_status, Status}=E ->
-                    Other ! {to_port, close},
-                    case Status of
-                        0 -> exit(normal);
-                        _ -> exit(E)
-                    end;
-                closed ->
-                    exit(normal)
-                end;
-        _ ->
-            exit({ecat_port_handle,Msg})
-    end.
+%% Please note that there is no backpressure mechanism for ports.  If
+%% source is faster than sink, and the data size is large, this might
+%% cause problems as the data will be buffered in Erlang mailboxes.
 
 
-
-
-%% 3) EPID
-
-%% Similar to ecat, but go via epid proxies instead of rpc.  See test.
-epid_proxy(Init) ->
+start_link(Init) ->
     {ok,
      serv:start(
        {handler,
         fun() -> Init end,
-        fun ?MODULE:epid_proxy_handle/2})}.
-epid_proxy_handle(TopMsg, State) ->
+        fun ?MODULE:handle/2})}.
+
+handle(TopMsg, State) ->
     case TopMsg of
         {_, dump} ->
             obj:handle(TopMsg, State);
@@ -148,20 +69,24 @@ epid_proxy_handle(TopMsg, State) ->
         %% epid message router
         {epid_send, Spec, Msg} ->
             case Msg of
-                %% This is the api call.
-                {push, DstEpid} ->
-                    %% Create local and remote ports
-                    SrcEpid = {epid, self(), Spec},
-                    epid:send(DstEpid, {push_connect, SrcEpid}),
-                    epid:send(SrcEpid, {push_connect, DstEpid}),
-                    State;
-                {push_connect, Epid} ->
+                %% Setup
+                {epid_subscribe, Epid} ->
                     error = maps:find(Spec, State),  %% Do this better
                     Port = open_spec(Spec),
                     maps:merge(
                       State,
                       #{ Spec => Port,
                          Port => {Spec, Epid} });
+
+                %% Disconnect from infinite stream.  We support only
+                %% one connection, so make sure it's the right one.
+                {epid_unsubscribe, Epid} ->
+                    Port = maps:get(Spec, State),
+                    {_, Epid} = maps:get(Port, State),
+                    epid:send({epid,self(),Spec},eof),
+                    State;
+
+                %% Channel protocol
                 {data, Data} ->
                     Port = maps:get(Spec, State),
                     port_command(Port, Data),
@@ -169,25 +94,23 @@ epid_proxy_handle(TopMsg, State) ->
                 eof ->
                     Port = maps:get(Spec, State),
                     port_close(Port),
-                    epid_proxy_handle({cleanup, Spec}, State)
+                    handle({cleanup, Spec}, State)
             end;
         %% port message router
         {Port, Msg} when is_port(Port) ->
             case maps:find(Port, State) of
                 error ->
-                    log:info("WARNING: ignoring: ~p~n",[{Port,Msg}]),
+                    log:info("WARNING: ignoring: ~p~n",[TopMsg]),
                     State;
                 {ok, {Spec, Epid}} ->
                     case Msg of
                         {data, Data} ->
                             epid:send(Epid, {data, Data}),
                             State;
-                        {exit_status,_} ->
+                        {exit_status, N} ->
+                            case N of 0->ok; _-> log:info("WARNING: ~p~n",[TopMsg]) end,
                             epid:send(Epid, eof),
-                            epid_proxy_handle({cleanup, Spec}, State);
-                        closed ->
-                            epid:send(Epid, eof),
-                            epid_proxy_handle({cleanup, Spec}, State)
+                            handle({cleanup, Spec}, State)
                     end
             end
     end.
@@ -195,19 +118,14 @@ epid_proxy_handle(TopMsg, State) ->
             
 
                  
-                 
-test(ecat) ->    
-    ecat(
-      {'exo@10.1.3.29', {read_file, "/tmp/test"}},
-      {'exo@10.1.3.20', {pipe, [{cmd,"lz4c"}, {write_file, "/tmp/test"}]}});
-
+test(epid2) -> 
+    exo:push(vybrid_img, kingston_sd);
+     
 test(epid1) -> 
-    epid:push(
+    epid:connect2(
       {epid, {ecat, 'exo@10.1.3.29'}, {read_file, "/tmp/test"}},
       {epid, {ecat, 'exo@10.1.3.19'}, {write_file, "/tmp/test"}}).
 
-%%test(epid2) -> 
-%%    exo:push(vybrid_img, kingston_sd).
 
 
 
