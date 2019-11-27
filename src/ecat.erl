@@ -79,6 +79,7 @@ need_port(Spec, State) ->
 %% corresponding subscriber(s) or port.
 
 remove_port(Port, State, _Reason) ->
+    catch port_close(Port),
     Spec = maps:get({spec, Port}, State),
     log:info("removing port ~p because of ~p~n",[Spec,_Reason]),
     State1 = epid:unsubscribe_all(Spec, State),
@@ -130,20 +131,23 @@ handle(TopMsg, State) ->
                 {epid_unsubscribe, Epid} ->
                     remove_subscriber(Spec, Epid, State);
 
-                %% FIXME: In case of epid:connect/2, check that there
-                %% is no race condition: subscriber needs to be
-                %% registered before data transfer starts.
-                %% epid_subscribe might need to be a transaction!
+                {epid_unsubscribe2, Epid} ->
+                    epid:send(Epid, {epid_unsubscribe, {epid,self(),Spec}}),
+                    remove_subscriber(Spec, Epid, State);
 
                 %% Any other case needs to have a live port.
                 _ ->
                     {Port, State1} = need_port(Spec, State),
                     case Msg of
-                        %% Setup.  Note that we expect to be using
-                        %% epid:connect/2, which will set up a bi-directional
-                        %% connection through two epid_subscribe messages, one
-                        %% in each direction.
                         {epid_subscribe, Epid} ->
+                            epid:subscribe(Spec, Epid, State1);
+
+                        {epid_subscribe2, Epid} ->
+                            %% Bi-directional connections require some
+                            %% care: Make sure that the first message
+                            %% we send to the other end is a subscribe
+                            %% message.
+                            epid:send(Epid, {epid_subscribe, {epid,self(),Spec}}),
                             epid:subscribe(Spec, Epid, State1);
 
                         %% Channel protocol
@@ -151,7 +155,6 @@ handle(TopMsg, State) ->
                             port_command(Port, Data),
                             State1;
                         eof ->
-                            port_close(Port),
                             remove_port(Port, State1, eof)
                     end
             end;
@@ -181,10 +184,10 @@ handle(TopMsg, State) ->
 %%test(epid2) -> 
 %%    exo:push(vybrid_img, kingston_sd);
      
-test(epid1) -> 
+test({epid1,N}) -> 
     epid:connect2(
       {epid, {ecat, 'exo@10.1.3.29'}, {read_file, "/tmp/test"}},
-      {epid, {ecat, 'exo@10.1.3.20'}, {write_file, "/tmp/test"}}).
+      {epid, {ecat, exo:to_node(N)}, {write_file, "/tmp/test"}}).
 
 
 

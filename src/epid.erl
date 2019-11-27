@@ -8,11 +8,11 @@
 
 %% INTRODUCTION
 %%
-%% External Pid: process-like resources accessed through Erlang proxy
-%% processes.
+%% External/Extended Process IDentifier: process-like resources
+%% implemented through Erlang proxy processes.
 %%
 %% This model works well for event sources and event sinks that have
-%% very fine granulairty, but cannot be represented as actual Erlang
+%% very fine granularity, but cannot be represented as actual Erlang
 %% processes for practical reasons, e.g. generic sensors, actuators,
 %% test equipment, midi input boxes, audio input/output and effect
 %% processors etc..  Any configurable dataflow setup.
@@ -25,14 +25,15 @@
 %%
 %% Contrasts this to:
 
-%% - Pub/Sub: we're doing the reverse, making granularity finer,
-%%   undoing classes of events and exposing a finer unit.
+%% - Pub/Sub: similar in effect, but using a different interface.
 %%
 %% - Erlang C nodes: avoids multi-component identifiers by mapping
 %%   internal process resources to actual Erlang pids.
 %%
 %% - Typed channels vs. mailboxes.  While messages remain dynamically
 %%   typed, the types can usually be much simpler.
+%%
+%% - Allows lazy instantiation for large or infinite collections.
 
 %% PROTOCOL
 %%
@@ -43,11 +44,11 @@ send({epid, ProxyPid, SinkId}, Msg) ->
     ProxyPid ! {epid_send, SinkId, Msg}.
 
 %% The main driver for this abstraction is a standardized way to
-%% connect event sources and sinks on edge devices that are managed by
-%% an Erlang backbone.  To perform a connection, we interpret it as a
-%% subscribe message sent to the epid of the event source, carrying
-%% enough information such that events can be sent to the epid of a
-%% sink.
+%% connect (uni-directional) event sources and sinks on edge devices
+%% that are managed by an Erlang backbone.  To perform a connection,
+%% we interpret it as a subscribe message sent to the epid of the
+%% event source, carrying enough information such that events can be
+%% sent to the epid of a sink.
 connect(Source, Sink) ->
     send(Source, {epid_subscribe, Sink}),
     ok.
@@ -56,16 +57,17 @@ disconnect(Source, Sink) ->
     send(Source, {epid_unsubscribe, Sink}),
     ok.
 
-%% bi-directional
-connect2(Src,Dst)    -> connect(Dst,Src),    connect(Src,Dst).
-disconnect2(Src,Dst) -> disconnect(Src,Dst), disconnect(Dst,Src).
+%% Generalization to bi-directional connections. See ecat.erl
+%%
+%% These are eventually symmetric, but are set up by one end sending
+%% epid_subscribe to the other end upon reception of epid_subscribe2.
+%% That is to ensure proper order of subscription and data transfer.
 
-%% I've found that in typical setups there will be an "aggregator"
-%% process that recevies all events from the external world, but the
-%% event sources do not have any individual behavior other than just
-%% producing events.  In this case the aggregator can use the
-%% subscribe mechanism to filter events and send them to their
-%% destination.  See midi_raw.erl for an example of this.
+connect2(Src,Dst) ->
+    send(Src, {epid_subscribe2, Dst}).
+
+disconnect2(Src,Dst) ->
+    send(Src, {epid_unsubscribe2, Dst}).
 
 
 
@@ -144,12 +146,17 @@ disconnect2(Src,Dst) -> disconnect(Src,Dst), disconnect(Dst,Src).
 
 
 
-%% Some mechanics for implementing a registry.  See midi_hub.erl
 
+%% A typical setup connects to an external event source that is not
+%% aware of Erlang processes or epids.  In this case there is usually
+%% an "aggregator" process that recevies all the events from the
+%% external world.  It is then this process that can implement epid
+%% behavior, effecitively creating "virtual" processes.  The code
+%% below can be used to implement this.  See mid_hub.erl
 
 %% - dispatch:           send event to registered epids
 %% - subscribe:          set up local state for dispatch (idempotent)
-%% - unsibscribe, down:  remove dispatch state
+%% - unsubscribe, down:  remove dispatch state
 
 %% Datastructure is optimzed for dispatch.
 subscribers(EventId, State) ->
