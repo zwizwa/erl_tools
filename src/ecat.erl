@@ -34,10 +34,10 @@ cmd(Spec) ->
     case Spec of
         {pty, Link}          -> socat("PTY,link=~s,echo=0,raw", [Link]);
         {tcp_listen, Port}   -> socat("TCP-LISTEN:~p,reuseaddr", [Port]);
-        {read_file, File}    -> fmt("cat '~s'",[File]);
-        {write_file, File}   -> fmt("cat >'~s'",[File]);
-        {dd_if, File}        -> fmt("dd 'if=~s' 2>/dev/null",[File]);
-        {dd_of, File}        -> fmt("dd 'of=~s' 2>/dev/null",[File]);
+        {read_file, File}    -> fmt("cat '~s'", [File]);
+        {write_file, File}   -> fmt("cat >'~s'", [File]);
+        {dd_if, File}        -> fmt("dd 'if=~s' 2>/dev/null", [File]);
+        {dd_of, File}        -> fmt("dd 'of=~s' 2>/dev/null", [File]);
         {pipe, [S]}          -> cmd(S);
         {pipe, [S|Ss]}       -> fmt("~s | ~s", [cmd(S), cmd({pipe, Ss})]);
         {cmd, Cmd}           -> Cmd
@@ -144,10 +144,13 @@ handle(TopMsg, State) ->
 
                         {epid_subscribe2, Epid} ->
                             %% Bi-directional connections require some
-                            %% care: Make sure that the first message
-                            %% we send to the other end is a subscribe
-                            %% message.
+                            %% care to guarantee all messages are
+                            %% delivered: Make sure that the first
+                            %% message we send to the other end is a
+                            %% subscribe message.
                             epid:send(Epid, {epid_subscribe, {epid,self(),Spec}}),
+                            %% Ports can start prucing data as soon as
+                            %% they are created.
                             epid:subscribe(Spec, Epid, State1);
 
                         %% Channel protocol

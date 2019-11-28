@@ -33,7 +33,7 @@ handle(<<?TAG_STATUS:16,_Status/binary>>, State) ->
 %%    gdbstub_hub:decode_info(Msg, State);
 
 
-%% These tags are bridged via socat.
+%% These tags are bridged via ecat.
 handle(<<?TAG_UART:16, _/binary>>=Msg, State) ->
     handle_to_port(uart_port, {pty,"/tmp/uart"}, Msg, State);
 
@@ -79,25 +79,25 @@ handle_from_port({Port, {data,Data}}, State) ->
 handle_from_port({Port, {exit_status,_Status}}, State) ->
     %% Re-open
     {PortName,Spec,Tag} = maps:get({port_info,Port}, State),
-    {_Port, State1} = open_socat({PortName,Spec,Tag}, State),
+    {_Port, State1} = open_ecat({PortName,Spec,Tag}, State),
     State1.
 
-open_socat({PortName,Spec={SocatPortType,Arg},Tag}, State) ->
-    log:info("open_socat ~p~n", [Spec]),
-    P = socat:SocatPortType(Arg),
+open_ecat({PortName,Spec={EcatPortType,Arg},Tag}, State) ->
+    log:info("open_ecat ~p~n", [Spec]),
+    P = ecat:EcatPortType(Arg),
     {P, maps:merge(
           State,
           #{ PortName => P,
              {port_info, P} => {PortName,Spec,Tag},
              {handle, P} => fun ?MODULE:handle_from_port/2 })}.
 
-handle_to_port(PortName, {_SocatPortType, _Arg}=Spec, <<Tag:16,Data/binary>>, State) ->
+handle_to_port(PortName, {_EcatPortType, _Arg}=Spec, <<Tag:16,Data/binary>>, State) ->
     {Port, State1} =
         case maps:find(PortName, State) of
             {ok, P} ->
                 {P, State};
             _ ->
-                open_socat({PortName,Spec,Tag}, State)
+                open_ecat({PortName,Spec,Tag}, State)
         end,                                
     Port ! {self(), {command, Data}},
     State1.

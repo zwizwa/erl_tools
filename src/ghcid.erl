@@ -8,7 +8,10 @@
 
 
 
-start_link(#{ ghcid_cmd := Cmd } = Config) ->
+%% There seems to be an issue: multiple instances are started.
+
+
+start_link(#{ ghcid_cmd := Cmd, notify := {_M,_F,_A} } = Config) ->
     {ok,
      serv:start(
        {handler,
