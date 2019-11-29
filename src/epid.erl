@@ -2,6 +2,9 @@
 -export([send/2,
          connect/2, disconnect/2,
          connect2/2, disconnect2/2,
+         transfer/2,
+         call/3, reply/3,
+
          %% Machinery for implementing an aggregating proxy.
          subscribe/3, unsubscribe/3, unsubscribe_all/2, down/2,
          subscribers/2, dispatch/3]).
@@ -68,6 +71,48 @@ connect2(Src,Dst) ->
 
 disconnect2(Src,Dst) ->
     send(Src, {epid_unsubscribe2, Dst}).
+
+
+%% Transactions
+%%
+%% Note that this is a little subtle, because the "caller" is a Pid,
+%% not an epid.  I.e. we are always blocking an Erlang process.  There
+%% is no such thing as blocking a virtual process.  The implementation
+%% details are only visible at the proxy object(s).
+call(Dst = {epid, Pid, _}, Request, Timeout) ->
+    Ref = erlang:monitor(process, Pid),
+    send(Dst, {call, self(), Ref, Request}),
+    Rv = 
+        receive 
+            {'DOWN',Ref,process,Pid,Reason} ->
+                {error, Reason};
+            {Ref, Reply} ->
+                Reply
+        after Timeout ->
+                {error, timeout}
+        end,
+    erlang:demonitor(Ref),
+    Rv.
+
+reply(Src, Ref, Reply) ->
+    send(Src, {reply, Ref, Reply}).
+    
+
+%% A more abstract way to transfer values between two epids.  Note
+%% that the need for this is a genuine leaky abstraction: What you
+%% really want is to send a transaction in a single message.  But that
+%% is fairly impractical for very large files, so an abstract method
+%% is provided such that proxies can establish a better data channel,
+%% e.g. a dedicated SSH or other TCP pipe.
+transfer(Src, Dst) ->
+    call(Dst, {epid_transfer, Src}, infinity).
+
+%% Connection optimization.
+%%
+%% It is left to the object to interpret connect and connect/2
+%% messages such that connections could be implemented locally,
+%% i.e. without going over the Erlang network.
+
 
 
 

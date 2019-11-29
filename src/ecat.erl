@@ -3,8 +3,8 @@
 
 -export([pty/1,tcp_listen/1,
          open_spec/1,cmd/1,
-         
          start_link/1, handle/2,
+         quote/1,
          test/1]).
 
 %% 1) PROCESS SPEC
@@ -19,6 +19,7 @@ open_spec(Spec) ->
     Cmd = cmd(Spec),
     log:info("cmd: ~s~n",[Cmd]),
     open_port({spawn, Cmd}, [use_stdio, binary, exit_status]).
+
 
 %% One-ended socat mfa
 socat(Fmt,Args) ->
@@ -40,15 +41,39 @@ cmd(Spec) ->
         {dd_of, File}        -> fmt("dd 'of=~s' 2>/dev/null", [File]);
         {pipe, [S]}          -> cmd(S);
         {pipe, [S|Ss]}       -> fmt("~s | ~s", [cmd(S), cmd({pipe, Ss})]);
+        {ssh,S1,UAH,S2}      -> fmt("~s | ssh '~s' ~s", [cmd(S1), UAH, quote(cmd(S2))]);
         {cmd, Cmd}           -> Cmd
     end.
+
+%% Note that shell quoting is a real pain.  This pops up where when
+%% ssh is used.  We solve the problem explicitly.
+quote([]) -> [];
+quote([H|T]) ->
+    Special = [$\\,$",$',$ ,$>,$$],
+    case lists:member(H,Special) of
+        true  -> [$\\,H|quote(T)];
+        false -> [H|quote(T)]
+    end.
+
+%% https://stackoverflow.com/questions/15783701/which-characters-need-to-be-escaped-when-using-bash
+
 
 
 %% 2) EPID PROXY
 
-%% Please note that there is no backpressure mechanism for ports.  If
-%% source is faster than sink, and the data size is large, this might
-%% cause problems as the data will be buffered in Erlang mailboxes.
+%% Notes: This is intended for real-time event streams.  While using
+%% it for file transfers is possible, it is not ideal for two reasons:
+%%
+%% - No backpressure.  All data will likely be buffered in the mailbox
+%%   of the target's router.
+%%
+%% - No privacy: the target node is accessible by anyone that knows
+%%   its name, and techically anyone can insert events into the
+%%   stream.
+%%
+%% To implement file transfers, use the epid mechanism to set up a
+%% "circuit", e.g. a TCP pipe.  Because the use is different, we use a
+%% different protocol tag for this.
 
 
 start_link(Init) ->
@@ -113,50 +138,46 @@ specs(State) ->
 handle(TopMsg, State) ->
     %% log:info("~p~n",[TopMsg]),
     case TopMsg of
-        {_, dump} ->
-            obj:handle(TopMsg, State);
-        %% Reuse the multi-subscriber infrastructure from epid.erl as
-        %% much as possible.  In addition we also need to keep track
-        %% of Erlang port instances.
-        {'DOWN',_,_,_,_} ->
-            %% FIXME: This needs to garbage-collect also.
-            State1 = epid:down(TopMsg, State),
-            remove_stale_ports(State1);
         %% epid message router
         {epid_send, Spec, Msg} ->
             case Msg of
 
+                %% Transfers are only implemented between two ecat
+                %% ports.  We let the other end handle it since we
+                %% need to provide a UserAtHost value.
+                {call, Pid, Ref, {epid_transfer, {epid,SrcPid,SrcSpec}}} ->
+                    {ok, [{IP,_BC,_NM}|_]} = inet:getif(),
+                    DstIP = type:encode({ip,IP}),
+                    SrcPid ! {transfer_start, Pid, SrcSpec, Spec, DstIP, Ref},
+                    State;
+
                 %% Disconnect from infinite stream.  We support only
                 %% one connection, so make sure it's the right one.
-                {epid_unsubscribe, Epid} ->
-                    remove_subscriber(Spec, Epid, State);
+                {epid_unsubscribe, DstEpid} ->
+                    remove_subscriber(Spec, DstEpid, State);
 
-                {epid_unsubscribe2, Epid} ->
-                    epid:send(Epid, {epid_unsubscribe, {epid,self(),Spec}}),
-                    remove_subscriber(Spec, Epid, State);
+                {epid_unsubscribe2, DstEpid} ->
+                    epid:send(DstEpid, {epid_unsubscribe, {epid,self(),Spec}}),
+                    remove_subscriber(Spec, DstEpid, State);
 
                 %% Any other case needs to have a live port.
                 _ ->
                     {Port, State1} = need_port(Spec, State),
                     case Msg of
-                        {epid_subscribe, Epid} ->
-                            epid:subscribe(Spec, Epid, State1);
+                        {epid_subscribe, DstEpid} ->
+                            epid:subscribe(Spec, DstEpid, State1);
 
-                        {epid_subscribe2, Epid} ->
-                            %% Bi-directional connections require some
-                            %% care to guarantee all messages are
-                            %% delivered: Make sure that the first
-                            %% message we send to the other end is a
-                            %% subscribe message.
-                            epid:send(Epid, {epid_subscribe, {epid,self(),Spec}}),
-                            %% Ports can start prucing data as soon as
-                            %% they are created.
-                            epid:subscribe(Spec, Epid, State1);
+                        {epid_subscribe2, DstEpid} ->
+                            %% Guarantee that epid_subscribe arrives
+                            %% before the first data message.
+                            epid:send(DstEpid, {epid_subscribe, {epid,self(),Spec}}),
+                            epid:subscribe(Spec, DstEpid, State1);
 
-                        %% Channel protocol
+                        %% Raw binary data
                         {data, Data} ->
                             port_command(Port, Data),
                             State1;
+                        %% Support end of transfer.
                         eof ->
                             remove_port(Port, State1, eof)
                     end
@@ -164,10 +185,7 @@ handle(TopMsg, State) ->
         %% port message router
         {Port, Msg} when is_port(Port) ->
             case maps:find({spec,Port}, State) of
-                error ->
-                    %% FIXME: This should not happen.
-                    log:info("WARNING: ignoring: ~p~n",[TopMsg]),
-                    State;
+                %% Streaming ports
                 {ok, Spec} ->
                     case Msg of
                         {data, Data} ->
@@ -177,20 +195,98 @@ handle(TopMsg, State) ->
                             case N of 0->ok; _-> log:info("WARNING: ~p~n",[TopMsg]) end,
                             epid:dispatch(Spec, eof, State),
                             remove_port(Port, State, Status)
+                    end;
+                error ->
+                    %% Transfer ports
+                    case maps:find({transfer,Port}, State) of
+                        {ok, {Pid, Ref, _Spec}} ->
+                            %% The only thing that the port should do
+                            %% is exit successfully.  Anything else is
+                            %% an error.
+                            Reply =
+                                case Msg of
+                                    {exit_status, 0} -> ok;
+                                    Error -> {error, Error}
+                                end,
+                            catch port_close(Port),
+                            %% log:info("transfer end: ~p~n",[Reply]),
+                            Pid ! {Ref, Reply},
+                            maps:remove({transfer,Port}, State);
+                        error ->
+                            %% FIXME: This should not happen.
+                            log:info("WARNING: ignoring: ~p~n",[TopMsg]),
+                            State
                     end
-            end
+            end;
+
+        %% internal machinery
+
+        {_, dump} ->
+            obj:handle(TopMsg, State);
+        %% Reuse the multi-subscriber infrastructure from epid.erl as
+        %% much as possible.  In addition we also need to keep track
+        %% of Erlang port instances.
+        {'DOWN',_,_,_,_} ->
+            %% FIXME: This needs to garbage-collect also.
+            State1 = epid:down(TopMsg, State),
+            remove_stale_ports(State1);
+
+        %% Called by other end after receiving transfer message.
+        {transfer_start, Pid, SrcSpec, DstSpec, DstIP, Ref} ->
+            Spec = {ssh, SrcSpec, DstIP, DstSpec},
+            %% FIXME:  Solve the quoting problem.
+            %% log:info("transfer_start: ~s~n",[cmd(Spec)]),
+            %% Port = open_spec({cmd, "sleep .8"}),
+            Port = open_spec(Spec),
+            maps:put({transfer, Port}, {Pid, Ref, Spec}, State)
+
     end.
 
-            
 
-                 
-%%test(epid2) -> 
-%%    exo:push(vybrid_img, kingston_sd);
+
+
+%% 3) TRANSACTIONS
+
+%% Do not make the mistake of implementing a multi-message protocol to
+%% implement a transaction interface.  It is ok to do an
+%% implementation that way, but a transaction should always be an RPC
+%% call: request + acknowledgement.
+
+%% So this has been added to epid.erl
+
+
+
+
+%% 4) EXTERNAL CIRCUITS
+
+%% In some cases it is appropriate to "fork off" a connection to a
+%% subsystem.  The assumption that is made here is the availability to
+%% use SSH.
+
+%% How to implement?  It only works if both sinks are port programs.
+%% So the essential operation is to "optimize" a connection by
+%% transforming it into something else.
+
+%% FIXME: No use case atm.
+
+
+
+
      
-test({epid1,N}) -> 
+%% test(exo1) -> 
+%%     exo:push(vybrid_img, kingston_sd);            
+test(exo1) ->
+    exo:transfer(vybrid_img, kingston_sd);
+
+test({transfer,N1,N2}) ->  %% ecat:test({transfer,29,20}).
+    epid:transfer(
+      {epid, {ecat, exo:to_node(N1)}, {read_file, "/tmp/test"}},
+      {epid, {ecat, exo:to_node(N2)}, {write_file, "/tmp/test"}});
+
+test({epid,N1,N2}) -> 
     epid:connect2(
-      {epid, {ecat, 'exo@10.1.3.29'}, {read_file, "/tmp/test"}},
-      {epid, {ecat, exo:to_node(N)}, {write_file, "/tmp/test"}}).
+      {epid, {ecat, exo:to_node(N1)}, {read_file, "/tmp/test"}},
+      {epid, {ecat, exo:to_node(N2)}, {write_file, "/tmp/test"}}).
 
 
 
