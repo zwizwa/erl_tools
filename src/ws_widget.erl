@@ -12,6 +12,7 @@
          kvstore_edit/1,
          repl/1,
          config/2,
+         sink/1, sink_handle/2,
          %% table/1,
          example/1]).
 
@@ -69,6 +70,32 @@ supervisor(Widgets, Env = #{ module := Module, ws := _Ws }) ->
               Widgets))),
     %% log:info("ws_widget:supervisor: ~p~n", [Rv]),
     Rv.
+
+
+%% Epid sink.  Tags are interpreted as map keys, and the map is
+%% displayed in a pre cell.  This is intended for debugging.
+sink(Cmd = {_, #{path := Path}}) ->
+    case Cmd of
+        {layout, _Env} ->
+            {'pre',[{'data-mixin',cell},
+                    {id, ws:encode_id(Path)}], []};
+        {serv_spec, Env} ->
+            {handler,
+             fun() -> maps:put(map, #{}, Env) end,
+             fun ?MODULE:sink_handle/2} %% for reloads
+    end.
+sink_handle(Msg, State = #{ws := Ws, path := Path, map := Map}) ->
+    case Msg of
+        {epid_send, Tag, Val} ->
+            Map1 = maps:put(Tag, Val, Map),
+            Epid = {epid, Ws, {Path, set, pterm}},
+            epid:send(Epid, Map1),
+            maps:put(map, Map1, State);
+        _ ->
+            log:info("ws_widget:sink_handle: ~p~n", [Msg]),
+            State
+    end.
+
         
 
 %% Example widget.
@@ -277,3 +304,4 @@ ktv_set_cmd({K,{T,V}}) ->
              V
      end}.
     
+

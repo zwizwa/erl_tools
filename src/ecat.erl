@@ -45,8 +45,9 @@ cmd(Spec) ->
         {cmd, Cmd}           -> Cmd
     end.
 
-%% Note that shell quoting is a real pain.  This pops up where when
-%% ssh is used.  We solve the problem explicitly.
+%% Note that shell quoting is a real pain.  This pops up here when ssh
+%% is used.  We solve the problem explicitly.  FIXME: Not complete,
+%% but good enough for now.
 quote([]) -> [];
 quote([H|T]) ->
     Special = [$\\,$",$',$ ,$>,$$],
@@ -57,23 +58,25 @@ quote([H|T]) ->
 
 %% https://stackoverflow.com/questions/15783701/which-characters-need-to-be-escaped-when-using-bash
 
+%% Alternatively: shell out to /usr/bin/format and use "%q"
+
 
 
 %% 2) EPID PROXY
 
 %% Notes: This is intended for real-time event streams.  While using
-%% it for file transfers is possible, it is not ideal for two reasons:
+%% epid:connect/2 for file transfers is possible, it is not ideal for
+%% two reasons:
 %%
-%% - No backpressure.  All data will likely be buffered in the mailbox
+%% - No flow control.  All data will likely be buffered in the mailbox
 %%   of the target's router.
 %%
 %% - No privacy: the target node is accessible by anyone that knows
 %%   its name, and techically anyone can insert events into the
 %%   stream.
 %%
-%% To implement file transfers, use the epid mechanism to set up a
-%% "circuit", e.g. a TCP pipe.  Because the use is different, we use a
-%% different protocol tag for this.
+%% Instead, use epid:transfer/2
+
 
 
 start_link(Init) ->
@@ -144,7 +147,7 @@ handle(TopMsg, State) ->
 
                 %% Transfers are only implemented between two ecat
                 %% ports.  We let the other end handle it since we
-                %% need to provide a UserAtHost value.
+                %% need to provide a UserAtHost value anyway.
                 {call, Pid, Ref, {epid_transfer, {epid,SrcPid,SrcSpec}}} ->
                     {ok, [{IP,_BC,_NM}|_]} = inet:getif(),
                     DstIP = type:encode({ip,IP}),
@@ -156,7 +159,7 @@ handle(TopMsg, State) ->
                 {epid_unsubscribe, DstEpid} ->
                     remove_subscriber(Spec, DstEpid, State);
 
-                {epid_unsubscribe2, DstEpid} ->
+                {epid_unsubscribe_bidir, DstEpid} ->
                     epid:send(DstEpid, {epid_unsubscribe, {epid,self(),Spec}}),
                     remove_subscriber(Spec, DstEpid, State);
 
@@ -167,7 +170,7 @@ handle(TopMsg, State) ->
                         {epid_subscribe, DstEpid} ->
                             epid:subscribe(Spec, DstEpid, State1);
 
-                        {epid_subscribe2, DstEpid} ->
+                        {epid_subscribe_bidir, DstEpid} ->
                             %% Guarantee that epid_subscribe arrives
                             %% before the first data message.
                             epid:send(DstEpid, {epid_subscribe, {epid,self(),Spec}}),
@@ -221,8 +224,10 @@ handle(TopMsg, State) ->
 
         %% internal machinery
 
+        %% obj.erl
         {_, dump} ->
             obj:handle(TopMsg, State);
+
         %% Reuse the multi-subscriber infrastructure from epid.erl as
         %% much as possible.  In addition we also need to keep track
         %% of Erlang port instances.
@@ -245,32 +250,6 @@ handle(TopMsg, State) ->
 
 
 
-%% 3) TRANSACTIONS
-
-%% Do not make the mistake of implementing a multi-message protocol to
-%% implement a transaction interface.  It is ok to do an
-%% implementation that way, but a transaction should always be an RPC
-%% call: request + acknowledgement.
-
-%% So this has been added to epid.erl
-
-
-
-
-%% 4) EXTERNAL CIRCUITS
-
-%% In some cases it is appropriate to "fork off" a connection to a
-%% subsystem.  The assumption that is made here is the availability to
-%% use SSH.
-
-%% How to implement?  It only works if both sinks are port programs.
-%% So the essential operation is to "optimize" a connection by
-%% transforming it into something else.
-
-%% FIXME: No use case atm.
-
-
-
 
      
 %% test(exo1) -> 
@@ -284,7 +263,7 @@ test({transfer,N1,N2}) ->  %% ecat:test({transfer,29,20}).
       {epid, {ecat, exo:to_node(N2)}, {write_file, "/tmp/test"}});
 
 test({epid,N1,N2}) -> 
-    epid:connect2(
+    epid:connect_bidir(
       {epid, {ecat, exo:to_node(N1)}, {read_file, "/tmp/test"}},
       {epid, {ecat, exo:to_node(N2)}, {write_file, "/tmp/test"}}).
 

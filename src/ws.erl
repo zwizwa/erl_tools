@@ -153,6 +153,12 @@ websocket_info(Map, Req, State) when is_map(Map)->
             websocket_info({bert, Map}, Req, State)
     end;
 
+%% Support the epid protocol.  Note that the Method tag is bundled
+%% with the ID and the type to form the Epid sink address.
+websocket_info({epid_send, {ID, Method, Type}, Val}, Req, State) ->
+    Bin = type:encode({Type,Val}),
+    websocket_info(call_fmt(ID, Method, Bin), Req, State);
+
 %% Anything else gets sent to the delegate handler.
 websocket_info(Msg, Req, #{handle := Handle}=State) -> 
     {ok, Req, Handle({info, Msg}, State)};
@@ -516,16 +522,21 @@ ws_bc() ->
 %% broadcaster combined with some ad-hoc continuation passing.
 pids() ->
     #{ pids := Pids } = obj:dump(ws_bc()),
-    sets:to_list(Pids).
+    maps:keys(Pids).
 
-%% For debugging it is convenient to identify a particular web
-%% session.  This function assumes:
-%% - The websocket processes unsertands the obj.erl protocol
-%% - The qv field contains the query values
-%% - The query values contain an id field
+%% For debugging:
+%% Append &id=... when opening the page.
+
+%% The identifier passed in can then be used in this function to find
+%% the corresponding Erlang websocket process.
+
+%%  This function assumes:
+%% - The websocket processes understands the obj.erl protocol
+%% - The 'query' field contains a map with query values
+%% - The query values contain an 'id' field
 %%
 %% Note that it is possible that there are multiple clients.  Caller
-%% should take care of that, so return a list here.
+%% should take care of that, so we just return the list here.
 
 find(ID) when is_atom(ID) ->
     find(atom_to_binary(ID,utf8));

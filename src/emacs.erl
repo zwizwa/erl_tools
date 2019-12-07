@@ -7,7 +7,10 @@
          hop_node/0,
          emacsclient_send_lisp/1,
          distel_send_lisp/1,
-         distel_node/0]).
+         distel_node/0,
+         start_link/0,
+         handle/2
+]).
 
 
 %% Unidirectional send.
@@ -108,8 +111,25 @@ hop_node([Node|Nodes]) ->
     end.
 
             
-    
-                     
+%% exo_handle proxy.  It seemms simpler to do it this way, since the
+%% emacs node is hidden, and we can re-establish connection if one of
+%% the other nodes has it.
+start_link() ->                     
+    {ok,
+     serv:start(
+       {handler,
+        fun() -> #{} end,
+        fun ?MODULE:handle/2})}.
+handle({_,dump}=Msg, State) ->
+    obj:handle(Msg, State);
+handle(Msg, State) ->
+    {ok, Node} = distel_node(),
+    {exo_handle, Node} ! Msg,
+    State.
+
+
+
+                
 
 
 
@@ -149,3 +169,6 @@ lisp(Bin) when is_binary(Bin) ->
     io_lib:format("~p", [binary_to_list(Bin)]);
 lisp(Any) -> 
     io_lib:format("~p", [Any]).
+
+
+

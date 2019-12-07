@@ -261,7 +261,7 @@ module.exports = {
             }
             else if (el.type == 'submit') {
                 // buttons also change their label
-                console.log('submit-button',el);
+                // console.log('submit-button',el);
                 el.value = arg;
                 el.innerHTML = arg;
             }
