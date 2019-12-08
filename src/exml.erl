@@ -19,7 +19,9 @@
 
          get_send/1,
 
-         validate/1
+         validate/1,
+
+         exml/1
 
 
 ]).
