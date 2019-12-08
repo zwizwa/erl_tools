@@ -21,7 +21,8 @@ start_link(#{ port := _} = Spec) ->
     serv_tcp:start_link(
       maps:merge(defaults(), Spec)).
 
-on_accept(#{ sock := _Sock} = State) ->
+%% Just fork state.  FIXME: This is messy.
+on_accept(State) ->
     State.
 
 %% Start the websocket
@@ -44,7 +45,17 @@ handle({http,Sock,{http_request,'GET',{abs_path,"/ws"}=_Path,{1,1}}},
     %% log:info("resp:~n~s", [Resp]),
     inet:setopts(Sock, [{packet, raw}, {active, true}]),
     ok = gen_tcp:send(Sock, Resp),
-    maps:put(headers, Headers, State);
+
+
+    WsUp = maps:get(ws_up, State, fun(S) -> S end),
+
+    %% At this point we're still carrying around a fork of the
+    %% listener's state.  Keep only what is necessary.
+    WsUp(
+      lists:foldr(
+        fun(K,M) -> maps:put(K,maps:get(K,State),M) end, #{},
+        [listener, sock, handle, ws_ejson]));
+
 
 %% Any other page is delegated to plugin.
 handle({http,Sock,{http_request,'GET',Path,{1,1}}},
@@ -54,7 +65,7 @@ handle({http,Sock,{http_request,'GET',Path,{1,1}}},
     Resp =
         case maps:find(req, State) of
             {ok, Req} ->
-                {ok, HttpResp} = Req({Path,Headers}),
+                {ok, HttpResp} = Req({Path,Headers}, State),
                 %% log:info("HttpResp: ~p~n", [HttpResp]),
                 HttpResp;
             _ ->
