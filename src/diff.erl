@@ -1,5 +1,5 @@
 -module(diff).
--export([diff/2, diff/3, as_map/1, split/1, diff_split/2]).
+-export([diff/2, diff/3, as_map/1, split/1, diff_split/2, diffi/2]).
 
 %% Encode data structure differences as edit commands.  To keep the
 %% protocol simple, only maps are diffed as this gives a simple "paths
@@ -18,6 +18,7 @@
 diff(A,B) ->
     sink:gen_to_list(
       fun(Sink) -> diff(Sink, A, B) end).
+
 diff(Sink,A,B) ->
     diff([],fun(D) -> Sink({data,D}) end, A, B),
     Sink(eof).
@@ -107,3 +108,25 @@ as_map({update, P, V}) -> #{op => update, path => P, val => V}.
 %% structuring maps better to data storage and communication,
 %% e.g. allowing for the easy difference encoding above.
 
+%% So... instead of messing with hierarchical representations, just
+%% use path representation.  This also simplifies diffing
+%% significantly:
+
+diffi(OldMap,NewMap) ->
+    Old = maps:keys(OldMap),
+    New = maps:keys(NewMap),
+    Del = lists:subtract(Old,New),
+    Ins = lists:subtract(New,Old),
+    Common = lists:subtract(New,Ins),
+    [{delete,K}           || K <- Del] ++
+    [{insert,K,
+      maps:get(K,NewMap)} || K <- Ins] ++
+    lists:append(
+      [begin
+         OldVal = maps:get(K,OldMap),
+         NewVal = maps:get(K,NewMap),
+         case OldVal of
+             NewVal -> [];
+             _ -> [{update,K,OldVal,NewVal}]
+         end
+       end || K <- Common]).

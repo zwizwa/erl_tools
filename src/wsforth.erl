@@ -85,23 +85,27 @@ ws.onmessage = function(msg) {
     else { exec(JSON.parse(msg.data)); }
 }
 function send(o) {
-    console.log('send',o);
     ws.send(JSON.stringify(o));
 }
-
+function render(html) {
+    var tmp = document.createElement('div');
+    tmp.innerHTML=html;
+    return tmp.firstChild;
+}
 var s_op = {
-    drop()  { s.pop(); },
-    eval()  { s_app1(eval); },
-    app1()  { s_app1(s.pop()); },
-    mapp1() { var m=s.pop(); s_mapp1(s.pop(),m); },
-    print() { console.log(s.pop()); },
-    send()  { send(s.pop()); },
-    ref()   { s_mapp1(document,'getElementById'); },
-    set()   { var o = s.pop(); o.innerHTML = s.pop(); },
+    drop()    { s.pop(); },
+    eval()    { s_app1(eval); },
+    app1()    { s_app1(s.pop()); },
+    mapp1()   { var m=s.pop(); s_mapp1(s.pop(),m); },
+    print()   { console.log(s.pop()); },
+    send()    { send(s.pop()); },
+    ref()     { s_mapp1(document,'getElementById'); },
+    replace() { var old = s.pop(); old.parentNode.replaceChild(s.pop(),old); },
+    render()  { s_app1(render); },
     // debug
-    log()   { console.log(s); },
-    clear() { s = []; },
-    exec()  { exec(s.pop()); }
+    log()     { console.log(s); },
+    clear()   { s = []; },
+    exec()    { exec(s.pop()); }
 };
 var m_op = {
     l(arg) { s.push(arg); },
@@ -236,3 +240,4 @@ html(#{script := Script,
 %% interest to the app.
 
 
+%% var a = A.parentNode.replaceChild(document.createElement("span"), A);

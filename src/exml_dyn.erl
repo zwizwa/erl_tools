@@ -2,7 +2,9 @@
 -export([fold_el/3,
          map_el/2,
          render_el/2,
-         deps_el/2]).
+         deps_el/2,
+         update_el/3
+]).
 
 
 %% Dynamic ehtml is ehtml with possible "holes" in every constructor
@@ -79,25 +81,37 @@ render(Env, Case, Dyn) ->
         %% Element render from a single variable. The nodes in the
         %% viewmodel are in 1-1 correspondence with DOM elements.
         {els, {dyn, F, Var}} ->
-            [add_id(Var, F(maps:get(Var, Env)))];
+            render_dyn({dyn, F, Var}, maps:get(Var, Env));
 
         %% FIXME: Support attributes once elements work properly.
         {attrs, _} ->
             throw({exml_dyn_attrs,Dyn})
     end.
 
-%% Default is to wrap it in a 'div'.
-render_map(Env, {dyn, {map, F}, L}) when is_function(F) ->
-    Div = fun(Els) -> {'div',[],Els} end,
-    render_map(Env, {dyn, {map, {Div, F}}, L});
+render_dyn({dyn, F, Var}, Val) ->
+    [add_id(Var, F(Val))].
 
-render_map(Env, {dyn, {map, {Parent, F}}, VarListSpec}) ->
+
+%% List construction always has two components: an element rendering
+%% function and a list header.  Allow for 'div' to be a default here.
+wrap_and_map(F) when is_function(F) ->
+    {fun(Els) -> {'div',[],Els} end, F};
+wrap_and_map({Parent,F}) when is_function(Parent) and is_function(F) ->
+    {Parent,F}.
+
+
+expand_select(Env, Select) ->
+    {Cid, Subs} = Select(maps:keys(Env)),
+    %% Sorted list requirement makes DOM insert unambiguous.
+    {Cid,[ Cid ++ [Sub] || Sub <- lists:sort(Subs)]}.
+
+render_map(Env, {dyn, {map, MapSpec}, VarListSpec}) ->
+    {Parent, F} = wrap_and_map(MapSpec),
+
     {ContainerPath,Vars} =
         case VarListSpec of
             {select, Select} ->
-                {Cid,Subs} = Select(maps:keys(Env)),
-                %% Sorted list requirement makes DOM insert unambiguous.
-                {Cid,[ Cid ++ [Sub] || Sub <- lists:sort(Subs)]};
+                expand_select(Env, Select);
             _ ->
                 VarListSpec
         end,
@@ -107,17 +121,18 @@ render_map(Env, {dyn, {map, {Parent, F}}, VarListSpec}) ->
           lists:map(
             fun(Var) -> render(Env, els, {dyn, F, Var}) end,
             Vars)),
-    %% .. and wrap the parent container.
+    %% .. and wrap the parent container.  To keep it simple: these
+    %% wrappers are not dynamic.
     [add_id(
        ContainerPath,
        Parent(Els))].
 
 
 
-id(Path) ->                
-    tools:format("~p",[Path]).
+p(Path) ->                
+    tools:format_binary("~p",[Path]).
 add_id(Path, {T,A,E}) ->
-    {T,[{id,id(Path)}|A],E}.
+    {T,[{id,p(Path)}|A],E}.
     
 
 
@@ -131,18 +146,49 @@ add_id(Path, {T,A,E}) ->
 %% how to unpack 'select'.
 
 deps_el(Env, El) ->
+    maps:from_list(deps_el_(Env,El)).
+deps_el_(Env, El) ->
     fold_el(
-      fun(_Type, Dyn={dyn,_,List}, Acc) ->
-              Deps = 
-                  case List of
+      fun(_Type, _Dyn={dyn,{map,MapSpec},ListSpec}, Acc0) ->
+              {_, F} = wrap_and_map(MapSpec),
+              Vars = 
+                  case ListSpec of
                       {select,Select} ->
-                          Select(maps:keys(Env));
-                      Vars ->
-                          Vars
+                          {_, Vs} = expand_select(Env, Select),
+                          Vs;
+                      _ ->
+                          ListSpec
                   end,
-              [{Deps,Dyn} | Acc]
+              lists:foldr(
+                fun(Var,Acc1) -> [{Var,{dyn,F,Var}} | Acc1] end,
+                Acc0,
+                Vars)
       end,
       [], El).
+
+
+%% Compute rendered incremental exml update in wsforth command form.
+update_el(Dyn,M0,M1) ->
+    Deps = deps_el(M1,Dyn),
+    Diff = diff:diffi(M0,M1),
+    %% log:info("M0:~p~n",[M0]),
+    %% log:info("M1:~p~n",[M1]),
+    %% log:info("deps:~p~n",[Deps]),
+    log:info("diff:~p~n",[Diff]),
+    Edits =
+        lists:map(
+          fun({update,Var,_,Val}) ->
+                  HtmlBin = iolist_to_binary(
+                     exml:exml(
+                       hd(render_dyn(maps:get(Var,Deps),Val)))),
+                  %% FIXME: maybe collapse this a bit?
+                  [HtmlBin,render,p(Var),ref,replace]
+          end,
+          Diff),
+    %% log:info("edits:~p~n",[Edits]),
+    Edits.
+
+
 
 
 
