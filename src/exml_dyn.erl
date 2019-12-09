@@ -69,44 +69,56 @@ fold_els(F, S0, Es) ->
 %% they are the same in that they cannot be distinguished in the
 %% model, but at the DOM level they of course need special attention.
 
-render(Env, Case, Dyn0) ->
-    case {Case,Dyn0} of
+render(Env, Case, Dyn) ->
+    case {Case,Dyn} of
         %% Incremental model rendering needs abstract mapping.
         %% However at initial render time we need to expand fully.
-        {els,
-         {dyn, {map,F}, VarListSpec}} ->
-            {ContainerPath,Vars} =
-                case VarListSpec of
-                    {select, Select} ->
-                        {Cid,Subs} = Select(maps:keys(Env)),
-                        %% Sorted list requirement makes DOM insert unambiguous.
-                        {Cid,[ Cid ++ [Sub] || Sub <- lists:sort(Subs)]};
-                    _ ->
-                        VarListSpec
-                end,
-            %% Then recurse
-            Els = 
-                lists:append(
-                  lists:map(
-                    fun(Var) -> render(Env, els, {dyn, F, Var}) end,
-                    Vars)),
-            [{'div', [{id,id(ContainerPath)}], Els}];
+        {els, {dyn, {map, _}, _}} ->
+            render_map(Env, Dyn);
             
         %% Element render from a single variable. The nodes in the
         %% viewmodel are in 1-1 correspondence with DOM elements.
-        {els,
-         {dyn, F, Var}} ->
-            {T,A,E} = F(maps:get(Var, Env)),
-            [{T,[{id,io_lib:format("~p",[Var])}|A],E}];
+        {els, {dyn, F, Var}} ->
+            [add_id(Var, F(maps:get(Var, Env)))];
 
         %% FIXME: Support attributes once elements work properly.
-        {attrs,
-         _} ->
-            throw({exml_dyn_attrs,Dyn0})
-    end.           
+        {attrs, _} ->
+            throw({exml_dyn_attrs,Dyn})
+    end.
+
+%% Default is to wrap it in a 'div'.
+render_map(Env, {dyn, {map, F}, L}) when is_function(F) ->
+    Div = fun(Els) -> {'div',[],Els} end,
+    render_map(Env, {dyn, {map, {Div, F}}, L});
+
+render_map(Env, {dyn, {map, {Parent, F}}, VarListSpec}) ->
+    {ContainerPath,Vars} =
+        case VarListSpec of
+            {select, Select} ->
+                {Cid,Subs} = Select(maps:keys(Env)),
+                %% Sorted list requirement makes DOM insert unambiguous.
+                {Cid,[ Cid ++ [Sub] || Sub <- lists:sort(Subs)]};
+            _ ->
+                VarListSpec
+        end,
+    %% Then recurse to obtain list elements..
+    Els = 
+        lists:append(
+          lists:map(
+            fun(Var) -> render(Env, els, {dyn, F, Var}) end,
+            Vars)),
+    %% .. and wrap the parent container.
+    [add_id(
+       ContainerPath,
+       Parent(Els))].
+
+
 
 id(Path) ->                
-    io_lib:format("~p~n",[Path]).
+    tools:format("~p",[Path]).
+add_id(Path, {T,A,E}) ->
+    {T,[{id,id(Path)}|A],E}.
+    
 
 
             
