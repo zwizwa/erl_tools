@@ -15,7 +15,7 @@
 %% functions pure.
 
 render_el(Env, El) ->
-    map_el(fun(Case,Val) -> render_case(Env,Case,Val) end, El).
+    map_el(fun(Case,Val) -> render(Env,Case,Val) end, El).
 
 
 %% The "datatype" is defined implicitly through fold and map operations.
@@ -24,10 +24,9 @@ render_el(Env, El) ->
 map_el(F, {dyn,_,_}=E) ->
     F(els,E);
 map_el(F, {Tag,As,Es}) ->
-    Tag1 = case Tag of {dyn,_,_} -> F(tag,Tag);  _ -> Tag end,
     As1  = case As  of {dyn,_,_} -> F(attrs,As); _ -> map_attrs(F, As) end,
     Es1  = case Es  of {dyn,_,_} -> F(els,Es);   _ -> map_els(F, Es) end,
-    {Tag1, As1, Es1};
+    {Tag, As1, Es1};
 map_el(_Env, E) ->
     E.
 
@@ -47,8 +46,7 @@ map_attrs(F, As) ->
 
 %% Fold
 fold_el(F, S, E={dyn,_,_}) -> F(els,E,S);
-fold_el(F, S0, {Tag,As,Es}) ->
-    S1 = case Tag of {dyn,_,_} -> F(tag,Tag,S0);  _ -> S0 end,
+fold_el(F, S1, {_Tag,As,Es}) ->
     S2 = case As  of {dyn,_,_} -> F(attrs,As,S1); _ -> fold_attrs(F, S1, As) end,
     S3 = case Es  of {dyn,_,_} -> F(els,Es,S2);   _ -> fold_els(F, S2, Es) end,
     S3;
@@ -65,46 +63,48 @@ fold_els(F, S0, Es) ->
       S0, Es).
 
 
-%% Initial render.
 
-%% Mapping is explicit, but done in such a way that elements all have
-%% their own identity so this can be used for incremental
-%% updates. This is accomplished by using Select to distill a list of
-%% variable names from the current model.
 
-render(Env, {dyn, {map, F}, List}) ->
-    lists:append(
-      lists:map(
-        fun(Key) -> render(Env, {dyn, F, [Key]}) end,
-        case List of
-            {select, Select} ->
-                Select(maps:keys(Env));
-            _ ->
-                List
-        end));
+%% There are two render cases: elements or attributes.  Conceptually
+%% they are the same in that they cannot be distinguished in the
+%% model, but at the DOM level they of course need special attention.
 
-render(Env, {dyn, F, Vars}) ->
-    Arg = [{Var,maps:get(Var,Env)} || Var <- Vars],
-    F(Arg).
+render(Env, Case, Dyn0) ->
+    case {Case,Dyn0} of
+        %% Abstract mapping is necessary to be able to work on render
+        %% inputs instead of diffing render outputs in the update
+        %% regime.  For initial render, we need to fully expand.  Note
+        %% that keys are always kept in sorted order, which makes it
+        %% possible to implement "insert" unambiguously at the DOM end.
+        {els,
+         {dyn, {map,F}, VarListSpec}} ->
+            Vars =
+                case VarListSpec of
+                    {select, Select} ->
+                        lists:sort(Select(maps:keys(Env)));
+                    _ ->
+                        VarListSpec
+                end,
+            %% Then recurse
+            lists:append(
+              lists:map(
+                fun(Var) -> render(Env, els, {dyn, F, Var}) end,
+                Vars));
+        %% Element render from a single variable. The nodes in the
+        %% viewmodel are in 1-1 correspondence with DOM elements.
+        {els,
+         {dyn, F, Var}} ->
+            {T,A,E} = F(maps:get(Var, Env)),
+            [{T,[{id,io_lib:format("~p",[Var])}|A],E}];
 
-render_case(Env, Case, Dyn={dyn,_,_Vars}) ->
-    %% log:info("render ~p~n",[_Vars]),
-    Fragment = render(Env, Dyn),
-    %% Several constructor types are supported.  Each has its own
-    %% update procedure.
-    %% FIXME
-    case Case of
-        %% Not sure if it make sense to allow tags to be updated.
-        tag   -> ok;
-        %% To replace attributes, identify the parent element and set
-        %% attributes one by one.
-        attrs -> ok;
-        %% To replace elements, identify the parent element, locate
-        %% the first old element, insert new elements before, then
-        %% remove old elements.
-        els   -> ok
-    end,
-    Fragment.
+        %% FIXME: Support attributes once elements work properly.
+        {attrs,
+         _} ->
+            throw({exml_dyn_attrs,Dyn0})
+    end.           
+                
+
+            
 
 
 %% Incremental render.
@@ -126,3 +126,13 @@ deps_el(Env, El) ->
               [{Deps,Dyn} | Acc]
       end,
       [], El).
+
+
+
+%% Notes.  Mostly simplicications.
+%%
+%% - Do not generate tags dynamically.  If this is necessary, go one
+%%   level up and embed it in an element.
+%%
+%% - Not sure what to do with splicing.
+
