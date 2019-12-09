@@ -93,9 +93,9 @@ render_dyn({dyn, F, Var}, Val) ->
 
 
 %% List construction always has two components: an element rendering
-%% function and a list header.  Allow for 'div' to be a default here.
+%% function and a list header.  Allow for 'span' to be a default here.
 wrap_and_map(F) when is_function(F) ->
-    {fun(Els) -> {'div',[],Els} end, F};
+    {fun(Els) -> {'span',[],Els} end, F};
 wrap_and_map({Parent,F}) when is_function(Parent) and is_function(F) ->
     {Parent,F}.
 
@@ -171,24 +171,33 @@ deps_el_(Env, El) ->
 update_el(Dyn,M0,M1) ->
     Deps = deps_el(M1,Dyn),
     Diff = diff:diffi(M0,M1),
+    Edits =
+        lists:map(
+          fun({update,Var,_,Val}) ->
+                  HtmlBin = html_var(Deps,Var,Val),
+                  [HtmlBin,render,p(Var),ref,replace];
+             ({insert,Var,Val}) ->
+                  HtmlBin = html_var(Deps,Var,Val),
+                  [HtmlBin,render,p(parent(Var)),ref,insert];
+             ({delete,Var}) ->
+                  [p(Var),delte]
+          end,
+          Diff),
     %% log:info("M0:~p~n",[M0]),
     %% log:info("M1:~p~n",[M1]),
     %% log:info("deps:~p~n",[Deps]),
     log:info("diff:~p~n",[Diff]),
-    Edits =
-        lists:map(
-          fun({update,Var,_,Val}) ->
-                  HtmlBin = iolist_to_binary(
-                     exml:exml(
-                       hd(render_dyn(maps:get(Var,Deps),Val)))),
-                  %% FIXME: maybe collapse this a bit?
-                  [HtmlBin,render,p(Var),ref,replace]
-          end,
-          Diff),
     %% log:info("edits:~p~n",[Edits]),
     Edits.
 
+parent(Path) ->
+    lists:reverse(
+      tl(lists:reverse(Path))).
 
+html_var(Deps,Var,Val) ->
+    iolist_to_binary(
+      exml:exml(
+        hd(render_dyn(maps:get(Var,Deps),Val)))).
 
 
 

@@ -92,6 +92,15 @@ function render(html) {
     tmp.innerHTML=html;
     return tmp.firstChild;
 }
+function insert(parent, child) {
+    var c = parent.children;
+    for(var i=0;i<c.length;i++) {
+        if(child.id < c[i].id) {
+            return parent.insertBefore(child,c[i]);
+        }
+    }
+    parent.appendChild(child);
+}
 var s_op = {
     drop()    { s.pop(); },
     eval()    { s_app1(eval); },
@@ -101,6 +110,8 @@ var s_op = {
     send()    { send(s.pop()); },
     ref()     { s_mapp1(document,'getElementById'); },
     replace() { var old = s.pop(); old.parentNode.replaceChild(s.pop(),old); },
+    insert()  { var parent = s.pop(); insert(parent, s.pop()); },
+    delete()  { var el = s.pop(); el.parentNode.removeChild(el); },
     render()  { s_app1(render); },
     // debug
     log()     { console.log(s); },
@@ -112,8 +123,7 @@ var m_op = {
     s(arg) { s_op[arg](); },
 };
 function exec(prog) {
-    var i;
-    for(i=0;i<prog.length;i++) {
+    for(var i=0;i<prog.length;i++) {
          var ins = prog[i];
          var opc = ins[0];
          var arg = ins[1];
