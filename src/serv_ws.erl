@@ -21,15 +21,24 @@ start_link(#{ port := _} = Spec) ->
     serv_tcp:start_link(
       maps:merge(defaults(), Spec)).
 
-%% Just fork state.  FIXME: This is messy.
+
 on_accept(State) ->
-    State.
+    %% Incoming state is a fork of the listener state.  Remove
+    maps:filter(
+      fun(Key,_Val) when is_pid(Key) -> false;
+         (Key,_Val) ->
+              not lists:member(
+                    Key,
+                    [listen_sock, on_accept, opts, port])
+      end,
+      State).
+                         
 
 %% Start the websocket
 handle({http,Sock,{http_request,'GET',{abs_path,"/ws"}=_Path,{1,1}}},
        #{ sock := Sock } = State) ->
 
-    log:info("~p~n", [{inet:peername(Sock),_Path}]),
+    %% log:info("~p~n", [{inet:peername(Sock),_Path}]),
 
     Headers = http:recv_headers(Sock),
     Key64 = proplists:get_value("Sec-Websocket-Key", Headers),
@@ -49,12 +58,14 @@ handle({http,Sock,{http_request,'GET',{abs_path,"/ws"}=_Path,{1,1}}},
 
     WsUp = maps:get(ws_up, State, fun(S) -> S end),
 
-    %% At this point we're still carrying around a fork of the
-    %% listener's state.  Keep only what is necessary.
+    %% Remove unnecessary members.
     WsUp(
-      lists:foldr(
-        fun(K,M) -> maps:put(K,maps:get(K,State),M) end, #{},
-        [listener, sock, handle, ws_ejson]));
+      maps:filter(
+        fun(K,_) ->
+                not lists:member(
+                      K, [ws_up, headers, req])
+        end,
+        State));
 
 
 %% Any other page is delegated to plugin.

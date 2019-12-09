@@ -1,19 +1,22 @@
 %% Forth-like interpreter to sit at the client side of a WebSocket.
 
 %% Attempt to write a more minimal framework than ws.erl
+
+%% This is stand-alone, not using Cowboy.
+
 %% Initial template derived from auth_serv.erl
 %% Uses: exml, serv_ws, serv_tcp, jsone
 %% Wraps Javascript a Forth-like stack machine controlled over websocket
-
 
 -module(wsforth).
 -export([start_link/1,
          on_accept/1, handle/2,
          req/2, query/1, 
-         js/0, html/2
-]).
+         js/0, html/1, css/0
+        ]).
 
 -define(JS,<<"/wsforth.js">>).
+-define(CSS,<<"/style.css">>).
 
 start_link(Init = #{port := _}) ->
     serv_tcp:start_link(
@@ -25,12 +28,9 @@ start_link(Init = #{port := _}) ->
              handle    => fun ?MODULE:handle/2 },
           Init))).
 
-on_accept(State = #{ sock := Sock, listener := Listener }) ->
+on_accept(State = #{sock := Sock}) -> 
     {ok, PN} = inet:peername(Sock),
     log:set_info_name({?MODULE, PN}),
-    obj:set(Listener, {pid, self()}, PN),
-    %% log:info("on accept: ~p~n",[State]),
-    %% self() ! {cmd, [<<"wsforth init">>, print]},
     serv_ws:on_accept(State).
 
 handle(Msg, State) ->
@@ -84,6 +84,10 @@ ws.onmessage = function(msg) {
     if (msg.data instanceof ArrayBuffer) { exec([['l',msg.data]]); }
     else { exec(JSON.parse(msg.data)); }
 }
+function send(o) {
+    console.log('send',o);
+    ws.send(JSON.stringify(o));
+}
 
 var s_op = {
     drop()  { s.pop(); },
@@ -91,7 +95,7 @@ var s_op = {
     app1()  { s_app1(s.pop()); },
     mapp1() { var m=s.pop(); s_mapp1(s.pop(),m); },
     print() { console.log(s.pop()); },
-    send()  { ws.send(JSON.stringify(s.pop())); },
+    send()  { send(s.pop()); },
     ref()   { s_mapp1(document,'getElementById'); },
     set()   { var o = s.pop(); o.innerHTML = s.pop(); },
     // debug
@@ -115,6 +119,20 @@ function exec(prog) {
 ">>.
 
 
+%%
+css() ->
+<<"    
+body {
+    background-color: black; 
+    color: white;
+    font-family: Monospace;
+    font-size: 20px;
+}
+a {
+    color: white;
+}
+">>.
+
 %% Simple query parser.
 query(URI) ->
     try 
@@ -132,26 +150,36 @@ query(URI) ->
 req({{abs_path, URI}, _Headers}, Env) ->
 
     %% The Env variable contains.
-    {Path,Q} = query(URI),
-    log:info("Q: ~p ~p~n",[Path,Q]),
+    {Path,_Q} = query(URI),
+    %% log:info("Q: ~p ~p~n",[Path,Q]),
 
     case Path of
         ?JS ->
             resp(<<"text/javascript">>, wsforth:js());
+        ?CSS ->
+            resp(<<"text/css">>, wsforth:css());
         <<"/">> ->
-            Html = maps:get(ws_html, Env, fun ?MODULE:html/2),
+            Body = maps:get(ws_body, Env, fun(_) -> [] end),
+            ReloadHack = tools:format("?v=~p",[rand:uniform()]),
+            Script = 
+                {'script',
+                 [{type,<<"text/javascript">>},
+                  {charset,<<"UTF-8">>},
+                  {src, ?JS}],
+                 [[<<" ">>]]},  %% WTF?
+            Style =
+                {'link',
+                 [{rel,"stylesheet"},
+                  {type,"text/css"}, 
+                  {href, [?CSS,ReloadHack]}],
+                 []},
             resp(
               <<"text/html">>,
               iolist_to_binary(
                 exml:exml(
-                  Html(#{ script => 
-                              {'script',
-                               [{type,<<"text/javascript">>},
-                                {charset,<<"UTF-8">>},
-                                {src, ?JS}],
-                               [[<<" ">>]]}  %% WTF?
-                        },
-                       Env))));
+                  html(#{ script => Script,
+                          style => Style,
+                          body => Body(Env) }))));
         Other ->
             Bin = tools:format_binary("404: ~s~n", [Other]),
             {ok,
@@ -167,7 +195,7 @@ resp(Type,Bin) ->
         {ok,
          [<<"HTTP/1.1 200 OK\r\n",
             "Content-Type: ">>,Type,<<"\r\n",
-                                      "Content-Length: ">>, integer_to_list(size(Bin)),
+            "Content-Length: ">>, integer_to_list(size(Bin)),
           <<"\r\n\r\n">>,
           Bin]},
     %% log:info("~p~n", [Resp]),
@@ -179,16 +207,18 @@ resp(Type,Bin) ->
 %% <script></script> does.  Adding a space inside the element fixed
 %% it.  Weird...  Firefox bug?
 
-html(#{script := Script}, _Env) ->
+html(#{script := Script,
+       style  := Style,
+       body   := Body}) ->
     {'html', [{xmlns,<<"http://www.w3.org/1999/xhtml">>}],
      [{'head',[],
        [{'meta',[{charset,<<"UTF-8">>}],[]},
-        Script,
+        Script, Style,
         {'title',[],[[<<"webredo">>]]}
        ]},
-      {'body',[{id,<<"main">>}],
-       [[<<"Loading..">>]
-       ]}]}.
+      {'body',[], Body}]}.
+
+
 
 %% webredo_test ! {cmd, [1,2,3,print]}.
 %% webredo_test ! {cmd, [reset,<<"main">>,<<"document">>,eval,<<"getElementById">>,mapp1,print]}.
