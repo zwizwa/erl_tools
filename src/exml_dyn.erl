@@ -71,25 +71,27 @@ fold_els(F, S0, Es) ->
 
 render(Env, Case, Dyn0) ->
     case {Case,Dyn0} of
-        %% Abstract mapping is necessary to be able to work on render
-        %% inputs instead of diffing render outputs in the update
-        %% regime.  For initial render, we need to fully expand.  Note
-        %% that keys are always kept in sorted order, which makes it
-        %% possible to implement "insert" unambiguously at the DOM end.
+        %% Incremental model rendering needs abstract mapping.
+        %% However at initial render time we need to expand fully.
         {els,
          {dyn, {map,F}, VarListSpec}} ->
-            Vars =
+            {ContainerPath,Vars} =
                 case VarListSpec of
                     {select, Select} ->
-                        lists:sort(Select(maps:keys(Env)));
+                        {Cid,Subs} = Select(maps:keys(Env)),
+                        %% Sorted list requirement makes DOM insert unambiguous.
+                        {Cid,[ Cid ++ [Sub] || Sub <- lists:sort(Subs)]};
                     _ ->
                         VarListSpec
                 end,
             %% Then recurse
-            lists:append(
-              lists:map(
-                fun(Var) -> render(Env, els, {dyn, F, Var}) end,
-                Vars));
+            Els = 
+                lists:append(
+                  lists:map(
+                    fun(Var) -> render(Env, els, {dyn, F, Var}) end,
+                    Vars)),
+            [{'div', [{id,id(ContainerPath)}], Els}];
+            
         %% Element render from a single variable. The nodes in the
         %% viewmodel are in 1-1 correspondence with DOM elements.
         {els,
@@ -102,7 +104,10 @@ render(Env, Case, Dyn0) ->
          _} ->
             throw({exml_dyn_attrs,Dyn0})
     end.           
-                
+
+id(Path) ->                
+    io_lib:format("~p~n",[Path]).
+
 
             
 
