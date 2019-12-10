@@ -7,62 +7,85 @@
 ]).
 
 
-%% Dynamic ehtml is ehtml with possible "holes" in every constructor
-%% position.  The holes are expressed as model variable names + render
-%% function.  ehtml is rendered by combining with an environment.
+%% A simple templating language supporting incremental updates.  This
+%% is an iteration in a series of attempts to do "react without html",
+%% by diffing viewmodels instead of html structure.
 
-%% Making the variables explicit is what allows for caching if those
-%% varialbes don't change, assuming the functions are pure.
-%% Performing the dereference outside of the render function keeps
-%% functions pure.
+%% Conclusion: diffing html structure as is done in react is much more
+%% powerful than what is done here, but diffing models seems to be a
+%% worthwhile approach for simpler "panel-style" applications that
+%% have a resonably constant structural backbone.
+
+%% While we need to support every structural modification explicitly
+%% (e.g. add/remove element in list), it is possible to create
+%% explicit dependency lists, making updates very efficient: in the
+%% happy path, a scalar can map directly to a collection of update
+%% functions.
+
+%% At this point only one structural element is supported: lists.  It
+%% is suprising how much can be done with just this.
+
+%% Core ideas:
+
+%% - viewmodel scalar variables map directly to DOM elements
+%%
+%% - structural formatters (e.g. 'list' is functor structure)
+%%   parameterized by collections of scalars.
+%%
+%% - abstract queries to construct collections of scalars
+%%
+%% - don't mess with generating finer grain exml (attributes, list
+%%   splices, ...).
+%%
+%% - if additional local (javascript) behavior is necessary, it can
+%%   probably be uploaded in an ad-hoc fashion.
+
+%% Recursive expansion is not used. Instead, effort is made to
+%% identify a couple of useful structural formatters:
+%%
+%% - single elements
+%% - lists (any parent+child xhml,svg structure)
+%% - 2D tables (TODO)
+%% - arbitrarily nested lists (TODO, maybe not even necessary)
+
+
+%% The basic data type exml representing xhtml, together with an
+%% extension {dyn,_,_} to represent a dynamic sublanguage for
+%% generating exml nodes.
+
+%% exml is rendered by combining with the viewmodel (environment).
+
+%% Making the variables explicit allows for fine-grained caching and
+%% updates.  All render functions are pure.
 
 render_el(Env, El) ->
-    map_el(fun(Case,Val) -> render(Env,Case,Val) end, El).
+    map_el(fun(Val) -> render(Env, Val) end, El).
 
 
-%% The "datatype" is defined implicitly through fold and map operations.
+%% The datatype is defined implicitly through fold and map operations.
+%% Note that these are splicing operations where possible, but this is
+%% not used in "render" and "update" code.
 
-%% Fuctor (splices in single element/attribute context).
+%% Map
 map_el(F, {dyn,_,_}=E) ->
-    F(els,E);
+    F(E);
 map_el(F, {Tag,As,Es}) ->
-    As1  = case As  of {dyn,_,_} -> F(attrs,As); _ -> map_attrs(F, As) end,
-    Es1  = case Es  of {dyn,_,_} -> F(els,Es);   _ -> map_els(F, Es) end,
-    {Tag, As1, Es1};
+    {Tag, As,
+     lists:map(
+       fun(E) -> map_el(F, E) end,
+       Es)};
 map_el(_Env, E) ->
     E.
 
-map_els(F, Es) ->
-    lists:append(
-      lists:map(
-        fun(E) -> map_el(F, E) end,
-        Es)).
-
-map_attrs(F, As) ->
-    lists:append(
-      lists:map(
-        fun(A={dyn,_,_}) -> F(attrs,A);
-           ({K,V}) -> [{K,V}]
-        end,
-        As)).
-
 %% Fold
-fold_el(F, S, E={dyn,_,_}) -> F(els,E,S);
-fold_el(F, S1, {_Tag,As,Es}) ->
-    S2 = case As  of {dyn,_,_} -> F(attrs,As,S1); _ -> fold_attrs(F, S1, As) end,
-    S3 = case Es  of {dyn,_,_} -> F(els,Es,S2);   _ -> fold_els(F, S2, Es) end,
-    S3;
-fold_el(_F, S, _E) -> S.
-fold_attrs(F, S0, As) ->
-    lists:foldl(
-      fun(A={dyn,_,_}, S) -> F(attrs,A,S);
-         ({_K,_V}, S) -> S
-      end,
-      S0, As).
-fold_els(F, S0, Es) ->
+fold_el(F, S, E={dyn,_,_}) ->
+    F(E, S);
+fold_el(F, S0, {_Tag,_As,Es}) ->
     lists:foldl(
       fun(E, S) -> fold_el(F, S, E) end,
-      S0, Es).
+      S0, Es);
+fold_el(_F, S, _E) ->
+    S.
 
 
 
@@ -71,61 +94,72 @@ fold_els(F, S0, Es) ->
 %% they are the same in that they cannot be distinguished in the
 %% model, but at the DOM level they of course need special attention.
 
-render(Env, Case, Dyn) ->
-    case {Case,Dyn} of
+render(Env, Dyn) ->
+    case Dyn of
         %% Incremental model rendering needs abstract mapping.
         %% However at initial render time we need to expand fully.
-        {els, {dyn, {map, _}, _}} ->
-            render_map(Env, Dyn);
-            
+        {dyn, {list, _}, _} ->
+            render_list(Env, Dyn);
+        
         %% Element render from a single variable. The nodes in the
         %% viewmodel are in 1-1 correspondence with DOM elements.
-        {els, {dyn, F, Var}} ->
-            render_dyn({dyn, F, Var}, maps:get(Var, Env));
-
-        %% FIXME: Support attributes once elements work properly.
-        {attrs, _} ->
-            throw({exml_dyn_attrs,Dyn})
+        {dyn, F, Var} ->
+            render_scalar({dyn, F, Var}, maps:get(Var, Env))
     end.
 
-render_dyn({dyn, F, Var}, Val) ->
-    [add_id(Var, F(Val))].
+render_scalar({dyn, F, Var}, Val) ->
+    add_id(Var, F(Val)).
 
 
-%% List construction always has two components: an element rendering
-%% function and a list header.  Allow for 'span' to be a default here.
-wrap_and_map(F) when is_function(F) ->
-    {fun(Els) -> {'span',[],Els} end, F};
-wrap_and_map({Parent,F}) when is_function(Parent) and is_function(F) ->
-    {Parent,F}.
+%% Normal form for list rendering is a header/parent + a
+%% transformation function for each element.  Allow for 'span' to be a
+%% default here.
+nf_list_render(ElementF)
+  when is_function(ElementF) ->
+    nf_list_render(#{ element => ElementF });
+nf_list_render(Spec=#{ element := _ }) ->
+    maps:merge(
+      #{ parent => fun(Els) -> {'span',[],Els} end },
+      Spec).
+
+%% Normal form for list specification is prefix + var list.
+%%
+%% 1. Sorted list requirement makes DOM insert unambiguous.  Keys
+%% should be serialized such that text rep in Javascript can use
+%% lexical order.
+%%
+%% 2. The Subs keys might contain structure, but for lists that is
+%% ignored except for the sort order.
+nf_vars(Env, {select, Select}) ->
+    {Prefix, Subs} = Select(maps:keys(Env)),
+    #{prefix => Prefix,
+      vars   => [Prefix ++ Sub || Sub <- lists:sort(Subs)]};
+nf_vars(_Env, #{prefix := _, vars := _}=Spec) ->
+    Spec.
 
 
-expand_select(Env, Select) ->
-    {Cid, Subs} = Select(maps:keys(Env)),
-    %% Sorted list requirement makes DOM insert unambiguous.
-    {Cid,[ Cid ++ [Sub] || Sub <- lists:sort(Subs)]}.
 
-render_map(Env, {dyn, {map, MapSpec}, VarListSpec}) ->
-    {Parent, F} = wrap_and_map(MapSpec),
 
-    {ContainerPath,Vars} =
-        case VarListSpec of
-            {select, Select} ->
-                expand_select(Env, Select);
-            _ ->
-                VarListSpec
-        end,
-    %% Then recurse to obtain list elements..
-    Els = 
-        lists:append(
-          lists:map(
-            fun(Var) -> render(Env, els, {dyn, F, Var}) end,
-            Vars)),
+%% FIXME: Use the dep generation to do the render?  Code is very
+%% similar, but that would require rendering the head node also.
+%% Maybe unify?
+
+render_list(Env, {dyn, {list, Listspec}, VarsSpec}) ->
+    %% Expand parameterization to normal form.
+    #{ parent  := ParentF, 
+       element := ElementF } = 
+        nf_list_render(Listspec),
+    #{ prefix := Prefix, vars := Vars } = 
+        nf_vars(Env, VarsSpec),
+
+    %% Recurse to obtain list elements ..
+    Els = [render(Env, {dyn, ElementF, Var}) || Var <- Vars],
+
     %% .. and wrap the parent container.  To keep it simple: these
     %% wrappers are not dynamic.
-    [add_id(
-       ContainerPath,
-       Parent(Els))].
+    add_id(
+      Prefix,
+      ParentF(Els)).
 
 
 
@@ -141,28 +175,33 @@ add_id(Path, {T,A,E}) ->
 
 %% Incremental render.
 
-%% Since some variable collections can be implicit, it is necessary to
-%% generate the variable list from the model.  The foldee here knows
-%% how to unpack 'select'.
+%% Dependences are "compiled down" to the scalar level.  Because the
+%% 'list' (and other) structures can be dynamic, it needs to be
+%% rebuilt every time the model structure changes.
+
+%% E.g. if the diff contains only updates, the previous dependency
+%% list can be used.  If there are delete/insert operations, and
+%% dynamic variable collections then this needs to be re-evaluated.
 
 deps_el(Env, El) ->
     maps:from_list(deps_el_(Env,El)).
 deps_el_(Env, El) ->
     fold_el(
-      fun(_Type, _Dyn={dyn,{map,MapSpec},ListSpec}, Acc0) ->
-              {_, F} = wrap_and_map(MapSpec),
-              Vars = 
-                  case ListSpec of
-                      {select,Select} ->
-                          {_, Vs} = expand_select(Env, Select),
-                          Vs;
-                      _ ->
-                          ListSpec
-                  end,
+      fun (_Dyn={dyn,{list,ListSpec},VarSpec}, Acc0) ->
+              %% LIST
+              %%
+              %% The parent node is mostly just glue and is not
+              %% updated.  We expand elements into individual scalar
+              %% dynamic elements.
+              #{ element := ElementF} = nf_list_render(ListSpec),
+              #{ vars := Vars } = nf_vars(Env, VarSpec),
               lists:foldr(
-                fun(Var,Acc1) -> [{Var,{dyn,F,Var}} | Acc1] end,
+                fun(Var,Acc1) -> [{Var,{dyn,ElementF,Var}} | Acc1] end,
                 Acc0,
-                Vars)
+                Vars);
+         (Dyn={dyn,_F,Var}, Acc0) ->
+              %% SCALAR
+              [{Var,Dyn} | Acc0]
       end,
       [], El).
 
@@ -190,6 +229,8 @@ update_el(Dyn,M0,M1) ->
     %% log:info("edits:~p~n",[Edits]),
     Edits.
 
+%% Note that paths should be top first to preserve lexical order of
+%% ascii representation of keys. 
 parent(Path) ->
     lists:reverse(
       tl(lists:reverse(Path))).
@@ -197,14 +238,14 @@ parent(Path) ->
 html_var(Deps,Var,Val) ->
     iolist_to_binary(
       exml:exml(
-        hd(render_dyn(maps:get(Var,Deps),Val)))).
+        render_scalar(maps:get(Var,Deps),Val))).
 
 
 
-%% Notes.  Mostly simplicications.
-%%
-%% - Do not generate tags dynamically.  If this is necessary, go one
-%%   level up and embed it in an element.
-%%
-%% - Not sure what to do with splicing.
+
+%% TODO:
+%% - write render in terms of update
+%% - re-use dependency lists
+%% - table formatter
+%% - is 'list' without 'select' actually useful?  (removed cases)
 
