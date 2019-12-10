@@ -1,21 +1,21 @@
-%% Forth-like interpreter to sit at the client side of a WebSocket.
+%% Forth-like stack langauge interpreter to sit at the client side of
+%% a WebSocket.  This code is self-contained.  It implements its own
+%% HTTP bootstrapping.
 
-%% Attempt to write a more minimal framework than ws.erl
-
-%% This is stand-alone, not using Cowboy.
+%% This could be used stand-alone for ad-hoc web app development, but
+%% is mainly here to support exml_dyn.
 
 %% Initial template derived from auth_serv.erl
 %% Uses: exml, serv_ws, serv_tcp, jsone
-%% Wraps Javascript a Forth-like stack machine controlled over websocket
 
--module(wsforth).
+-module(stack_ws).
 -export([start_link/1,
          on_accept/1, handle/2,
          req/2, query/1, 
          js/0, html/1, css/0
         ]).
 
--define(JS,<<"/wsforth.js">>).
+-define(JS,<<"/stack_ws.js">>).
 -define(CSS,<<"/style.css">>).
 
 start_link(Init = #{port := _}) ->
@@ -47,16 +47,7 @@ handle_({data, #{ data := JSON }}, State) ->
     Handle(Term,State);
 
 handle_({cmd, Program}, State) ->
-    %% Convert the Erlang representation into JSON, tagging data and
-    %% code separately.  Atoms refer to stack ops.  Anything else is
-    %% literal.
-    TaggedProgram =
-        lists:map(
-          fun(Op) when is_atom(Op) -> [s, Op];
-             (Op) -> [l, Op]
-          end,
-          Program),
-    JSON = jsone:encode(TaggedProgram),
+    JSON = compile(Program),
     %% log:info("JSON: ~s~n",[JSON]),
     serv_ws:handle({send, JSON}, State);
 
@@ -66,9 +57,23 @@ handle_(Msg, State) ->
 
 
 %% Javascript code implements the Forth machine.
-%% - a program is a list of machine ops encoded in 2-element array: [<opcode>,<argument>]
-%% - the two machine ops distinguish between data (literal stack load) and code (stack op)
-%% - the stack ops manipulate the data stack
+%%
+%% - DOM access routines are implemented as stack operation primitives (s_op)
+%% - Messages sent to the websocket consist JSON-encoded programs
+%% - A program is a lists of machine operations (m_op)
+%% - An m_op is either a literal load, or a stack op
+%% - Programs have an erlang representation (compile/1).
+%%
+
+compile(Program) ->
+    jsone:encode(
+      lists:map(
+        fun(Op) when is_atom(Op) ->
+                [s, Op];
+           (Op) ->
+                [l, Op]
+        end,
+        Program)).
 
 js() ->
 <<"
@@ -169,9 +174,9 @@ req({{abs_path, URI}, _Headers}, Env) ->
 
     case Path of
         ?JS ->
-            resp(<<"text/javascript">>, wsforth:js());
+            resp(<<"text/javascript">>, ?MODULE:js());
         ?CSS ->
-            resp(<<"text/css">>, wsforth:css());
+            resp(<<"text/css">>, ?MODULE:css());
         <<"/">> ->
             Body = maps:get(ws_body, Env, fun(_) -> [] end),
             ReloadHack = tools:format("?v=~p",[rand:uniform()]),
@@ -240,7 +245,7 @@ html(#{script := Script,
 
 
 %% Startup procedure: Initial request serves html, which loads
-%% wsforth.js, which opens the websocket and requests a particular
+%% stack_ws.js, which opens the websocket and requests a particular
 %% program to start.  I don't think I want to mess with initial page
 %% load containing any functional html.  Just use the websocket to
 %% start an application.

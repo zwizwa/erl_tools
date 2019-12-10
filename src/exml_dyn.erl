@@ -7,9 +7,49 @@
 ]).
 
 
-%% A simple templating language supporting incremental updates.  This
-%% is an iteration in a series of attempts to do "react without html",
-%% by diffing viewmodels instead of html structure.
+%% A simple templating language supporting fast incremental updates.
+
+%% This is an iteration in a series of attempts to do "react without
+%% html", by focusing on viewmodel changes instead of converting html
+%% diffs into DOM update operations.
+
+%% The approach used here focuses on creating a dataflow structure
+%% that can be used to perform fine-grained view updates.
+
+%% Note that this is very different from the react-style html diffing,
+%% which is much more powerful, but also necessarily O(N).  This
+%% module focuses on finding an O(1) happy path and thus can be used
+%% for a higher event rate while still enabling fairly complex view
+%% structures.
+
+%% The basic structure:
+
+%% - The viewmodel is in 1-1 correspondence with XHTML view.  Every
+%%   variable in the viewmodel refers to an element in the DOM.  They
+%%   are related through a render function mapping the value to ehtml.
+%%
+%% - That scalar model is extended with some structural abstractions,
+%%   e.g. 'list' being the first one.
+%%
+%% - The usual 1-n relation (one conceptual data element maps to many
+%%   views), is implemented separately.
+%%
+
+%% Note that the viewmodel can be ephemeral, as it can be generated
+%% from the datamodel for initial rendering, and datamodel updates can
+%% be translated immediately into viewmodel updates.
+
+%% I.e. the idea is centered around these maps, where 'd' indicates
+%% a change or edit (differential).
+
+%%  DM ->  VM ->  View 
+%% dDM -> dVM -> dView
+
+
+
+
+
+
 
 %% Conclusion: diffing html structure as is done in react is much more
 %% powerful than what is done here, but diffing models seems to be a
@@ -25,6 +65,9 @@
 %% At this point only one structural element is supported: lists.  It
 %% is suprising how much can be done with just this.
 
+%% So in a nutshell: the central idea here is to create 
+
+
 %% Core ideas:
 
 %% - viewmodel scalar variables map directly to DOM elements
@@ -39,6 +82,11 @@
 %%
 %% - if additional local (javascript) behavior is necessary, it can
 %%   probably be uploaded in an ad-hoc fashion.
+%%
+%% - no third party webserver (use serv_ws)
+%%
+%% - no heavyweight client side library (use stack_ws).
+
 
 %% Recursive expansion is not used. Instead, effort is made to
 %% identify a couple of useful structural formatters:
@@ -108,7 +156,7 @@ render(Env, Dyn) ->
     end.
 
 render_scalar({dyn, F, Var}, Val) ->
-    add_id(Var, F(Val)).
+    add_id(Var, F(Var, Val)).
 
 
 %% Normal form for list rendering is a header/parent + a
@@ -130,10 +178,13 @@ nf_list_render(Spec=#{ element := _ }) ->
 %%
 %% 2. The Subs keys might contain structure, but for lists that is
 %% ignored except for the sort order.
+%%
+%% 3. For any container, the parent node is obtained by chopping off
+%%    the rightmost coordinate.
 nf_vars(Env, {select, Select}) ->
     {Prefix, Subs} = Select(maps:keys(Env)),
     #{prefix => Prefix,
-      vars   => [Prefix ++ Sub || Sub <- lists:sort(Subs)]};
+      vars   => [Prefix ++ [Sub] || Sub <- lists:sort(Subs)]};
 nf_vars(_Env, #{prefix := _, vars := _}=Spec) ->
     Spec.
 
@@ -145,6 +196,7 @@ nf_vars(_Env, #{prefix := _, vars := _}=Spec) ->
 %% Maybe unify?
 
 render_list(Env, {dyn, {list, Listspec}, VarsSpec}) ->
+
     %% Expand parameterization to normal form.
     #{ parent  := ParentF, 
        element := ElementF } = 
@@ -152,15 +204,14 @@ render_list(Env, {dyn, {list, Listspec}, VarsSpec}) ->
     #{ prefix := Prefix, vars := Vars } = 
         nf_vars(Env, VarsSpec),
 
-    %% Recurse to obtain list elements ..
+    %% Recurse to obtain list elements.
     Els = [render(Env, {dyn, ElementF, Var}) || Var <- Vars],
 
-    %% .. and wrap the parent container.  To keep it simple: these
-    %% wrappers are not dynamic.
-    add_id(
-      Prefix,
-      ParentF(Els)).
-
+    %% Wrap the parent container around the elements.
+    El = ParentF(Els),
+    
+    %% Add the parent id.
+    add_id(Prefix, El).
 
 
 p(Path) ->                
@@ -206,7 +257,7 @@ deps_el_(Env, El) ->
       [], El).
 
 
-%% Compute rendered incremental exml update in wsforth command form.
+%% Compute rendered incremental exml update in stack_ws command form.
 update_el(Dyn,M0,M1) ->
     Deps = deps_el(M1,Dyn),
     Diff = diff:diffi(M0,M1),
