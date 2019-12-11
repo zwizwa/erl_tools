@@ -1,12 +1,23 @@
-%% Forth-like stack langauge interpreter to sit at the client side of
+%% Forth-like stack language interpreter to sit at the client side of
 %% a WebSocket.  This code is self-contained.  It implements its own
 %% HTTP bootstrapping.
 
 %% This could be used stand-alone for ad-hoc web app development, but
-%% is mainly here to support exml_dyn.
+%% is mainly here to support exml_dyn (towards a simple FRP-style web
+%% framwork).
 
-%% Initial template derived from auth_serv.erl
 %% Uses: exml, serv_ws, serv_tcp, jsone
+
+%% Startup procedure: Initial page request serves html, which loads
+%% stack_ws.js, which opens the websocket and falls into user-provided
+%% code in ws_up member (see serv_ws).  I don't think I want to mess
+%% with initial page load containing any functional html.  Just use
+%% the websocket to start an application and let it push html through
+%% the websocket.
+
+%% At the app end, we want a single callback that is invoked whenever
+%% a websocket is created.  The serving of bootstrap code is of no
+%% interest to the app.
 
 -module(stack_ws).
 -export([start_link/1,
@@ -43,7 +54,6 @@ handle(Msg, State) ->
 %% KTV seems to be best: assume Key and Type are in pterm format, then
 %% use type:decode on the Value.
 handle_({data, #{ data := Data }}, State = #{ key := Key }) ->
-    %% websocket data input
     %% log:info("stack_ws: data: ~p~n", [Data]),
     Handle =
         maps:get(
@@ -78,14 +88,13 @@ handle_({data, #{ data := Data }}, State = #{ key := Key }) ->
 handle_({cmd, Program}, State) ->
     Compiled = compile(State, Program),
     JSON = jsone:encode(Compiled),
-
     %% log:info("JSON: ~s~n",[JSON]),
     serv_ws:handle({send, JSON}, State);
 
 handle_({def, Name, Program}, State) ->
     Compiled = compile(State, Program),
     Compiled1 = compile(State, [[Name, Compiled], def]),
-    log:info("Compiled1: ~p~n",[Compiled1]),
+    %% log:info("Compiled1: ~p~n",[Compiled1]),
     JSON = jsone:encode(Compiled1),
     serv_ws:handle({send, JSON}, State);
 
@@ -316,12 +325,6 @@ resp(Type,Bin) ->
     Resp.
     
 
-
-%% It is very convenient to do RPC calls by tagging with Erlang
-%% objects.  It's probably best to add some authentication for that.
-
-
-
     
 %% <script ... /> doesn't parse properly in Firefox, but
 %% <script></script> does.  Adding a space inside the element fixed
@@ -340,20 +343,8 @@ html(#{script := Script,
 
 
 
-%% webredo_test ! {cmd, [1,2,3,print]}.
-%% webredo_test ! {cmd, [reset,<<"main">>,<<"document">>,eval,<<"getElementById">>,mapp1,print]}.
+%% .. ! {cmd, [1,2,3,print]}.
+%% .. ! {cmd, [reset,<<"main">>,<<"document">>,eval,<<"getElementById">>,mapp1,print]}.
 
 
 
-%% Startup procedure: Initial request serves html, which loads
-%% stack_ws.js, which opens the websocket and requests a particular
-%% program to start.  I don't think I want to mess with initial page
-%% load containing any functional html.  Just use the websocket to
-%% start an application.
-
-%% At the app end, we want a single callback that is invoked whenever
-%% a websocket is created.  The serving of bootstrap code is of no
-%% interest to the app.
-
-
-%% var a = A.parentNode.replaceChild(document.createElement("span"), A);
