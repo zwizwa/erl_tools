@@ -91,9 +91,12 @@ handle({http,Sock,{http_request,'GET',Path,{1,1}}},
 %% FIXME: Handle partial frames.
 handle({tcp,Sock,Data}=_Msg, #{ sock := Sock}=State) ->
     %% log:info("~p~n", [_Msg]),    
-    case parse1(Data) of
-        #{ mask := 1, len := Len } when Len < 126  ->
-            {Decoded = #{ opcode := Opcode }, Rest} = parse2(Data),
+    case parse(Data) of
+        {Decoded = #{ 
+           mask   := 1,
+           opcode := Opcode,
+           data   := _
+          }, Rest} ->
             case Opcode of
                 8 ->
                     exit({ws_connection_close, Opcode});
@@ -104,8 +107,8 @@ handle({tcp,Sock,Data}=_Msg, #{ sock := Sock}=State) ->
                         _ -> handle({tcp,Sock,Rest}, State)
                     end
                 end;
-        _ ->
-            log:info("can't parse: ~p~n", [Data]),
+        Error ->
+            log:info("serv_ws: can't parse~n~p~n~p~n", [Data,Error]),
             State
     end;
 
@@ -153,26 +156,62 @@ handle(Msg, _State) ->
 
 
 %% Several variants: FIXME: not complete
-parse1(<<_Fin:1,_Res1:1,_Res2:1,_Res3:1,
-         Opcode:4, Mask:1,
-         Len:7, _/binary>>) ->
-    #{
-        opcode => Opcode,
-        mask => Mask,
-        len => Len
-    }.
-parse2(<<_Fin:1,_Res1:1,_Res2:1,_Res3:1, 
-         Opcode:4, 1:1, Len:7, 
-         Key:32,
-         Bin/binary>>) ->
+
+%% https://tools.ietf.org/html/rfc6455
+
+%% Large size message (untested)
+parse(<<Fin:1,_Res1:1,_Res2:1,_Res3:1, 
+        Opcode:4, Mask:1, 127:7,
+        Len:64,
+        Key:32,
+        Bin/binary>>) ->
     Masked  = binary:part(Bin, 0, Len),
     Rest    = binary:part(Bin, Len, size(Bin)-Len),
     Unmasked = xorkey(<<Key:32>>, 0, Masked),
 
-    {#{
+    {#{ fin    => Fin,
         opcode => Opcode,
+        mask   => Mask,
+        len    => Len,
         data   => Unmasked
-      }, Rest}.
+      }, Rest};
+
+%% Medium size message
+parse(<<Fin:1,_Res1:1,_Res2:1,_Res3:1, 
+        Opcode:4, Mask:1, 126:7,
+        Len:16,
+        Key:32,
+        Bin/binary>>) ->
+    Masked  = binary:part(Bin, 0, Len),
+    Rest    = binary:part(Bin, Len, size(Bin)-Len),
+    Unmasked = xorkey(<<Key:32>>, 0, Masked),
+
+    {#{ fin    => Fin,
+        opcode => Opcode,
+        mask   => Mask,
+        len    => Len,
+        data   => Unmasked
+      }, Rest};
+
+%% Remainder case: small message (Len < 126)
+parse(<<Fin:1,_Res1:1,_Res2:1,_Res3:1, 
+        Opcode:4, Mask:1, Len:7, 
+        Key:32,
+        Bin/binary>>) ->
+    Masked  = binary:part(Bin, 0, Len),
+    Rest    = binary:part(Bin, Len, size(Bin)-Len),
+    Unmasked = xorkey(<<Key:32>>, 0, Masked),
+
+    {#{ fin    => Fin,
+        opcode => Opcode,
+        mask   => Mask,
+        len    => Len,
+        data   => Unmasked
+      }, Rest};
+
+parse(Data) ->
+    {ws_parse_error, Data}.
+
 
 xorkey(M,N,Bin) when is_binary(Bin) ->
     xorkey(M,N,binary_to_list(Bin));
