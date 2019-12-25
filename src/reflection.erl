@@ -677,6 +677,14 @@ describe_build_product(SrcPath, RelPath) ->
                    ext  => b2a(Ext),
                    arch => b2a(Arch) };
 
+            %% FIXME: This is for rdm_bridge.elf, which doesn't use
+            %% the "host" tag.  Issue a warning.
+            [Base,<<"elf">>=Ext] ->
+                log:info("WARNING: naked elf: ~s.~s~n",[Base,Ext]),
+                #{ base => Base,
+                   ext  => b2a(Ext),
+                   arch => host };
+
             %% Special cases
             [Base,<<"js">>=Ext] ->
                 #{ base => Base,

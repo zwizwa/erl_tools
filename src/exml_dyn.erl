@@ -343,10 +343,21 @@ test({need_update,Ins}) ->
     need_update(test(invert_deps),Ins).
 
 
-
 %% TODO:
 %% - write render in terms of update
 %% - re-use dependency lists
 %% - table formatter
 %% - is 'list' without 'select' actually useful?  (removed cases)
+
+
+%% A second iteration.  Instead of making this ad-hoc, use actual
+%% differential programming.  Differential lambda calculus.  I read a
+%% paper on this a couple of years ago.
+%% See math.txt 20170908
+%% https://www.informatik.uni-marburg.de/~pgiarrusso/papers/pldi14-ilc-author-final.pdf
+%% https://github.com/paf31/purescript-incremental-functions/blob/master/src/Data/Incremental.purs
+
+%% So can this be done for Erlang?  If I understand correctly, given a
+%% function from Term -> EXML, it would be possible to compute dTerm
+%% -> dEXML.
 

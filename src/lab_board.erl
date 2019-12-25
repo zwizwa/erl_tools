@@ -8,6 +8,9 @@
 
 %% For now, only gdbstub_hub type objects are supported.
 
+%% The idea is to export certain functionality such that other board
+%% drivers can use the handler components.
+
 -include("slip.hrl").
 
 %% Application tags:
