@@ -29,7 +29,10 @@ dev(Any) ->
 %% Below, all device references are abstract.
 
 rsp_call(ID, Packet) ->
-    obj:call(dev(ID), {rsp_call, Packet}, 6011).
+    %% log:info("rsp_call: C: ~p~n", [Packet]),
+    Rv = obj:call(dev(ID), {rsp_call, Packet}, 6011),
+    %% log:info("rsp_call: R: ~p~n", [Rv]),
+    Rv.
 
 csv_call(D, C, A) -> csv_call(D, C, A, []).
 csv_call(ID, Code, Args, Payload) ->

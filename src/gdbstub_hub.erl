@@ -90,7 +90,7 @@ hub_handle({add_tty,BHost,TTYDev,DevPath,AppRunning}=_Msg, State)
                        Info0,
                        #{ hub => Hub,
                           log => fun gdbstub_hub:ignore/2,
-                          %% log => fun(Msg) -> log:info("~p~n",[Msg]) end,
+                          %% log => fun(Msg,S) -> log:info("~p~n",[Msg]),S end,
                           host => Host,
                           tty => TTYDev,
                           devpath => DevPath,
