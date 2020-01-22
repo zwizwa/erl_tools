@@ -1,16 +1,17 @@
 -module(sqlite3_ckeys).
--export([create/3, find/3, put/4, test/1]).
+-export([create/3, find/3, put/4, test/1, to_list/4]).
 
 %% Bridging relational and functional model seems simplest to do by
 %% using composite keys and composite values.  We agument that with a
-%% schema for Erlang<->String conversion.
+%% typed schema for Erlang Term <-> SQLite Binary conversion.
 
 %% The need for this arose in exo_net, which has two sides:
 %%
-%% - Get/Set update to implement available, eventually consistent
-%%   distributed key-value store
+%% - Key-value store as a backbone for the AP distributed store,
+%%   e.g. storing individual config items
 %%
-%% - Read-only queries on the local relational database.
+%% - Read-only re;atopm queries on the local relational database,
+%%   e.g. config file generation from SQL joins
 %%
 %%
 %% To implement the former, we use composite key structure,
@@ -29,20 +30,6 @@
 
 
 
-commas(Syms) ->
-     tl(lists:append(
-          [[",", atom_to_list(Col)] || Col <- Syms])).
-wheres(Syms) ->
-     tl(lists:append(
-          [[" and ", atom_to_list(Col), "=?"] || Col <- Syms])).
-
-sql(DB,Qs) ->
-    sqlite3:sql(DB,Qs).
-
-columns(Schema, Table) when is_atom(Table) ->
-    {Keys,Vals} = Schema(Table),
-    key_list(Keys) ++ key_list(Vals).
-
 %% CREATE/FIND/PUT QUERIES.  All other queries can be implemented by
 %% ad-hoc SQL queries against the relational schema.
 create(DB, Schema, Table) ->
@@ -53,6 +40,27 @@ create(DB, Schema, Table) ->
     sql(DB, [{SQL,[]}]),
     ok.
 
+%% Tables are created on demand, as long as they are in the schema.
+%% This makes it easier to flush a cache during development.
+with_create_retry(DB, Schema, Table, Fun) ->
+    try
+        Fun()
+    catch
+        {sqlite3_errmsg, Msg} ->
+            %% Retry once to create the table if it doesn't exist.
+            NoSuchTable =
+                tools:format_binary("no such table: ~p", [Table]), 
+            case Msg of
+                NoSuchTable ->
+                    log:info("creating table: ~p~n", [Table]),
+                    create(DB, Schema, Table),
+                    Fun();
+                Err ->
+                    throw(Err)
+            end
+    end.
+
+
 find_q(Schema, Table) ->
     {KeyNames, ValNames} = Schema(Table),
     Sql = tools:format_binary(
@@ -61,15 +69,21 @@ find_q(Schema, Table) ->
              wheres(key_list(KeyNames))]),
     Types = type_list(ValNames),
     {Sql, Types}.
+
 find(DB, Schema, [Table | Keys]) ->
     {Sql,Types} = find_q(Schema, Table),
     Args = [encode(K) || K <- Keys],
     %% log:info("find: ~999p~n",[{Sql,Args}]),
-    case sql(DB,[{Sql,Args}]) of
-        [[]] -> error;
-        [[Vals]] -> {ok, [type:decode(TV) || TV <- lists:zip(Types,Vals)]}
-    end.
+    with_create_retry(
+      DB, Schema, Table,
+      fun() ->
+              case sql(DB,[{Sql,Args}]) of
+                  [[]] -> error;
+                  [[Vals]] -> {ok, [type:decode(TV) || TV <- lists:zip(Types,Vals)]}
+              end
+      end).
 
+%% FIXME: rename ValNames to ValSpecs etc..
 put_q(Schema, Table) ->
     {KeyNames, ValNames} = Schema(Table),
     Sql1 = tools:format_binary(
@@ -89,40 +103,73 @@ put(DB, Schema, [Table | Keys], Vals) ->
     Q2 = {Sql2,BKeys++BVals},
     %% log:info("put: ~999p~n",[Q1]),
     %% log:info("put: ~999p~n",[Q2]),
-    [[],[]] = sql(DB, [Q1,Q2]),
-    ok.
+    with_create_retry(
+      DB, Schema, Table,
+      fun() -> [[],[]] = sql(DB, [Q1,Q2]), ok end).
 
+%% Convert to {Key,Val} list + allow projection (e.g. to only get time stamps).
+to_list_q(Schema, Table, Cols) ->
+    {VarSpecs, ValSpecs} = Schema(Table),
+    Sql = tools:format_binary("select ~s from '~p'", [commas(Cols), Table]),
+    ColToType = maps:from_list([{C,T} || {T,C} <- ValSpecs ++ VarSpecs]),
+    Types = [maps:get(C, ColToType) || C <- Cols],
+    {Sql, Types}.
 
+to_list(DB, Schema, Table, Vars) ->
+    {Sql, Types} = to_list_q(Schema, Table, Vars),
+    log:info("to_list: ~999p~n",[Sql]),
+    log:info("to_list: ~999p~n",[Types]),
+    with_create_retry(
+      DB, Schema, Table,
+      fun() ->
+              [BVals] = sql(DB, [{Sql,[]}]),
+              Vals =
+                  lists:map(
+                    fun(Row) -> [type:decode(TV) || TV <- lists:zip(Types, Row)] end,
+                    BVals),
+              Vals
+      end).
 
 
 %% TOOLS
 
-%% Default encoding is pterm, but this isn't convenient for everything
-%% (e.g. mac addresses).
-spec(Key) when is_atom(Key) -> {pterm, Key};
-spec({Type,Key}=Spec) when is_atom(Type) and is_atom(Key) -> Spec.
-key(Spec)  -> {_,Key}  = spec(Spec), Key.
-type(Spec) -> {Type,_} = spec(Spec), Type.
+%% Column specs use {Type,Name}, where Type can be used with type:encode,decode.
 
+key({_,Key})   -> Key.
+type({Type,_}) -> Type.
     
+key_list(Columns)  -> lists:map(fun key/1, Columns).
+type_list(Columns) -> lists:map(fun type/1, Columns).
 
-key_list(PosToNameMap) ->
-    [key(TypeAndKey) || {_, TypeAndKey} <- pos_key_list(PosToNameMap)].
-type_list(PosToNameMap) ->
-    [type(TypeAndKey) || {_, TypeAndKey} <- pos_key_list(PosToNameMap)].
-pos_key_list(PosToNameMap) ->
-    lists:sort(maps:to_list(PosToNameMap)).
 encode(Term) ->
     type:encode({pterm,Term}).
+
+
+commas(Syms) ->
+     tl(lists:append(
+          [[",", atom_to_list(Col)] || Col <- Syms])).
+wheres(Syms) ->
+     tl(lists:append(
+          [[" and ", atom_to_list(Col), "=?"] || Col <- Syms])).
+
+sql(DB,Qs) ->
+    sqlite3:sql(DB,Qs).
+
+columns(Schema, Table) when is_atom(Table) ->
+    {Keys,Vals} = Schema(Table),
+    key_list(Keys) ++ key_list(Vals).
+
+
+%% TEST
     
 test({find,Key}) ->
     find(exo:db_local(),fun exo_net:columns/1, Key);
 test({put,Key,Val}) ->
     put(exo:db_local(),fun exo_net:columns/1, Key, Val);
+test({to_list,Table}) ->
+    to_list(exo:db_local(),fun exo_net:columns/1, Table, [ts,var]);
+
 test(Spec) ->
     throw({test,Spec}).
 
 
-%% (exo@10.1.3.29)40> sqlite3_ckeys:test({put,{exo_net,abc},{<<"0">>, <<"pterm">>, <<"123">>}}).
-%% (exo@10.1.3.29)41> sqlite3_ckeys:test({find,{exo_net,abc}}).
-%% [[<<"0">>,<<"pterm">>,<<"123">>]]
