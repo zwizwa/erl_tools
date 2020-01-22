@@ -33,9 +33,14 @@
 %% CREATE/FIND/PUT QUERIES.  All other queries can be implemented by
 %% ad-hoc SQL queries against the relational schema.
 create(DB, Schema, Table) ->
+    {Keys,Vals} = Schema(Table),
+    KeyCols = key_list(Keys),
+    VarCols = key_list(Vals),
+    Columns = KeyCols ++ VarCols,
+
     SQL = tools:format_binary(
-            "create table if not exists '~p' (~s)",
-            [Table, commas(columns(Schema, Table))]),
+            "create table if not exists '~p' (~s,primary key(~s))",
+            [Table, commas(Columns), commas(KeyCols)]),
     log:info("~s~n", [SQL]),
     sql(DB, [{SQL,[]}]),
     ok.
@@ -117,8 +122,8 @@ to_list_q(Schema, Table, Cols) ->
 
 to_list(DB, Schema, Table, Vars) ->
     {Sql, Types} = to_list_q(Schema, Table, Vars),
-    log:info("to_list: ~999p~n",[Sql]),
-    log:info("to_list: ~999p~n",[Types]),
+    %% log:info("to_list: ~999p~n",[Sql]),
+    %% log:info("to_list: ~999p~n",[Types]),
     with_create_retry(
       DB, Schema, Table,
       fun() ->
@@ -155,9 +160,6 @@ wheres(Syms) ->
 sql(DB,Qs) ->
     sqlite3:sql(DB,Qs).
 
-columns(Schema, Table) when is_atom(Table) ->
-    {Keys,Vals} = Schema(Table),
-    key_list(Keys) ++ key_list(Vals).
 
 
 %% TEST
