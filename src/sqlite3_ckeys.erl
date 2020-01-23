@@ -2,7 +2,7 @@
 -export([create/3, find/3, put/4, test/1, to_list/4]).
 
 %% Bridging relational and functional model seems simplest to do by
-%% using composite keys and composite values.  We agument that with a
+%% using composite keys and composite values.  We augment that with a
 %% typed schema for Erlang Term <-> SQLite Binary conversion.
 
 %% The need for this arose in exo_net, which has two sides:
@@ -10,8 +10,8 @@
 %% - Key-value store as a backbone for the AP distributed store,
 %%   e.g. storing individual config items
 %%
-%% - Read-only re;atopm queries on the local relational database,
-%%   e.g. config file generation from SQL joins
+%% - Read-only queries on the local relational database, e.g. config
+%%   file generation from SQL joins
 %%
 %%
 %% To implement the former, we use composite key structure,
@@ -67,43 +67,45 @@ with_create_retry(DB, Schema, Table, Fun) ->
 
 
 find_q(Schema, Table) ->
-    {KeyNames, ValNames} = Schema(Table),
+    {KeySpecs, ValSpecs} = Schema(Table),
     Sql = tools:format_binary(
             "select ~s from '~p' where ~s",
-            [commas(key_list(ValNames)), Table,
-             wheres(key_list(KeyNames))]),
-    Types = type_list(ValNames),
-    {Sql, Types}.
+            [commas(key_list(ValSpecs)), Table,
+             wheres(key_list(KeySpecs))]),
+    KeyTypes = type_list(KeySpecs),
+    ValTypes = type_list(ValSpecs),
+    {Sql, KeyTypes, ValTypes}.
 
 find(DB, Schema, [Table | Keys]) ->
-    {Sql,Types} = find_q(Schema, Table),
-    Args = [encode(K) || K <- Keys],
+    {Sql,KeyTypes, ValTypes} = find_q(Schema, Table),
+    BKeys = [type:encode(TV) || TV <- lists:zip(KeyTypes,Keys)],
     %% log:info("find: ~999p~n",[{Sql,Args}]),
     with_create_retry(
       DB, Schema, Table,
       fun() ->
-              case sql(DB,[{Sql,Args}]) of
+              case sql(DB,[{Sql,BKeys}]) of
                   [[]] -> error;
-                  [[Vals]] -> {ok, [type:decode(TV) || TV <- lists:zip(Types,Vals)]}
+                  [[Vals]] -> {ok, [type:decode(TV) || TV <- lists:zip(ValTypes,Vals)]}
               end
       end).
 
-%% FIXME: rename ValNames to ValSpecs etc..
 put_q(Schema, Table) ->
-    {KeyNames, ValNames} = Schema(Table),
+    {KeySpecs, ValSpecs} = Schema(Table),
     Sql1 = tools:format_binary(
              "delete from '~p' where ~s",
-             [Table, wheres(key_list(KeyNames))]),
-    Cols = key_list(KeyNames) ++ key_list(ValNames),
+             [Table, wheres(key_list(KeySpecs))]),
+    Cols = key_list(KeySpecs) ++ key_list(ValSpecs),
     Sql2 = tools:format_binary(
              "insert into '~p' (~s) values (~s)",
              [Table, commas(Cols), commas(['?' || _ <- Cols])]),
-    Types = type_list(ValNames),
-    {Sql1,Sql2,Types}.
+    KeyTypes = type_list(KeySpecs),
+    ValTypes = type_list(ValSpecs),
+    {Sql1,Sql2,KeyTypes,ValTypes}.
+
 put(DB, Schema, [Table | Keys], Vals) ->
-    {Sql1,Sql2,Types} = put_q(Schema, Table),
-    BKeys = [encode(K) || K <- Keys],
-    BVals = [type:encode(TV) || TV <- lists:zip(Types,Vals)],
+    {Sql1,Sql2,KeyTypes,ValTypes} = put_q(Schema, Table),
+    BKeys = [type:encode(TV) || TV <- lists:zip(KeyTypes,Keys)],
+    BVals = [type:encode(TV) || TV <- lists:zip(ValTypes,Vals)],
     Q1 = {Sql1,BKeys},
     Q2 = {Sql2,BKeys++BVals},
     %% log:info("put: ~999p~n",[Q1]),
@@ -145,9 +147,6 @@ type({Type,_}) -> Type.
     
 key_list(Columns)  -> lists:map(fun key/1, Columns).
 type_list(Columns) -> lists:map(fun type/1, Columns).
-
-encode(Term) ->
-    type:encode({pterm,Term}).
 
 
 commas(Syms) ->
