@@ -318,6 +318,10 @@ int main(int argc, char **argv) {
                 prog_sram_write(c->data, data_len);
                 ack(NULL, 0);
                 break;
+            case 3: // ping
+                LOG("PING\n");
+                ack(NULL, 0);
+                break;
             default:
                 ERROR("bad command %d\n", (int)c->cmd);
             }

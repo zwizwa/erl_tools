@@ -638,9 +638,12 @@ copy(File, TypedNodes) ->
 push_build_product(SrcPath, RelPath, PushChangeStateEncoded, DispatchBuildProduct) ->
     case decode(PushChangeStateEncoded) of 
         {ok, _PushChangeState = #{ nodes := Nodes }} ->
+            %% log:info("push_build_product: nodes: ~p~n", [Nodes]),
             Desc = reflection:describe_build_product(SrcPath,RelPath),
             _ = tools:pmap(
-                  fun(Node) -> DispatchBuildProduct(Node, Desc) end,
+                  fun(Node) ->
+                          %% log:info("push_build_product: node: ~p~n", [Node]),
+                          DispatchBuildProduct(Node, Desc) end,
                   Nodes);
         _ ->
             Error = {no_push_context, {SrcPath, RelPath}},

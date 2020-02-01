@@ -1,15 +1,23 @@
 -module(ftdi_hub).
--export([start_link/0, handle/2, pids/1]).
+-export([start_link/1, handle/2, pids/1]).
 
-start_link() ->
+start_link(#{ spawn_port := _ }=Config) ->
     {ok,
      serv:start(
        {handler,
-        fun() ->
-                #{}
-        end,
+        fun() -> Config end,
         fun ?MODULE:handle/2})}.
-handle({add_dev,BHost,UsbDev,DevPath}, State) ->
+
+%% Event propagation:
+%% - udev sends message to exo_notify
+%% - that adds up here in handle({add_dev,....})
+%% - a daemon gets started for each board: ftdi:start_link/1
+%% - the up/2 task is started which does:
+%% - upload fpga firmware via ice40 protocol
+%% - upload RAM image using SPI
+
+
+handle({add_dev,BHost,UsbDev,DevPath}, State = #{spawn_port := SpawnPort}) ->
     %% FIXME: Use UsbDev address to distinguish between different FTDI
     %% boards, e.g. <<"/dev/bus/usb/002/048">>
     log:info("~p~n", [{add_dev,BHost,UsbDev,DevPath}]),
@@ -17,11 +25,20 @@ handle({add_dev,BHost,UsbDev,DevPath}, State) ->
     %% FIXME: Currently tied to exo
     %% FIXME: This only supports erlang nodes for now.  I.e. no exo
     %% ssh yet: build system needs to be updated for that to work.
+
+
+    %% There is likely only one ftdi_hub instance, probably running on
+    %% the dev host.  The ftdi "driver" object is started on the
+    %% remote host that is connected to the FTDI board.  It uses the
+    %% ~/bin/ftdi_connect.elf program set up locally.
     {ok, Pid} =
         rpc:call(
           exo:to_node(BHost),
           ftdi, start_link,
-          [#{ spawn_port => exo:port_spawner(<<"localhost">>) }]),
+          [#{ spawn_port => SpawnPort,
+              user => tom,
+              dir  => "/home/tom/bin",
+              host => localhost }]),
     unlink(Pid),
     Hub = self(),
     spawn(
@@ -33,8 +50,8 @@ handle({add_dev,BHost,UsbDev,DevPath}, State) ->
     _Ref = monitor(process, Pid),
     maps:put(Pid, {BHost,UsbDev,DevPath}, State);
 
-handle({'DOWN',_,_,Pid,_}=_Msg, State) ->
-    log:info("~p~n", [_Msg]),
+handle({'DOWN',_Ref,process,Pid,Reason}=_Msg, State) ->
+    log:info("removing: ~p: ~p~n", [Pid,Reason]),
     maps:remove(Pid, State);
 
 handle(Msg, State) ->
@@ -46,11 +63,21 @@ up(_Hub, Pid) ->
     log:info("FIXME: Map board to firmware.~n"),
 
     Dir = "/home/tom/exo/ghcid/fpga",
-    ftdi:push_bin(Pid, Dir, "f_soc.breakout.ice40.bin"),
-    %% FIXME: First time doesn't work.
-    ftdi:push_bin(Pid, Dir, "f_soc.prog3.ram.bin"),
-    ftdi:push_bin(Pid, Dir, "f_soc.prog3.ram.bin").
-    
+    try
+
+        ftdi:push_bin(Pid, Dir, "f_soc.breakout.ice40.bin"),
+        %% FIXME: First time doesn't work, so do it twice.
+        ftdi:push_bin(Pid, Dir, "f_soc.prog3.ram.bin"),
+        ftdi:push_bin(Pid, Dir, "f_soc.prog3.ram.bin"),
+        ok
+    catch C:E ->
+            Rv = {error,{C,E}},
+            %% How to avoid these long error messages that just mess
+            %% up emacs?
+            %% log:info("ftdi_hub: up: ~p~n", [Rv]),
+            log:info("push_bin error~n"),
+            Rv
+    end.
 
 %% <<"/devices/pci0000:00/0000:00:14.0/usb2/2-2/2-2.3/2-2.3.2">>
 devpath_usb_port(Bin) ->

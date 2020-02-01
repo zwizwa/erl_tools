@@ -50,7 +50,17 @@ save(Name, #{ host := Host, devpath := DevPath, uid := UID, usbport := Usbport }
                devpath => DevPath,
                usbport => Usbport,
                uid => UID},
-    kvstore:put(Store, Name, {pterm, Info0}).
+    %% OLD: local kvstore
+    kvstore:put(Store, Name, {pterm, Info0}),
+    %% NEW: exo_net distributed store
+    case Name of
+        {tty,_} ->
+            exo_net:put([tty,iolist_to_binary(UID)],
+                        [binary_to_atom(Host, utf8), DevPath]);
+        _ ->
+            log:info("Can't store ~p in exo_net db~n", [Name])
+    end,
+    ok.
 
 
 

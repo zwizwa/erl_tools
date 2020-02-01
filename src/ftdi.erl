@@ -1,6 +1,8 @@
 -module(ftdi).
 -export([start_link/1, handle/2, push_bin/2, push_bin/3, test/1]).
 
+%% We are started by ftdi_hub.  It will provide the correct config to
+%% start the ftdi_connect.elf binary driver.
 start_link(Config) ->
     {ok,
      serv:start(
@@ -10,13 +12,20 @@ start_link(Config) ->
                     tools:spawn_port(
                       Config,
                       {"ftdi_connect.elf", ["i:0x0403:0x6010"]},
-                      %% "ftdi_connect.elf",
                       [use_stdio, binary, exit_status, {packet,4}]),
-                maps:merge(
-                  Config,
-                  #{ port => Port })
+                State = maps:merge(
+                          Config,
+                          #{ port => Port }),
+                %% Just make sure driver is there.  This gives a clear
+                %% failure point if it isn't.
+                handle(ping_port, State)
         end,
         fun ?MODULE:handle/2})}.
+
+handle(ping_port, State = #{port := Port}) ->
+    Port ! {self(), {command, [<<3,0,0,0>>]}},
+    wait_ack(Port),
+    State;
 
 handle({Pid, {send_spi, Bin}}, State = #{port := Port}) ->
     Port ! {self(), {command, [<<1,0,0,0>>, Bin]}},
@@ -49,7 +58,7 @@ wait_ack(Port) ->
 %% Change the extensions to reflect only the necessary information.
 
 push_bin(Pid,Path,File) ->
-    log:info("ftdi: ~999p~n", [{Path,File}]),
+    log:info("ftdi: push_bin: ~999p~n", [{Path,File}]),
     Load =
         fun() ->
                 F = tools:format("~s/~s", [Path, File]),
@@ -58,10 +67,8 @@ push_bin(Pid,Path,File) ->
         end,
 
     case lists:reverse(re:split(File,"\\.")) of
-        [<<"bin">>,<<"ram">>|_] ->
-            obj:call(Pid, {send_spi, Load()});
-        [<<"bin">>,<<"ice40">>|_] ->
-            obj:call(Pid, {send_ice40, Load()});
+        [<<"bin">>,<<"ram">>|_]   -> obj:call(Pid, {send_spi, Load()}, 3000);
+        [<<"bin">>,<<"ice40">>|_] -> obj:call(Pid, {send_ice40, Load()}, 3000);
         Unknown ->
             log:info("ftdi:push_bin: unknown: ~p~n", [Unknown])
     end.
