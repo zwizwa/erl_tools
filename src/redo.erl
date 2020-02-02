@@ -1,6 +1,7 @@
 -module(redo).
--export([redo/2, need/2, get/2, set/3,
-         start_link/1, handle_outer/2, handle/2, test/1]).
+-export([redo/2, need/2, get/2, set/3, deps/1,
+         start_link/1, handle_outer/2, handle/2,
+         test/1, u1/1, u2/1]).
 
 
 %% This is an Erlang implementation of a variant of djb's redo.
@@ -42,6 +43,10 @@
 redo(Pid, Product) ->
     obj:call(Pid, {redo, Product}, 6124).
 
+%% For analysis: extract the current dependency network.
+deps(Pid) ->
+    obj:call(Pid, deps, 6123).
+
 %% Several calls against the evaluator will be performed during
 %% evaluation of the network.  The task of this monitor process is to
 %% maintain transaction semantics.
@@ -54,6 +59,10 @@ handle_outer(Msg, State = #{eval := Eval}) ->
     case Msg of
         {_, dump} -> 
             obj:handle(Msg, State);
+        {Pid, deps} ->
+            Rv = obj:call(Eval, deps),
+            obj:reply(Pid, Rv),
+            State;
         {Pid, {redo, Product}} ->
             ok = obj:call(Eval, start),
             Rv = obj:call(Eval, {eval, Product}),
@@ -156,6 +165,18 @@ handle({Pid, start}, State) ->
       fun({phase, _}, _) -> false; (_,_) -> true end,
       State);
 
+%% Get the dependencies in a form compatible with depgraph.erl
+handle({Pid, deps}, State = #{updates := Updates}) ->
+    Deps =
+        maps:fold(
+          fun({deps,Proc},Deps,Acc) ->
+                  [{Proc,maps:get(Proc,Updates),Deps} | Acc];
+             (_,_,Acc) -> Acc
+          end,
+          [], State),
+    obj:reply(Pid, Deps),
+    State;
+
 %% Allow raw get/set from protected context.
 handle({_,dump}=Msg, State) ->
     obj:handle(Msg, State).
@@ -214,6 +235,7 @@ need(StatePid, Deps) ->
 set(StatePid, Tag, Val) -> obj:call(StatePid, {set,Tag,Val}).
 get(StatePid, Tag)      -> obj:call(StatePid, {get,Tag}).
 
+
 debug(F,As) ->
     log:info(F,As).
 
@@ -221,27 +243,25 @@ debug(F,As) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+u1(Pid) ->
+    %% Inputs and thunks are the same.
+    set(Pid, ex1, #{}),
+    {true, []}.
+u2(Pid) ->    
+    %% Update functions use the imperative redo style: after
+    %% need/2, the dependencies are guaranteed to be ready, and
+    %% the output node can be set at any time.  It's
+    %% straightforward to embed pure functions in this
+    %% framework.
+    Deps = [ex1],
+    need(Pid, Deps),
+    set(Pid, ex2, #{}),
+    {true, Deps}.
+
 test(ex1) ->
     Updates = #{
-      ex1 =>
-          %% Inputs and thunks are the same.
-          fun(Pid) ->
-                  set(Pid, ex1, #{}),
-                  {true, []}
-          end,
-      ex2 => 
-          %% Update functions use the imperative redo style: after
-          %% need/2, the dependencies are guaranteed to be ready, and
-          %% the output node can be set at any time.  It's
-          %% straightforward to embed pure functions in this
-          %% framework.
-          fun(Pid) ->
-                  Deps = [ex1],
-                  need(Pid, Deps),
-                  set(Pid, ex2, #{}),
-                  {true, Deps}
-          end
-
+      ex1 => fun ?MODULE:u1/1,
+      ex2 => fun ?MODULE:u2/1
      },
     Spec = #{ updates => Updates },
     {ok, Pid} = start_link(Spec),
@@ -249,6 +269,12 @@ test(ex1) ->
     
     Changed1 = redo(Pid, ex2), log:info("state1: ~p~n", [obj:dump(Eval)]),
     Changed2 = redo(Pid, ex2), log:info("state2: ~p~n", [obj:dump(Eval)]),
+
+    Deps = deps(Pid),
+    log:info("Deps: ~p~n", [Deps]),
+    IDeps = depgraph:invert_deps(Deps),
+    log:info("IDeps: ~p~n", [IDeps]),
+
     unlink(Pid),
     exit(Pid, kill),
     {Changed1,Changed2};
