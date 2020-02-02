@@ -157,14 +157,8 @@ handle({Pid, start}, State) ->
       State);
 
 %% Allow raw get/set from protected context.
-handle(Msg, State) ->
-    try
-        obj:handle(Msg, State)
-    catch
-        _C:_E ->
-            log:info("exo_redo: unknown: ~p~n", [Msg]),
-            State
-    end.
+handle({_,dump}=Msg, State) ->
+    obj:handle(Msg, State).
 
 
 %% Updates run in their own process, and push the new dependency
@@ -182,7 +176,11 @@ spawn_depcheck(StatePid, Product, Update, Deps) ->
     _Pid = 
         spawn_link(
           fun() ->
-                  %% Check deps in parallel.
+                  %% Check deps in parallel. This causes need/2 to
+                  %% propagate through the dependency chain, running
+                  %% update tasks as necessary.  Note that the update
+                  %% call below will run need/2 again, but at that
+                  %% time evaluation will have finished.
                   NeedUpdate = need(StatePid, Deps),
                   debug("~p: need update: ~p~n", [Product, NeedUpdate]),
                   StatePid ! 
@@ -193,6 +191,7 @@ spawn_depcheck(StatePid, Product, Update, Deps) ->
           end),
     ok.
 
+%% Also called "ifchange".
 need(StatePid, Deps) ->
     lists:any(
       fun(Updated)-> Updated end,
@@ -201,14 +200,16 @@ need(StatePid, Deps) ->
           fun(Dep) -> obj:call(StatePid, {eval, Dep}) end,
           Deps))).
 
-%% Store interface.  Currently this will store items inside the state
-%% machine, but it can easily be replaced by any abstract store.
+%% Store interface.  Currently this will store items inside the
+%% evaluator state machine, but it can easily be replaced by any
+%% abstract store.
 %%
-%% Calling this is only allowed only from update functions, which have
-%% get access _after_ calling need, and set access to the associated
-%% output tag.  One way to look at it is that the purpose of the
-%% system is to schedule update scripts in such a way that imperative
-%% updates like thise are legal.
+%% Calling this is only allowed from update tasks, which have get
+%% access _after_ calling need, and set access to the associated
+%% output tag during the execution of the updat task.  One way to look
+%% at it is that the purpose of the system is to schedule update
+%% scripts in such a way to properly guard imperative updates like
+%% these.
 %%
 set(StatePid, Tag, Val) -> obj:call(StatePid, {set,Tag,Val}).
 get(StatePid, Tag)      -> obj:call(StatePid, {get,Tag}).
