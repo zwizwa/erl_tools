@@ -102,6 +102,13 @@ handle_outer(Msg, State = #{eval := Eval}) ->
             end
     end.
 
+with_redo(Spec, Fun) ->
+    {ok, Pid} = start_link(Spec),
+    Rv = Fun(Pid),
+    unlink(Pid),
+    exit(Pid, kill),
+    Rv.
+
 
 
 
@@ -157,9 +164,10 @@ handle({updated, Product, {Changed, NewDeps}}, State) ->
     case maps:find({phase, Product}, State) of
         {ok, {waiting, Waiters}} ->
             lists:foreach(
-              fun(Waiter) -> obj:reply(Waiter, true) end,
+              fun(Waiter) -> obj:reply(Waiter, Changed) end,
               Waiters),
-            debug("~p: changed=~p, deps=~n~p~n", [Product, Changed, NewDeps]),
+            %% debug("~p: changed=~p, deps=~n~p~n", [Product, Changed, NewDeps]),
+            debug("~p: changed=~p~n", [Product, Changed]),
             maps:merge(
               State,
               #{ {phase, Product} => {changed, Changed},
@@ -189,10 +197,10 @@ handle({Pid,{set,Tag,Val}}, State) ->
     obj:reply(Pid, ok),
     maps:put({product, Tag}, Val, State);
 handle({Pid,{update,Tag,Fun}}, State) ->
-    MaybeEl = maps:find({product, Tag}, State),
-    Rv = {NewEl, _} = Fun(MaybeEl),
-    obj:reply(Pid, {ok, NewEl}),
-    maps:put({product, Tag}, Rv, State);
+    MaybeOld = maps:find({product, Tag}, State),
+    New = Fun(MaybeOld),
+    obj:reply(Pid, {MaybeOld, New}),
+    maps:put({product, Tag}, New, State);
 
 %% We provide file access relative to a "working directory" shared by
 %% all update scripts.  Keep this abstract so it is easy to change
@@ -296,33 +304,15 @@ peval(StatePid, Products) ->
 
 %% Also called "ifchange".
 need(StatePid, Deps) ->
-    lists:any(
-      fun(Updated)-> Updated end,
-      maps:values(
-        peval(StatePid, Deps))).
+    DepsUpdated = peval(StatePid, Deps),
+    NeedUpdate =
+        lists:any(
+          fun(Updated)-> Updated end,
+          maps:values(DepsUpdated)),
+    debug("need: ~p~n",[{NeedUpdate,DepsUpdated}]),
+    NeedUpdate.
+    
 
-%% I would like to keep the "changed" predicate as abstract as
-%% possible.  I currently see two ways to do this: filesystem
-%% timestamp or file hash.
-
-read_file(StatePid, RelPath) ->
-    {ok, AbsPath} = obj:call(StatePid, {find_file, RelPath}),
-    file:read_file(AbsPath).
-
-file_changed(StatePid, Product, RelPath) ->
-    %% Needs to go outside of update/3 to avoid re-entry.
-    {ok, Bin} = read_file(StatePid, RelPath),
-    {New, MaybeOld} =
-        update(
-          StatePid, Product,
-          fun(MaybeOld) ->
-                  log:info("file_changed: hashing ~p~n", [Product]),
-                  New = crypto:hash(md5, Bin),
-                  {New, MaybeOld}
-          end),
-    Changed = {ok, New} /= MaybeOld,
-    log:info("file_changed ~p~n", [{Product, RelPath, Changed}]),
-    Changed.
 
 
 %% Provide a store interface.
@@ -343,13 +333,14 @@ set(StatePid, Tag, Val)    -> obj:call(StatePid, {set,Tag,Val}).
 get(StatePid, Tag)         -> obj:call(StatePid, {get,Tag}).
 
 
-debug(F,As) ->
-    log:info(F,As).
+debug(_F,_As) ->
+    %% log:info(_F,_As),
+    ok.
 
 
 %% Import specs and build rules
 import(Path) ->
-    log:info("importing from ~s~n", Path),
+    debug("importing from ~s~n", Path),
     reflection:run_module(Path, do, []).
 
 
@@ -371,7 +362,7 @@ update_rule(Rule, Build, Target) ->
             redo:need(RedoPid, Deps),
             %% At this point, inputs are available and we can execute
             %% the shell code.  FIXME: This
-            log:info("RUN: ~s~n", [RunSpec]),
+            debug("RUN: ~s~n", [RunSpec]),
             case run(RedoPid, RunSpec) of
                 {ok, {0, _Out}} ->
                     {true, Deps};
@@ -383,7 +374,7 @@ update_rule(Rule, Build, Target) ->
 update_file(Target) ->
     File = redo:to_filename(Target),
     fun(RedoPid) ->
-            log:info("c: ~p~n", [Target]),
+            debug("c: ~p~n", [Target]),
             {redo:file_changed(RedoPid, Target, File), []}
     end.
 
@@ -397,15 +388,15 @@ update_file(Target) ->
 
 
 
-%% Filenames
+%% Files and scripts
 
 %% Convert between Erlang data type that is easy to pattern match, and
 %% a "dotted list" file name encoding.
 from_filename(IOList) ->
-    %% log:info("from_filename: ~s~n", [IOList]),
+    %% debug("from_filename: ~s~n", [IOList]),
     [FileName|RPath] = lists:reverse(re:split(IOList,"/")),
     [BaseName|BinDotNames] = re:split(FileName,"\\."),
-    %% log:info("BinDotNames ~p~n",[BinDotNames]),
+    %% debug("BinDotNames ~p~n",[BinDotNames]),
     DotNames =  [type:decode({pterm,Bin}) || Bin <- BinDotNames],
     list_to_tuple(lists:reverse(DotNames) ++ [BaseName,RPath] ).
 
@@ -424,6 +415,24 @@ gcc_deps(Bin0) ->
     Bin3 = re:replace(Bin2, " \\\\\n", "", [global]),
     List = re:split(Bin3, " "),
     lists:map(fun from_filename/1, List).
+
+%% I would like to keep the "changed" predicate as abstract as
+%% possible.  I currently see two ways to do this: filesystem
+%% timestamp or file hash.
+read_file(StatePid, RelPath) ->
+    {ok, AbsPath} = obj:call(StatePid, {find_file, RelPath}),
+    file:read_file(AbsPath).
+
+file_changed(StatePid, Product, RelPath) ->
+    %% Needs to go outside of update/3 to avoid re-entry.
+    {ok, Bin} = read_file(StatePid, RelPath),
+    {MaybeOld, New} =
+        update(
+          StatePid, Product,
+          fun(_) -> crypto:hash(md5, Bin) end),
+    Changed = {ok, New} /= MaybeOld,
+    %% debug("file_changed ~p~n", [{Product, RelPath, Changed, New, MaybeOld}]),
+    Changed.
 
 %% Generic build command dispatch.  This can
 run(StatePid, {bash, Cmds}) ->
@@ -471,8 +480,8 @@ test(ex1) ->
     #{eval := Eval} = obj:dump(Pid),
     
     %% Standard "pull" mode.
-    Changed1 = redo(Pid, [ex2]), log:info("state1: ~p~n", [obj:dump(Eval)]),
-    Changed2 = redo(Pid, [ex2]), log:info("state2: ~p~n", [obj:dump(Eval)]),
+    Changed1 = redo(Pid, [ex2]), debug("state1: ~p~n", [obj:dump(Eval)]),
+    Changed2 = redo(Pid, [ex2]), debug("state2: ~p~n", [obj:dump(Eval)]),
 
     %% The afterthought "push" mode.
     Changed3 = push(Pid, [ex1], []),
@@ -481,16 +490,23 @@ test(ex1) ->
     exit(Pid, kill),
     {Changed1,Changed2,Changed3};
 
-%% I'm interested mostly in the dependencies, but I'm going to have to
-%% actually run the build to let the C compiler produce the .d files.
+            
+
+
+%% FIXME: c->o en o->a rules are there.  Make some tests regarding
+%% actual redoing.  FIXME: Bug: second redo should not run the update.
 test(uc_tools) ->
     case import("/home/tom/exo/erl/apps/exo/src/uc_tools_gdb_do.erl") of
-         #{ outputs := Outputs } = Spec ->
-            {ok, Pid} = start_link(Spec),
-            Rv = redo(Pid, Outputs),
-            unlink(Pid),
-            exit(Pid, kill),
-            Rv
+        #{ outputs := Outputs } = Spec ->
+            with_redo(
+              Spec,
+              fun(Pid) ->
+                      log:info("redo1 ~p~n", [Outputs]),
+                      _ = redo(Pid, Outputs),
+                      log:info("redo2 ~p~n", [Outputs]),
+                      _ = redo(Pid, Outputs),
+                      ok
+              end)
     end;
 
 test(Spec) ->
