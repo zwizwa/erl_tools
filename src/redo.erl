@@ -1,6 +1,15 @@
 -module(redo).
--export([redo/2, need/2, get/2, set/3, deps/1,
+-export([redo/2, need/2,
+         get/2, set/3, update/3,
+         push/3,
          start_link/1, handle_outer/2, handle/2,
+         file_changed/3,
+         read_file/2,
+         from_filename/1, to_filename/1,
+         update_rule/3, update_file/1,
+         run/2,
+         gcc_deps/1,
+         import/1,
          test/1, u1/1, u2/1]).
 
 
@@ -24,28 +33,37 @@
 %%
 %% - Transaction interface: each "pull" conceptually corresponds to a
 %%   single moment in time.
+%%
+%% - A bolted on "push" interface.
 
 
-%% So what is the trick here?  What makes this different from generic
-%% FRP?  Dependency structure is input-dependent.  I.e. the value of
-%% the inputs of an update script can change and as a consequence
-%% change the list of dependencies on the fly, i.e. value influences
-%% computation structure.  This is in stark contrast to computation
-%% structure being fixed up front.
-
+%% So what is the trick here?  What makes the redo approach different
+%% from generic FRP?  Redo is aptly named: it produces dependency
+%% information as part of the first "do".
+%%
+%% This dependency structure is then updated on every product update.
+%% This allows things like one dependency being a description of a
+%% list of dependencies.  Or more succinctly: values can influence
+%% dependency network struture structure.
+%%
 %% In addition, it is structured as a wrapper around an abstract
 %% imperative update.  I.e. we do not deal with values directly inside
 %% the Erlang code, we just provide an environment in which an
 %% abstract imperative obdate is legal.
 
 
-%% Interface.  See test(ex1) below.
-redo(Pid, Product) ->
-    obj:call(Pid, {redo, Product}, 6124).
+%% -------- CORE
 
-%% For analysis: extract the current dependency network.
-deps(Pid) ->
-    obj:call(Pid, deps, 6123).
+
+%% Main entry point.  See test(ex1) below.
+redo(Pid, Products) ->
+    obj:call(Pid, {redo, Products}, 6124).
+
+%% Trigger update of dependent products from change notification
+push(Pid, Changed, NotChanged) ->
+    obj:call(Pid, {push, Changed, NotChanged}, 6123).
+
+
 
 %% Several calls against the evaluator will be performed during
 %% evaluation of the network.  The task of this monitor process is to
@@ -63,11 +81,25 @@ handle_outer(Msg, State = #{eval := Eval}) ->
             Rv = obj:call(Eval, deps),
             obj:reply(Pid, Rv),
             State;
-        {Pid, {redo, Product}} ->
-            ok = obj:call(Eval, start),
-            Rv = obj:call(Eval, {eval, Product}),
-            obj:reply(Pid, Rv),
-            State
+        {Pid, {redo, Products}} ->
+            ok = obj:call(Eval, start_pull),
+            obj:reply(Pid, {ok, peval(Eval, Products)}),
+            State;
+        %% Added as a convenience.  Note that a network will need to
+        %% have executed at least once to have a dependency graph
+        %% available.  Changed/NotChanged are passed in here in case
+        %% the change state is known from the context.  Otherwise
+        %% network will poll the associated update function.
+        {Pid, {push, Changed, NotChanged}} ->
+            case obj:call(Eval, {ideps, Changed}) of
+                error ->
+                    obj:reply(Pid, error),
+                    State;
+                {ok, NeedUpdate} ->
+                    ok = obj:call(Eval, {start_push, Changed, NotChanged}),
+                    obj:reply(Pid, {ok, peval(Eval, NeedUpdate)}),
+                    State
+            end
     end.
 
 
@@ -75,7 +107,7 @@ handle_outer(Msg, State = #{eval := Eval}) ->
 
 %% Evaluator maintains dependency table, store (optional), and keeps
 %% track of which nodes have been checked in a single network run.
-start_eval(Spec = #{ updates := Updates }) when is_map(Updates) ->
+start_eval(Spec = #{ update := _ }) ->
     serv:start(
       {handler,
        fun() -> Spec end,
@@ -85,7 +117,7 @@ start_eval(Spec = #{ updates := Updates }) when is_map(Updates) ->
 %% true    object has been rebuilt, output propagation needed
 %% false   no change, no propagation needed
 handle({CallPid, {eval, Product}},
-       State = #{updates := Updates}) ->
+       State = #{update := ProductToUpdate}) ->
     case maps:find({phase, Product}, State) of
         {ok, {changed, Changed}} ->
             %% Already evaluated as change/nochange in this evaluation
@@ -102,7 +134,7 @@ handle({CallPid, {eval, Product}},
             %% Not waiting nor checked.  Get the dependencies that
             %% were calculated in the last run.  Inputs and "thunks"
             %% are defined as update functions with no dependencies.
-            Update = maps:get(Product, Updates),
+            Update = ProductToUpdate(Product),
             StatePid = self(),
             case maps:get({deps, Product}, State, []) of
                 [] ->
@@ -127,7 +159,7 @@ handle({updated, Product, {Changed, NewDeps}}, State) ->
             lists:foreach(
               fun(Waiter) -> obj:reply(Waiter, true) end,
               Waiters),
-            debug("~p: changed=~p, deps=~p~n", [Product, Changed, NewDeps]),
+            debug("~p: changed=~p, deps=~n~p~n", [Product, Changed, NewDeps]),
             maps:merge(
               State,
               #{ {phase, Product} => {changed, Changed},
@@ -156,25 +188,69 @@ handle({Pid,{get,Tag}}, State) ->
 handle({Pid,{set,Tag,Val}}, State) ->
     obj:reply(Pid, ok),
     maps:put({product, Tag}, Val, State);
+handle({Pid,{update,Tag,Fun}}, State) ->
+    MaybeEl = maps:find({product, Tag}, State),
+    Rv = {NewEl, _} = Fun(MaybeEl),
+    obj:reply(Pid, {ok, NewEl}),
+    maps:put({product, Tag}, Rv, State);
 
-%% Prepare for a new run, cleaning up old cruft.  This will make sure
-%% we propagate all the way to the inputs when checking dependencies.
-handle({Pid, start}, State) ->
+%% We provide file access relative to a "working directory" shared by
+%% all update scripts.  Keep this abstract so it is easy to change
+%% later.
+handle({Pid,{find_file,RelPath}}, State = #{dir := Dir}) ->
+    obj:reply(Pid, {ok, tools:format("~s/~s",[Dir,RelPath])}),
+    State;
+
+    
+
+%% Prepare for a new pull run, cleaning up old cruft.  This will make
+%% sure we propagate all the way to the inputs when checking
+%% dependencies.
+handle({Pid, start_pull}, State) ->
     obj:reply(Pid, ok),
     maps:filter(
       fun({phase, _}, _) -> false; (_,_) -> true end,
       State);
 
+%% Same, but for a push run.  In this case we know what changed and
+%% what didn't.  Note that this only makes sense when there are deps,
+%% e.g. after a pull run.  Note that NotChanged could just contain all
+%% inputs, as we overwrite Changed set later.
+handle({Pid, {start_push, Changed, NotChanged}}, State0) ->
+    obj:reply(Pid, ok),
+    State1 =
+        maps:filter(
+          fun({phase, _}, _) -> false; (_,_) -> true end,
+          State0),
+    State2 =
+        lists:foldr(
+          fun(NC, S) -> maps:put({phase,NC}, {changed, false}, S) end,
+          State1, NotChanged),
+    State3 =
+        lists:foldr(
+          fun(C, S) -> maps:put({phase,C}, {changed, true}, S) end,
+          State2, Changed),
+    State3;
+
 %% Get the dependencies in a form compatible with depgraph.erl
-handle({Pid, deps}, State = #{updates := Updates}) ->
+handle({Pid, {ideps, Products}}, State) ->
     Deps =
         maps:fold(
-          fun({deps,Proc},Deps,Acc) ->
-                  [{Proc,maps:get(Proc,Updates),Deps} | Acc];
+          fun({deps,Proc},Deps,Acc) -> [{Proc,'_',Deps} | Acc];
              (_,_,Acc) -> Acc
           end,
           [], State),
-    obj:reply(Pid, Deps),
+    NeedUpdate =
+        case Deps of
+            [] ->
+                %% No deps.  Network didn't run yet.
+                error;
+            _ ->
+                IDeps = depgraph:invert_deps(Deps),
+                {ok, maps:keys(depgraph:need_update(IDeps, Products))}
+        end,
+    debug("~p: need update ~p~n", [Products, NeedUpdate]),
+    obj:reply(Pid, NeedUpdate),
     State;
 
 %% Allow raw get/set from protected context.
@@ -212,18 +288,48 @@ spawn_depcheck(StatePid, Product, Update, Deps) ->
           end),
     ok.
 
+%% Evaluate products in parallel
+peval(StatePid, Products) ->
+    tools:pmap(
+      fun(P) -> obj:call(StatePid, {eval, P}) end,
+      Products).
+
 %% Also called "ifchange".
 need(StatePid, Deps) ->
     lists:any(
       fun(Updated)-> Updated end,
       maps:values(
-        tools:pmap(
-          fun(Dep) -> obj:call(StatePid, {eval, Dep}) end,
-          Deps))).
+        peval(StatePid, Deps))).
 
-%% Store interface.  Currently this will store items inside the
-%% evaluator state machine, but it can easily be replaced by any
-%% abstract store.
+%% I would like to keep the "changed" predicate as abstract as
+%% possible.  I currently see two ways to do this: filesystem
+%% timestamp or file hash.
+
+read_file(StatePid, RelPath) ->
+    {ok, AbsPath} = obj:call(StatePid, {find_file, RelPath}),
+    file:read_file(AbsPath).
+
+file_changed(StatePid, Product, RelPath) ->
+    %% Needs to go outside of update/3 to avoid re-entry.
+    {ok, Bin} = read_file(StatePid, RelPath),
+    {New, MaybeOld} =
+        update(
+          StatePid, Product,
+          fun(MaybeOld) ->
+                  log:info("file_changed: hashing ~p~n", [Product]),
+                  New = crypto:hash(md5, Bin),
+                  {New, MaybeOld}
+          end),
+    Changed = {ok, New} /= MaybeOld,
+    log:info("file_changed ~p~n", [{Product, RelPath, Changed}]),
+    Changed.
+
+
+%% Provide a store interface.
+%%
+%% Note that a store is not always necessary.  It is perfectly
+%% possible to have redo operate on abstract names, e.g. files in a
+%% filesystem, entries in a database, ...
 %%
 %% Calling this is only allowed from update tasks, which have get
 %% access _after_ calling need, and set access to the associated
@@ -231,13 +337,110 @@ need(StatePid, Deps) ->
 %% at it is that the purpose of the system is to schedule update
 %% scripts in such a way to properly guard imperative updates like
 %% these.
-%%
-set(StatePid, Tag, Val) -> obj:call(StatePid, {set,Tag,Val}).
-get(StatePid, Tag)      -> obj:call(StatePid, {get,Tag}).
+
+update(StatePid, Tag, Fun) -> obj:call(StatePid, {update,Tag,Fun}).
+set(StatePid, Tag, Val)    -> obj:call(StatePid, {set,Tag,Val}).
+get(StatePid, Tag)         -> obj:call(StatePid, {get,Tag}).
 
 
 debug(F,As) ->
     log:info(F,As).
+
+
+%% Import specs and build rules
+import(Path) ->
+    log:info("importing from ~s~n", Path),
+    reflection:run_module(Path, do, []).
+
+
+%% -------- LIB FOR SCRIPTS
+
+%% Special kinds of update routines
+
+%% This is a nice abstraction on top of redo if the dependencies are
+%% known before the rule is running.  It resembles 'make' rules.  We
+%% split it up in two parts: rule lookup and script lookup.
+
+%% FIXME: Decouple from shell assumption.  Maybe split off redo_shell
+%% library?
+
+update_rule(Rule, Build, Target) ->
+    {Deps, ScriptSpec} = Rule(Target),
+    fun(RedoPid) ->
+            RunSpec = Build(ScriptSpec),
+            redo:need(RedoPid, Deps),
+            %% At this point, inputs are available and we can execute
+            %% the shell code.  FIXME: This
+            log:info("RUN: ~s~n", [RunSpec]),
+            case run(RedoPid, RunSpec) of
+                {ok, {0, _Out}} ->
+                    {true, Deps};
+                Err ->
+                    throw(Err)
+            end
+    end.
+
+update_file(Target) ->
+    File = redo:to_filename(Target),
+    fun(RedoPid) ->
+            log:info("c: ~p~n", [Target]),
+            {redo:file_changed(RedoPid, Target, File), []}
+    end.
+
+
+%% Note that the redo core does not know about:
+%% - the file system
+%% - shell commands
+
+%% Traditional "build system" functionality is built using these
+%% interface routines.
+
+
+
+%% Filenames
+
+%% Convert between Erlang data type that is easy to pattern match, and
+%% a "dotted list" file name encoding.
+from_filename(IOList) ->
+    %% log:info("from_filename: ~s~n", [IOList]),
+    [FileName|RPath] = lists:reverse(re:split(IOList,"/")),
+    [BaseName|BinDotNames] = re:split(FileName,"\\."),
+    %% log:info("BinDotNames ~p~n",[BinDotNames]),
+    DotNames =  [type:decode({pterm,Bin}) || Bin <- BinDotNames],
+    list_to_tuple(lists:reverse(DotNames) ++ [BaseName,RPath] ).
+
+%% E.g. {c,<<"dht11">>=BaseName,[]=Path}
+%% Symbol tags can be multiple.
+to_filename(Tuple) ->
+    [Dirs,BaseName|Tags] = lists:reverse(tuple_to_list(Tuple)),
+    Path = [[Dir,"/"] || Dir <- Dirs],
+    Ext  = [[".",type:encode({pterm,Tag})] || Tag <- Tags],
+    tools:format("~s",[[Path,BaseName,Ext]]).
+
+%% FIXME: This probably doesn't work with spaces in names.
+gcc_deps(Bin0) ->
+    Bin1 = re:replace(Bin0, "^.*: ", ""),
+    Bin2 = re:replace(Bin1, "\\n$", ""),
+    Bin3 = re:replace(Bin2, " \\\\\n", "", [global]),
+    List = re:split(Bin3, " "),
+    lists:map(fun from_filename/1, List).
+
+%% Generic build command dispatch.  This can
+run(StatePid, {bash, Cmds}) ->
+    {ok, Dir} = obj:call(StatePid, {find_file, ""}),
+    log:info("run: ~s~n", [Cmds]),
+    run:fold_script(
+      tools:format("bash -c 'cd ~s ; ~s'", [Dir, Cmds]), 
+      fun({data,{eol,Line}}, Lines) ->
+              %% tools:info("~s~n",[Line]),
+              {cont, [Line ++ "\n"|Lines]};
+         ({exit_status, ExitCode},Lines) ->
+              {done, {ExitCode, lists:flatten(lists:reverse(Lines))}}
+      end,
+      [],
+      infinity,
+      [{line, 1024}]).
+
 
 
 
@@ -263,22 +466,32 @@ test(ex1) ->
       ex1 => fun ?MODULE:u1/1,
       ex2 => fun ?MODULE:u2/1
      },
-    Spec = #{ updates => Updates },
+    Spec = #{ update => fun(P) -> maps:get(P, Updates) end },
     {ok, Pid} = start_link(Spec),
     #{eval := Eval} = obj:dump(Pid),
     
-    Changed1 = redo(Pid, ex2), log:info("state1: ~p~n", [obj:dump(Eval)]),
-    Changed2 = redo(Pid, ex2), log:info("state2: ~p~n", [obj:dump(Eval)]),
+    %% Standard "pull" mode.
+    Changed1 = redo(Pid, [ex2]), log:info("state1: ~p~n", [obj:dump(Eval)]),
+    Changed2 = redo(Pid, [ex2]), log:info("state2: ~p~n", [obj:dump(Eval)]),
 
-    Deps = deps(Pid),
-    log:info("Deps: ~p~n", [Deps]),
-    IDeps = depgraph:invert_deps(Deps),
-    log:info("IDeps: ~p~n", [IDeps]),
+    %% The afterthought "push" mode.
+    Changed3 = push(Pid, [ex1], []),
 
     unlink(Pid),
     exit(Pid, kill),
-    {Changed1,Changed2};
-    
+    {Changed1,Changed2,Changed3};
+
+%% I'm interested mostly in the dependencies, but I'm going to have to
+%% actually run the build to let the C compiler produce the .d files.
+test(uc_tools) ->
+    case import("/home/tom/exo/erl/apps/exo/src/uc_tools_gdb_do.erl") of
+         #{ outputs := Outputs } = Spec ->
+            {ok, Pid} = start_link(Spec),
+            Rv = redo(Pid, Outputs),
+            unlink(Pid),
+            exit(Pid, kill),
+            Rv
+    end;
 
 test(Spec) ->
     throw({?MODULE,{test,Spec}}).

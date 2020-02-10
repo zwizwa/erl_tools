@@ -4,7 +4,7 @@
          sync_file/3, update_file/4, fileinfo/1,
          inotifywait/1, inotifywait_handle/2, push_erl_change/2,
          push_expect/2, run_expect/1,
-         load_erl/3, run_erl/1, run_beam/3,
+         load_erl/3, run_erl/1, run_beam/3, run_module/3,
          push_change/2, describe_build_product/2, push_build_product/4,
          find_parent/2, redo/2, redo/3, copy/2, clone_module/2]).
 
@@ -101,12 +101,31 @@ run_erl(ErlFile) ->
     _ = code:load_binary(Module, ErlFile, BeamCode),
     apply(Module,run,[]).
 
-run_beam(StrModule, ErlFile, BeamFile) ->
+
+beam_file(ErlFile) ->
+    tools:format("~s",[re:replace(ErlFile, "erl$", "beam")]).
+
+run_module(ErlFile,Run,Args) ->
+    case compile:file(ErlFile,[binary]) of
+        {ok, Module, BeamCode} ->
+            case code:load_binary(Module, beam_file(ErlFile), BeamCode) of
+                {module, Module} ->
+                    apply(Module,Run,Args);
+                Err ->
+                    Err
+            end;
+        Err ->
+            Err
+    end.
+
+run_beam(Module, ErlFile, BeamFile) when is_atom(Module) ->
     io:format("~p~n",[BeamFile]),  
     {ok, BeamCode} = file:read_file(BeamFile),
-    Module = list_to_atom(StrModule),
     _ = code:load_binary(Module, ErlFile, BeamCode),
-    apply(Module,run,[]).
+    apply(Module,run,[]);
+run_beam(StrModule, ErlFile, BeamFile) when is_list(StrModule) ->
+    Module = list_to_atom(StrModule),
+    run_beam(Module, ErlFile, BeamFile).
 
 
 %% 2019-01-18: Another attempt to get proper "immediate updates".  The
