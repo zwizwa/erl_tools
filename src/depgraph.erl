@@ -4,28 +4,25 @@
          test/1]).
 
 
-%% Dependency inverter.
-%%
-%% Computations are simplest to express in "pull" form, but what we
-%% want is "push" form, i.e. "inverted", such that we can compute what
-%% to update when input events come in.  This makes the conversion and
-%% produces a map from inputs to Procs.
-
+%% Invert a dependency network as a basis to implement "push" form.
 invert_deps(Procs) ->
    lists:foldr(
-     fun({_Output, _Fun, Inputs}=Proc, Map0) ->
+     fun({_Out, _Fun, Ins}=Proc, Map0) ->
              lists:foldr(
-               fun(Input, Map1) ->
-                       %% FIXME: Remove duplication
-                       L = maps:get(Input, Map1, []),
-                       maps:put(Input, [Proc|L], Map1)
+               fun(In, Map1) ->
+                       L = maps:get(In, Map1, []),
+                       maps:put(In, [Proc|L], Map1)
                end,
-               Map0, Inputs)
+               Map0, Ins)
      end,
      #{}, Procs).
 
+%% FIXME: Remove this after removing stale code that depends on this.
+%%
 %% This does not perform a transitive closure and can be used in
-%% recursive evaluation, but is currently not very useful
+%% recursive evaluation, but is currently not very useful.  It seems
+%% simpler to walk the inverted dep tree directly, folding over some
+%% state to perform memoization.
 %%
 %% %% Given an inverted dependency map, compute the needed updates.
 %% need_update(InvDepMap, Inputs) ->
@@ -40,11 +37,9 @@ invert_deps(Procs) ->
 %%       #{}, Inputs).
 
 
-
 %% For redo.erl we already have an evaluator, and only need a
 %% transitive closure from network inputs to network outputs, which
 %% then in turn is used to drive the "pull" evaluator.
-
 
 need_update_tc(InvDepMap, Inputs) ->
     %% log:info("need_update: invdeps: ~p~n", [InvDepMap]),
@@ -64,7 +59,7 @@ need_update_tc1(InvDepMap, Input, GlobalOutputs) ->
             %% log:info(" - output~n"),
             maps:put(Input, true, GlobalOutputs);
         DepInfo ->
-            Outputs = [O || {O,_F,_Is} <- DepInfo],
+            Outputs = [Out || {Out,_Fun,_Ins} <- DepInfo],
             %% This is influencing another network node, so doesn't
             %% need to be included in the network output list.
             %% log:info(" - input -> ~p~n", [InvDeps]),

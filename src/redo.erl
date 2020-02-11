@@ -82,26 +82,28 @@ handle_outer(Msg, State = #{eval := Eval}) ->
     case Msg of
         {_, dump} -> 
             obj:handle(Msg, State);
-        {Pid, deps} ->
-            Rv = obj:call(Eval, deps),
-            obj:reply(Pid, Rv),
-            State;
         {Pid, {pull, Products}} ->
             ok = obj:call(Eval, start_pull),
             obj:reply(Pid, {ok, parallel_eval(Eval, Products)}),
             State;
-        %% Added as a convenience.  Note that a network will need to
-        %% have executed at least once to have a dependency graph
-        %% available.  Changed/NotChanged are passed in here in case
-        %% the change state is known from the context.  Otherwise
-        %% network will poll the associated update function.
         {Pid, {push, Changed, NotChanged}} ->
+            %% Push is added as an optimization to prune the network.
+            %% Pusher can supply information about changed/nochanged.
+            %% Any missing information in NotChanged is polled from
+            %% stamp info.  Note that any changed items not in Changed
+            %% will not cause recomputation unless they are
+            %% accidentally part of some other evaluation path.
             case obj:call(Eval, {need_update, Changed}) of
                 error ->
+                    %% Push requires there to be a dependency network,
+                    %% i.e. it only works after "priming" with pull.
+                    %% If this fails and you know the outputs, use
+                    %% pull instead.
                     obj:reply(Pid, error),
                     State;
                 {ok, NeedUpdate} ->
                     ok = obj:call(Eval, {start_push, Changed, NotChanged}),
+                    _ = need(Eval, Changed),  %% Make sure stamps are updated,
                     obj:reply(Pid, {ok, parallel_eval(Eval, NeedUpdate)}),
                     State
             end
@@ -170,6 +172,12 @@ handle({worker_done, Product, PhaseUpdate}=Msg, State) ->
             throw({worker_done_phase_error, Msg, OtherPhase})
     end;
 
+%% Time stamp, hashes, ...
+handle({Pid,{set_stamp,Tag,New}}, State) ->
+    MaybeOld = maps:find({stamp, Tag}, State),
+    obj:reply(Pid, MaybeOld),
+    maps:put({stamp, Tag}, New, State);
+
 %% Implement a store inside of the evaluator.  Note that we can just
 %% as well use a completely abstract (remote/external) store and
 %% update methods that operate on that store.
@@ -179,10 +187,6 @@ handle({Pid,{get,Tag}}, State) ->
 handle({Pid,{set,Tag,Val}}, State) ->
     obj:reply(Pid, ok),
     maps:put({product, Tag}, Val, State);
-handle({Pid,{set_stamp,Tag,New}}, State) ->
-    MaybeOld = maps:find({stamp, Tag}, State),
-    obj:reply(Pid, MaybeOld),
-    maps:put({stamp, Tag}, New, State);
 
 %% We provide file access relative to a "working directory" shared by
 %% all update scripts.  Keep this abstract so it is easy to change
@@ -206,6 +210,7 @@ handle({Pid, start_pull}, State) ->
 %% what didn't.  Note that this only makes sense when there are deps,
 %% e.g. after a pull run.  Note that NotChanged could just contain all
 %% inputs, as we overwrite Changed set later.
+
 handle({Pid, {start_push, Changed, NotChanged}}, State0) ->
     obj:reply(Pid, ok),
     State1 =
@@ -532,8 +537,9 @@ test({uc_tools, Report}) ->
                       _ = pull(Pid, Outputs),
                       Report(Eval),
 
-                      log:info("push3~n"),
-                      _ = push(Pid, [{c,<<"memory">>,[]}]),
+                      Push = [{c,<<"memory">>,[]}],
+                      log:info("push3 ~p~n",[Push]),
+                      _ = push(Pid, Push),
                       Report(Eval),
 
                       ok
