@@ -85,7 +85,7 @@ handle_outer(Msg, State = #{eval := Eval}) ->
             State;
         {Pid, {redo, Products}} ->
             ok = obj:call(Eval, start_pull),
-            obj:reply(Pid, {ok, peval(Eval, Products)}),
+            obj:reply(Pid, {ok, parallel_eval(Eval, Products)}),
             State;
         %% Added as a convenience.  Note that a network will need to
         %% have executed at least once to have a dependency graph
@@ -99,7 +99,7 @@ handle_outer(Msg, State = #{eval := Eval}) ->
                     State;
                 {ok, NeedUpdate} ->
                     ok = obj:call(Eval, {start_push, Changed, NotChanged}),
-                    obj:reply(Pid, {ok, peval(Eval, NeedUpdate)}),
+                    obj:reply(Pid, {ok, parallel_eval(Eval, NeedUpdate)}),
                     State
             end
     end.
@@ -126,7 +126,7 @@ start_eval(Spec = #{ update := _ }) ->
 %% true    object has been rebuilt, output propagation needed
 %% false   no change, no propagation needed
 handle({CallPid, {eval, Product}},
-       State = #{update := ProductToUpdate}) ->
+       State = #{update := ProductToUpdateFun}) ->
     case maps:find({phase, Product}, State) of
         {ok, {changed, Changed}} ->
             %% Already evaluated as change/nochange in this evaluation
@@ -136,43 +136,33 @@ handle({CallPid, {eval, Product}},
             State;
         {ok, {waiting, WaitList}} ->
             %% Product is not yet ready (dep check or update).  Join
-            %% the wait list.
+            %% the wait list that is notified on 'done'.
             debug("~p: already waiting~n", [Product]),
             maps:put({phase, Product}, {waiting, [CallPid|WaitList]}, State);
         error ->
             %% Not waiting nor checked.  Get the dependencies that
-            %% were calculated in the last run.  Inputs and "thunks"
-            %% are defined as update functions with no dependencies.
-            Update = ProductToUpdate(Product),
+            %% were calculated in the last run and start a producer
+            %% task.  Note: if there are no deps or if the deps list
+            %% is empty, we will allways poll the update function to
+            %% decide what to do.
+            UpdateFun = ProductToUpdateFun(Product),
             RedoPid = self(),
             Deps = maps:get({deps, Product}, State, []),
-            spawn_link(fun() -> depcheck(RedoPid, Product, Update, Deps) end),
+            spawn_link(fun() -> worker(RedoPid, Product, UpdateFun, Deps) end),
             maps:put({phase, Product}, {waiting, [CallPid]}, State)
     end;
 
-           
-%% Worker is done computing the product.  Update phase and signal all waiters.
-handle({done, Product, Did}=Msg, State) ->
+
+%% Insert update computed by worker and notify waiters.
+handle({worker_done, Product, PhaseUpdate}=Msg, State) ->
     case maps:find({phase, Product}, State) of
         {ok, {waiting, Waiters}} ->
             lists:foreach(
               fun(Waiter) -> obj:reply(Waiter, false) end,
               Waiters),
-            case Did of
-                cached ->
-                    debug("~p: no_change~n", [Product]),
-                    maps:merge(
-                      State,
-                      #{ {phase, Product} => {changed, false}});
-                {updated, {Changed, NewDeps}} ->
-                    debug("~p: changed=~p~n", [Product, Changed]),
-                    maps:merge(
-                      State,
-                      #{ {phase, Product} => {changed, Changed},
-                         {deps, Product} => NewDeps})
-            end;
+            maps:merge(State, PhaseUpdate);
         OtherPhase ->
-            throw({done_phase_error, Msg, OtherPhase})
+            throw({worker_done_phase_error, Msg, OtherPhase})
     end;
 
 %% Implement a store inside of the evaluator.  Note that we can just
@@ -253,28 +243,32 @@ handle({_,dump}=Msg, State) ->
     obj:handle(Msg, State).
 
 
-%% Check deps in parallel. This causes need/2 to propagate through the
-%% dependency chain, recursively spawning depcheck/4 processes. Note
-%% that the update call will run need/2 again, but at that time
-%% evaluation will have finished and we have cached results.
-%%
-depcheck(RedoPid, Product, Update, OldDeps) ->
+%% Worker process responsible of producing the target.
+worker(RedoPid, Product, Update, OldDeps) ->
+    %% need/2 will cause parallel eval of the dependencies.
     NeedUpdate =
         case OldDeps of
             [] -> true; %% First run or polling
             _  -> need(RedoPid, OldDeps)
         end,
     debug("~p: need update: ~p~n", [Product, NeedUpdate]),
-    Did =
+    %% It's simplest to compute the state update here.
+    PhaseUpdate =
         case NeedUpdate of
             false ->
-                cached;
+                #{ {phase, Product} => {changed, false} };
             true ->
                 {Changed, NewDeps} = Update(RedoPid),
-                stamp(RedoPid, OldDeps, NewDeps),
-                {updated, {Changed, NewDeps}}
+                case stamp(RedoPid, OldDeps, NewDeps) of
+                    [] ->
+                        %% Special case this to avoid deps update.
+                        #{{phase, Product} => {changed, Changed}};
+                    _AdditionalDeps ->
+                        #{{phase, Product} => {changed, Changed},
+                          {deps,  Product} => NewDeps}
+                end
         end,
-    RedoPid ! {done, Product, Did},
+    RedoPid ! {worker_done, Product, PhaseUpdate},
     ok.
 
 %% Stamp all additional dependencies (hash or timestamp). This is a
@@ -287,23 +281,23 @@ stamp(RedoPid, OldDeps, NewDeps) ->
           fun(D) -> not lists:member(D, OldDeps) end,
           NewDeps),
     _ = need(RedoPid, AdditionalDeps),
-    ok.
+    AdditionalDeps.
 
-%% Evaluate products in parallel
-peval(RedoPid, Products) ->
-    tools:pmap(
-      fun(P) -> obj:call(RedoPid, {eval, P}) end,
-      Products).
 
 %% Also called "ifchange".
 need(RedoPid, Deps) ->
-    DepsUpdated = peval(RedoPid, Deps),
+    DepsUpdated = parallel_eval(RedoPid, Deps),
     NeedUpdate =
         lists:any(
           fun(Updated)-> Updated end,
           maps:values(DepsUpdated)),
     debug("need: ~p~n",[{NeedUpdate,DepsUpdated}]),
     NeedUpdate.
+
+parallel_eval(RedoPid, Products) ->
+    tools:pmap(
+      fun(P) -> obj:call(RedoPid, {eval, P}) end,
+      Products).
     
 
 %% Provide a store interface.
