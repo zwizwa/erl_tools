@@ -1,10 +1,10 @@
 -module(redo).
 -export([redo/2, need/2,
-         get/2, set/3, update/3,
+         get/2, set/3,
          push/3,
          start_link/1, handle_outer/2, handle/2,
          file_changed/3,
-         read_file/2,
+         read_file/2, is_regular/2,
          from_filename/1, to_filename/1,
          update_rule/3, update_file/1,
          run/2,
@@ -51,9 +51,11 @@
 %% the Erlang code, we just provide an environment in which an
 %% abstract imperative obdate is legal.
 
+debug(_F,_As) ->
+    %% log:info(_F,_As),
+    ok.
 
 %% -------- CORE
-
 
 %% Main entry point.  See test(ex1) below.
 redo(Pid, Products) ->
@@ -142,18 +144,9 @@ handle({CallPid, {eval, Product}},
             %% were calculated in the last run.  Inputs and "thunks"
             %% are defined as update functions with no dependencies.
             Update = ProductToUpdate(Product),
-            StatePid = self(),
-            case maps:get({deps, Product}, State, []) of
-                [] ->
-                    %% First run (no recorded deps), or an input that
-                    %% is externally managed and needs to be polled.
-                    debug("~p: ext dep -> update~n", [Product]),
-                    spawn_update(StatePid, Product, Update);
-                Deps ->
-                    %% Subsequent runs have deps, so check them first.
-                    debug("~p: check deps~n", [Product]),
-                    spawn_depcheck(StatePid, Product, Update, Deps)
-            end,
+            RedoPid = self(),
+            Deps = maps:get({deps, Product}, State, []),
+            spawn_link(fun() -> depcheck(RedoPid, Product, Update, Deps) end),
             maps:put({phase, Product}, {waiting, [CallPid]}, State)
     end;
 
@@ -161,6 +154,7 @@ handle({CallPid, {eval, Product}},
 %% Worker is done computing the product.  Signal all waiters and save
 %% the new dependency list.
 handle({updated, Product, {Changed, NewDeps}}, State) ->
+
     case maps:find({phase, Product}, State) of
         {ok, {waiting, Waiters}} ->
             lists:foreach(
@@ -171,7 +165,9 @@ handle({updated, Product, {Changed, NewDeps}}, State) ->
             maps:merge(
               State,
               #{ {phase, Product} => {changed, Changed},
-                 {deps, Product} => NewDeps})
+                 {deps, Product} => NewDeps});
+        OtherPhase ->
+            throw({updated_phase_error, Product, OtherPhase})
     end;
 
 %% Worker determined that there is nothing to do.  Signal all waiters.
@@ -184,7 +180,9 @@ handle({cached, Product}, State) ->
             debug("~p: no_change~n", [Product]),
             maps:merge(
               State,
-              #{ {phase, Product} => {changed, false}})
+              #{ {phase, Product} => {changed, false}});
+        OtherPhase ->
+            throw({cached_phase_error, Product, OtherPhase})
     end;
 
 %% Implement a store inside of the evaluator.  Note that we can just
@@ -196,11 +194,10 @@ handle({Pid,{get,Tag}}, State) ->
 handle({Pid,{set,Tag,Val}}, State) ->
     obj:reply(Pid, ok),
     maps:put({product, Tag}, Val, State);
-handle({Pid,{update,Tag,Fun}}, State) ->
-    MaybeOld = maps:find({product, Tag}, State),
-    New = Fun(MaybeOld),
-    obj:reply(Pid, {MaybeOld, New}),
-    maps:put({product, Tag}, New, State);
+handle({Pid,{set_stamp,Tag,New}}, State) ->
+    MaybeOld = maps:find({stamp, Tag}, State),
+    obj:reply(Pid, MaybeOld),
+    maps:put({stamp, Tag}, New, State);
 
 %% We provide file access relative to a "working directory" shared by
 %% all update scripts.  Keep this abstract so it is easy to change
@@ -266,45 +263,56 @@ handle({_,dump}=Msg, State) ->
     obj:handle(Msg, State).
 
 
-%% Updates run in their own process, and push the new dependency
-%% list to the server.
-spawn_update(ServPid, Product, Update) ->
-    _Pid =
-        spawn_link(
-          fun() -> ServPid ! {updated, Product, Update(ServPid)} end),
+%% Dependency checks and update function call into server process, so
+%% go into a separate process.
+%%
+%% Check deps in parallel. This causes need/2 to propagate through the
+%% dependency chain, running update tasks as necessary.  Note that the
+%% update call below will run need/2 again, but at that time
+%% evaluation will have finished and we have cached results.
+%%
+%% Empty list is a special case.  It either means no dependencies are
+%% available due to first run, or a file needs to be polled.
+%%
+depcheck(RedoPid, Product, Update, OldDeps) ->
+    NeedUpdate =
+        case OldDeps of
+            [] -> true;
+            _  -> need(RedoPid, OldDeps)
+        end,
+    debug("~p: need update: ~p~n", [Product, NeedUpdate]),
+    RedoPid ! 
+        case NeedUpdate of
+            false ->
+                {cached,  Product};
+            true  ->
+                Rv = {_, NewDeps} = Update(RedoPid),
+                stamp(RedoPid, OldDeps, NewDeps),
+                {updated, Product, Rv}
+        end,
     ok.
 
-%% Dependency checks run in their own process foremost because they
-%% run against the server process initiating more evals, but also
-%% because the update needs to run in its own process.
-spawn_depcheck(StatePid, Product, Update, Deps) ->
-    _Pid = 
-        spawn_link(
-          fun() ->
-                  %% Check deps in parallel. This causes need/2 to
-                  %% propagate through the dependency chain, running
-                  %% update tasks as necessary.  Note that the update
-                  %% call below will run need/2 again, but at that
-                  %% time evaluation will have finished.
-                  NeedUpdate = need(StatePid, Deps),
-                  debug("~p: need update: ~p~n", [Product, NeedUpdate]),
-                  StatePid ! 
-                      case NeedUpdate of
-                          false -> {cached,  Product};
-                          true  -> {updated, Product, Update(StatePid)}
-                      end
-          end),
+%% Stamp all additional dependencies (hash or timestamp). This is a
+%% side effect of need/2.  This happens e.g. when the compiler
+%% computes deps on first run: they would have not been evaluated
+%% before running update.
+stamp(RedoPid, OldDeps, NewDeps) ->
+    AdditionalDeps =
+        lists:filter(
+          fun(D) -> not lists:member(D, OldDeps) end,
+          NewDeps),
+    _ = need(RedoPid, AdditionalDeps),
     ok.
 
 %% Evaluate products in parallel
-peval(StatePid, Products) ->
+peval(RedoPid, Products) ->
     tools:pmap(
-      fun(P) -> obj:call(StatePid, {eval, P}) end,
+      fun(P) -> obj:call(RedoPid, {eval, P}) end,
       Products).
 
 %% Also called "ifchange".
-need(StatePid, Deps) ->
-    DepsUpdated = peval(StatePid, Deps),
+need(RedoPid, Deps) ->
+    DepsUpdated = peval(RedoPid, Deps),
     NeedUpdate =
         lists:any(
           fun(Updated)-> Updated end,
@@ -312,8 +320,6 @@ need(StatePid, Deps) ->
     debug("need: ~p~n",[{NeedUpdate,DepsUpdated}]),
     NeedUpdate.
     
-
-
 
 %% Provide a store interface.
 %%
@@ -328,14 +334,9 @@ need(StatePid, Deps) ->
 %% scripts in such a way to properly guard imperative updates like
 %% these.
 
-update(StatePid, Tag, Fun) -> obj:call(StatePid, {update,Tag,Fun}).
-set(StatePid, Tag, Val)    -> obj:call(StatePid, {set,Tag,Val}).
-get(StatePid, Tag)         -> obj:call(StatePid, {get,Tag}).
+set(RedoPid, Tag, Val)    -> obj:call(RedoPid, {set,Tag,Val}).
+get(RedoPid, Tag)         -> obj:call(RedoPid, {get,Tag}).
 
-
-debug(_F,_As) ->
-    %% log:info(_F,_As),
-    ok.
 
 
 %% Import specs and build rules
@@ -416,27 +417,35 @@ gcc_deps(Bin0) ->
     List = re:split(Bin3, " "),
     lists:map(fun from_filename/1, List).
 
-%% I would like to keep the "changed" predicate as abstract as
-%% possible.  I currently see two ways to do this: filesystem
-%% timestamp or file hash.
-read_file(StatePid, RelPath) ->
-    {ok, AbsPath} = obj:call(StatePid, {find_file, RelPath}),
+read_file(RedoPid, RelPath) ->
+    {ok, AbsPath} = obj:call(RedoPid, {find_file, RelPath}),
     file:read_file(AbsPath).
 
-file_changed(StatePid, Product, RelPath) ->
-    %% Needs to go outside of update/3 to avoid re-entry.
-    {ok, Bin} = read_file(StatePid, RelPath),
-    {MaybeOld, New} =
-        update(
-          StatePid, Product,
-          fun(_) -> crypto:hash(md5, Bin) end),
+is_regular(RedoPid, RelPath) ->
+    {ok, AbsPath} = obj:call(RedoPid, {find_file, RelPath}),
+    filelib:is_regular(AbsPath).
+
+%% I would like to keep the "changed" predicate as abstract as
+%% possible.  I currently see two ways to do this: filesystem
+%% timestamp or file hash, and file hash seems more general.  See also
+%% 'updated' case in handle/2 which is needed to prime the table.
+file_changed(RedoPid, Product, RelPath, Stamp) ->
+    %% Needs to go outside of next call to avoid re-entry.
+    {ok, Bin} = read_file(RedoPid, RelPath),
+    New = Stamp(Bin),
+    MaybeOld = obj:call(RedoPid, {set_stamp, Product, New}),
     Changed = {ok, New} /= MaybeOld,
     %% debug("file_changed ~p~n", [{Product, RelPath, Changed, New, MaybeOld}]),
     Changed.
+%% Default is md5 hash.
+file_changed(RedoPid, Product, RelPath) ->
+    file_changed(RedoPid, Product, RelPath,
+                 fun(Bin) -> crypto:hash(md5, Bin) end).
+                         
 
 %% Generic build command dispatch.  This can
-run(StatePid, {bash, Cmds}) ->
-    {ok, Dir} = obj:call(StatePid, {find_file, ""}),
+run(RedoPid, {bash, Cmds}) ->
+    {ok, Dir} = obj:call(RedoPid, {find_file, ""}),
     log:info("run: ~s~n", [Cmds]),
     run:fold_script(
       tools:format("bash -c 'cd ~s ; ~s'", [Dir, Cmds]), 
@@ -493,8 +502,6 @@ test(ex1) ->
             
 
 
-%% FIXME: c->o en o->a rules are there.  Make some tests regarding
-%% actual redoing.  FIXME: Bug: second redo should not run the update.
 test(uc_tools) ->
     case import("/home/tom/exo/erl/apps/exo/src/uc_tools_gdb_do.erl") of
         #{ outputs := Outputs } = Spec ->
@@ -505,6 +512,8 @@ test(uc_tools) ->
                       _ = redo(Pid, Outputs),
                       log:info("redo2 ~p~n", [Outputs]),
                       _ = redo(Pid, Outputs),
+                      %% #{eval := Eval} = obj:dump(Pid),
+                      %% log:info("~p~n",[obj:dump(Eval)]),
                       ok
               end)
     end;
