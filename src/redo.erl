@@ -1,7 +1,6 @@
 -module(redo).
--export([redo/2, need/2,
-         get/2, set/3,
-         push/3,
+-export([pull/2, need/2,
+         push/3, push/2,
          start_link/1, handle_outer/2, handle/2,
          file_changed/3,
          read_file/2, is_regular/2,
@@ -10,6 +9,7 @@
          run/2,
          gcc_deps/1,
          import/1,
+         get/2, set/3,
          test/1, u1/1, u2/1]).
 
 
@@ -58,13 +58,16 @@ debug(_F,_As) ->
 %% -------- CORE
 
 %% Main entry point.  See test(ex1) below.
-redo(Pid, Products) ->
-    obj:call(Pid, {redo, Products}, 6124).
+pull(Pid, Products) ->
+    obj:call(Pid, {pull, Products}, 6124).
 
-%% Trigger update of dependent products from change notification
+%% Trigger update of dependent products from external change notification
 push(Pid, Changed, NotChanged) ->
     obj:call(Pid, {push, Changed, NotChanged}, 6123).
-
+%% Providing NotChanged is just an optimization.  Not filling those in
+%% will let the network determine change statuse.
+push(Pid, Changed) ->
+    push(Pid, Changed, []).
 
 
 %% Several calls against the evaluator will be performed during
@@ -83,7 +86,7 @@ handle_outer(Msg, State = #{eval := Eval}) ->
             Rv = obj:call(Eval, deps),
             obj:reply(Pid, Rv),
             State;
-        {Pid, {redo, Products}} ->
+        {Pid, {pull, Products}} ->
             ok = obj:call(Eval, start_pull),
             obj:reply(Pid, {ok, parallel_eval(Eval, Products)}),
             State;
@@ -93,7 +96,7 @@ handle_outer(Msg, State = #{eval := Eval}) ->
         %% the change state is known from the context.  Otherwise
         %% network will poll the associated update function.
         {Pid, {push, Changed, NotChanged}} ->
-            case obj:call(Eval, {ideps, Changed}) of
+            case obj:call(Eval, {need_update, Changed}) of
                 error ->
                     obj:reply(Pid, error),
                     State;
@@ -155,10 +158,12 @@ handle({CallPid, {eval, Product}},
 
 %% Insert update computed by worker and notify waiters.
 handle({worker_done, Product, PhaseUpdate}=Msg, State) ->
+    {changed, Changed} = maps:get({phase, Product}, PhaseUpdate),
+    debug("worker_done: ~p~n", [{Product,PhaseUpdate}]),
     case maps:find({phase, Product}, State) of
         {ok, {waiting, Waiters}} ->
             lists:foreach(
-              fun(Waiter) -> obj:reply(Waiter, false) end,
+              fun(Waiter) -> obj:reply(Waiter, Changed) end,
               Waiters),
             maps:merge(State, PhaseUpdate);
         OtherPhase ->
@@ -204,39 +209,58 @@ handle({Pid, start_pull}, State) ->
 handle({Pid, {start_push, Changed, NotChanged}}, State0) ->
     obj:reply(Pid, ok),
     State1 =
+        %% Start of a new phase: remove all old phase information.
         maps:filter(
           fun({phase, _}, _) -> false; (_,_) -> true end,
           State0),
     State2 =
+        %% Use information coming from the outside regarding unchanged
+        %% inputs.  This prunes the evaluation tree.
         lists:foldr(
           fun(NC, S) -> maps:put({phase,NC}, {changed, false}, S) end,
           State1, NotChanged),
     State3 =
+        %% Same for known changes.  This avoids a poll.
         lists:foldr(
           fun(C, S) -> maps:put({phase,C}, {changed, true}, S) end,
           State2, Changed),
     State3;
 
 %% Get the dependencies in a form compatible with depgraph.erl
-handle({Pid, {ideps, Products}}, State) ->
-    Deps =
-        maps:fold(
-          fun({deps,Proc},Deps,Acc) -> [{Proc,'_',Deps} | Acc];
-             (_,_,Acc) -> Acc
-          end,
-          [], State),
+%% Inverted dependencies are cached.  Not quite sure if that is really
+%% a necessary optimization, but it is probably good to have a "tap
+%% point" for that happy path.
+handle({Pid, {need_update, InputProducts}}, State) ->
     NeedUpdate =
-        case Deps of
-            [] ->
-                %% No deps.  Network didn't run yet.
-                error;
-            _ ->
-                IDeps = depgraph:invert_deps(Deps),
-                {ok, maps:keys(depgraph:need_update(IDeps, Products))}
+        fun(IDeps) ->
+                OutputProducts = depgraph:need_update_tc(IDeps, InputProducts),
+                debug("need_update: ~p~n~p~n",[InputProducts, OutputProducts]),
+                OutputProducts
         end,
-    debug("~p: need update ~p~n", [Products, NeedUpdate]),
-    obj:reply(Pid, NeedUpdate),
-    State;
+    case maps:get(inv_deps, State, invalid) of
+        invalid ->
+            Deps =
+                maps:fold(
+                  fun({deps,Prod},Deps,Acc) -> [{Prod,'_',Deps} | Acc];
+                     (_,_,Acc) -> Acc
+                  end,
+                  [], State),
+            case Deps of
+                [] ->
+                    debug("need_update: no deps~n",[]),
+                    obj:reply(Pid, error),
+                    State;
+                _ ->
+                    IDeps = depgraph:invert_deps(Deps),
+                    debug("need_update: recomputed inv_deps:~n~p~n",[IDeps]),
+                    obj:reply(Pid, {ok, NeedUpdate(IDeps)}),
+                    maps:put(inv_deps, IDeps, State)
+            end;
+        IDeps ->
+            debug("need_update: using cached inv_deps~n",[]),
+            obj:reply(Pid, {ok, NeedUpdate(IDeps)}),
+            State
+    end;
 
 %% Allow raw get/set from protected context.
 handle({_,dump}=Msg, State) ->
@@ -258,30 +282,31 @@ worker(RedoPid, Product, Update, OldDeps) ->
             false ->
                 #{ {phase, Product} => {changed, false} };
             true ->
-                {Changed, NewDeps} = Update(RedoPid),
-                case stamp(RedoPid, OldDeps, NewDeps) of
-                    [] ->
-                        %% Special case this to avoid deps update.
+                {Changed, NewDepsUnsorted} = Update(RedoPid),
+                debug("worker: update changed: ~p~n", [Changed]),
+                NewDeps = tools:unique(NewDepsUnsorted),
+                %% Special-case the happy path.  Keeping track of dep
+                %% graph changes allows caching the inverted dep graph
+                %% for "push" operation and allows to prune a need/2
+                %% call to stamp the new deps.
+                case NewDeps == OldDeps of
+                    true ->
                         #{{phase, Product} => {changed, Changed}};
-                    _AdditionalDeps ->
+                    false ->
+                        debug("worker: deps changed: ~p~n", [{OldDeps,NewDeps}]),
+                        _ = need(RedoPid, NewDeps),
                         #{{phase, Product} => {changed, Changed},
-                          {deps,  Product} => NewDeps}
+                          {deps,  Product} => NewDeps,
+                          inv_deps         => invalid}
                 end
         end,
     RedoPid ! {worker_done, Product, PhaseUpdate},
     ok.
 
-%% Stamp all additional dependencies (hash or timestamp). This is a
-%% side effect of need/2.  This happens e.g. when the compiler
-%% computes deps on first run: they would have not been evaluated
-%% before running update.
-stamp(RedoPid, OldDeps, NewDeps) ->
-    AdditionalDeps =
-        lists:filter(
-          fun(D) -> not lists:member(D, OldDeps) end,
-          NewDeps),
-    _ = need(RedoPid, AdditionalDeps),
-    AdditionalDeps.
+
+             
+
+
 
 
 %% Also called "ifchange".
@@ -419,10 +444,12 @@ file_changed(RedoPid, Product, RelPath, Stamp) ->
 %% Default is md5 hash.
 file_changed(RedoPid, Product, RelPath) ->
     file_changed(RedoPid, Product, RelPath,
-                 fun(Bin) -> crypto:hash(md5, Bin) end).
+                 fun(Bin) ->
+                         tools:hex(crypto:hash(md5, Bin))
+                 end).
                          
 
-%% Generic build command dispatch.  This can
+%% Generic build command dispatch.
 run(RedoPid, {bash, Cmds}) ->
     {ok, Dir} = obj:call(RedoPid, {find_file, ""}),
     log:info("run: ~s~n", [Cmds]),
@@ -468,8 +495,8 @@ test(ex1) ->
     #{eval := Eval} = obj:dump(Pid),
     
     %% Standard "pull" mode.
-    Changed1 = redo(Pid, [ex2]), debug("state1: ~p~n", [obj:dump(Eval)]),
-    Changed2 = redo(Pid, [ex2]), debug("state2: ~p~n", [obj:dump(Eval)]),
+    Changed1 = pull(Pid, [ex2]), debug("state1: ~p~n", [obj:dump(Eval)]),
+    Changed2 = pull(Pid, [ex2]), debug("state2: ~p~n", [obj:dump(Eval)]),
 
     %% The afterthought "push" mode.
     Changed3 = push(Pid, [ex1], []),
@@ -478,21 +505,37 @@ test(ex1) ->
     exit(Pid, kill),
     {Changed1,Changed2,Changed3};
 
-            
+
+%% FIXME: I think that "push" is wrong because it is not transitive.
+%% It needs to close up to the point that.  Maybe just run the network
+%% in reverse explicitly?
 
 
 test(uc_tools) ->
+    test({uc_tools, fun(_Eval) -> ok end});
+test(uc_tools_v) ->
+    test({uc_tools, fun(Eval) -> log:info("~n~p~n",[obj:dump(Eval)]) end});
+
+test({uc_tools, Report}) ->
     case import("/home/tom/exo/erl/apps/exo/src/uc_tools_gdb_do.erl") of
         #{ outputs := Outputs } = Spec ->
             with_redo(
               Spec,
               fun(Pid) ->
+                      Eval = maps:get(eval, obj:dump(Pid)),
+
                       log:info("redo1 ~p~n", [Outputs]),
-                      _ = redo(Pid, Outputs),
+                      _ = pull(Pid, Outputs),
+                      Report(Eval),
+
                       log:info("redo2 ~p~n", [Outputs]),
-                      _ = redo(Pid, Outputs),
-                      %% #{eval := Eval} = obj:dump(Pid),
-                      %% log:info("~p~n",[obj:dump(Eval)]),
+                      _ = pull(Pid, Outputs),
+                      Report(Eval),
+
+                      log:info("push3~n"),
+                      _ = push(Pid, [{c,<<"memory">>,[]}]),
+                      Report(Eval),
+
                       ok
               end)
     end;

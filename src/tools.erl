@@ -330,9 +330,20 @@ list_update_with(Index, Fun, List) ->
     [case N of Index -> Fun(E); _ -> E end
      || {N,E} <- enumerate(List)].
 
-unique(L) ->
-    lists:sort(
-      sets:to_list(sets:from_list(L))).
+%% unique(L) ->
+%%     lists:sort(
+%%       sets:to_list(sets:from_list(L))).
+unique(List) ->
+    dedup_sorted(lists:sort(List)).
+dedup_sorted([A|[B|_]=Rest]) ->
+    SRest = dedup_sorted(Rest),
+    case A == B of
+        true  -> SRest;
+        false -> [A | SRest]
+    end;
+dedup_sorted(L) -> L.
+
+
              
 %% Record to Maps translation
 tuple_to_list(Tuple) ->
