@@ -151,38 +151,28 @@ handle({CallPid, {eval, Product}},
     end;
 
            
-%% Worker is done computing the product.  Signal all waiters and save
-%% the new dependency list.
-handle({updated, Product, {Changed, NewDeps}}, State) ->
-
-    case maps:find({phase, Product}, State) of
-        {ok, {waiting, Waiters}} ->
-            lists:foreach(
-              fun(Waiter) -> obj:reply(Waiter, Changed) end,
-              Waiters),
-            %% debug("~p: changed=~p, deps=~n~p~n", [Product, Changed, NewDeps]),
-            debug("~p: changed=~p~n", [Product, Changed]),
-            maps:merge(
-              State,
-              #{ {phase, Product} => {changed, Changed},
-                 {deps, Product} => NewDeps});
-        OtherPhase ->
-            throw({updated_phase_error, Product, OtherPhase})
-    end;
-
-%% Worker determined that there is nothing to do.  Signal all waiters.
-handle({cached, Product}, State) ->
+%% Worker is done computing the product.  Update phase and signal all waiters.
+handle({done, Product, Did}=Msg, State) ->
     case maps:find({phase, Product}, State) of
         {ok, {waiting, Waiters}} ->
             lists:foreach(
               fun(Waiter) -> obj:reply(Waiter, false) end,
               Waiters),
-            debug("~p: no_change~n", [Product]),
-            maps:merge(
-              State,
-              #{ {phase, Product} => {changed, false}});
+            case Did of
+                cached ->
+                    debug("~p: no_change~n", [Product]),
+                    maps:merge(
+                      State,
+                      #{ {phase, Product} => {changed, false}});
+                {updated, {Changed, NewDeps}} ->
+                    debug("~p: changed=~p~n", [Product, Changed]),
+                    maps:merge(
+                      State,
+                      #{ {phase, Product} => {changed, Changed},
+                         {deps, Product} => NewDeps})
+            end;
         OtherPhase ->
-            throw({cached_phase_error, Product, OtherPhase})
+            throw({done_phase_error, Msg, OtherPhase})
     end;
 
 %% Implement a store inside of the evaluator.  Note that we can just
@@ -263,33 +253,28 @@ handle({_,dump}=Msg, State) ->
     obj:handle(Msg, State).
 
 
-%% Dependency checks and update function call into server process, so
-%% go into a separate process.
-%%
 %% Check deps in parallel. This causes need/2 to propagate through the
-%% dependency chain, running update tasks as necessary.  Note that the
-%% update call below will run need/2 again, but at that time
+%% dependency chain, recursively spawning depcheck/4 processes. Note
+%% that the update call will run need/2 again, but at that time
 %% evaluation will have finished and we have cached results.
-%%
-%% Empty list is a special case.  It either means no dependencies are
-%% available due to first run, or a file needs to be polled.
 %%
 depcheck(RedoPid, Product, Update, OldDeps) ->
     NeedUpdate =
         case OldDeps of
-            [] -> true;
+            [] -> true; %% First run or polling
             _  -> need(RedoPid, OldDeps)
         end,
     debug("~p: need update: ~p~n", [Product, NeedUpdate]),
-    RedoPid ! 
+    Did =
         case NeedUpdate of
             false ->
-                {cached,  Product};
-            true  ->
-                Rv = {_, NewDeps} = Update(RedoPid),
+                cached;
+            true ->
+                {Changed, NewDeps} = Update(RedoPid),
                 stamp(RedoPid, OldDeps, NewDeps),
-                {updated, Product, Rv}
+                {updated, {Changed, NewDeps}}
         end,
+    RedoPid ! {done, Product, Did},
     ok.
 
 %% Stamp all additional dependencies (hash or timestamp). This is a
