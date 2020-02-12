@@ -3,13 +3,16 @@
 
 %% FIXME: Look into ghcide.
 
-%% This is a NIH run to build what I actually need, instead of trying
-%% to shoe-horn ghcid into exo.  It uses straight ghci commands and
-%% the following stateful principle:
-%%
-%% - Load the test module.
-%% - Execute "test" in that module.
+%% NIH: Building what I actually need, instead of trying to shoe-horn
+%% ghcid into exo.  I already have file change notifications, so just
+%% need simple reload and test run.
 
+%% The module is stateful: there is an idea of a "current" module that
+%% exposes a "test" function.
+
+%% GHCI output is dumped in the Erlang console log.  This is
+%% asynchronous only. Any other synchronization will need to be built
+%% externally using Haskell->Erlang message path.
 
 -module(ghci).
 -export([start_link/1, handle/2, cmd/2]).
@@ -40,25 +43,21 @@ handle({load, Module}, State) ->
            maps:put(module, Module, State));
 
 handle(test, State) ->
+    LogBuf = maps:get(log_buf, State, fun log_buf/1),
+    LogBuf(clear),
     handle({cmds,[":reload","test"]}, State);
 
-handle({Port,{data, Data}}, #{ port := Port } = State) ->
+handle({Port, {data, Data}}, #{ port := Port } = State) ->
+    LogBuf = maps:get(log_buf, State, fun log_buf/1),
     Buf = maps:get(buf, State, []),
-    Buf1 = log_lines(Data, Buf),
+    Buf1 = log_lines(LogBuf, Data, Buf),
     maps:put(buf, Buf1, State);
 
-handle({Port,{exit_status,_}}=Msg, #{ port := Port }) ->
+handle({Port, {exit_status,_}}=Msg, #{ port := Port }) ->
     exit(Msg);
 
 handle({_,dump}=Msg, State) ->
     obj:handle(Msg, State);
-
-handle({push_change, _File}=Msg, State) ->
-    %% FIXME: Maybe make this conditional?  I don't really have
-    %% dependencies so it is not clear if this even needs to
-    %% propagate.
-    log:info("~p~n", [Msg]),
-    handle(test, State);
 
 handle(Msg, State) ->
     log:info("unknown: ~p~n", Msg),
@@ -66,11 +65,15 @@ handle(Msg, State) ->
     State.
     
 
+log_buf({line, Line}) -> log:info("~s~n",[Line]);
+log_buf(_) -> ok.
+    
+
 %% Console logger.
 %% FIXME: Send stuff to emacs buffer also?
-log_lines([], Line) ->          lists:flatten(Line);
-log_lines([$\n|Tail], Line) ->  log:info("~s~n",[Line]), log_lines(Tail,[]);
-log_lines([Char|Tail], Line) -> log_lines(Tail,[Line,Char]).
+log_lines(_, [], Line) ->          lists:flatten(Line);
+log_lines(B, [$\n|Tail], Line) ->  B({line, Line}), log_lines(B, Tail,[]);
+log_lines(B, [Char|Tail], Line) -> log_lines(B,Tail,[Line,Char]).
 
 %% There is no synchronous command yet.  The rpc should probably be
 %% threaded through the haskell code using some Haskell->Erlang
