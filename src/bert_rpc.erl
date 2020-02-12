@@ -1,10 +1,12 @@
--module(wrap_bert_rpc).
+-module(bert_rpc).
 -export([start_link/1, handle/2, call/5]).
 
-%% Wrapper / monitor for BERT RPC servers.
+%% Ad-hoc tools for interacting with BERT RPC servers.
 %% Notes:
 %% - The other end sends {packet,4}, but why do we send raw ETF?
 
+
+%% Server ineterface.
 start_link(#{ spec := {_Host, _Port}} = Info) ->
     {ok, 
      serv:start(
@@ -13,28 +15,46 @@ start_link(#{ spec := {_Host, _Port}} = Info) ->
         fun wrap_bert_rpc:handle/2})}.
 
 handle(connect, State) ->
+    %% log:info("bert_rpc: connect~n"),
     Retries = maps:get(retries, State, 1),
     State1 = maps:put(sock, connect(State, Retries), State),
     OnConnect = maps:get(on_connect, State1, fun(S) -> S end),
     OnConnect(State1);
 
-handle({Pid, {M,F,A}}, #{ sock := Sock } = State) ->
-    gen_tcp:send(Sock, term_to_binary({call,M,F,A})),
-    receive
-        {tcp,Sock,Data} ->
-            case binary_to_term(Data) of
-                {reply, Term} ->
-                    obj:reply(Pid, {ok, Term})
-            end
-    end,
-    State;
+handle({Pid, {M,F,A}}=Msg, State) ->
+    case maps:find(sock, State) of
+        {ok, Sock} ->
+            %% log:info("bert_rpc: ~p~n", [Msg]),
+            gen_tcp:send(Sock, term_to_binary({call,M,F,A})),
+            receive
+                {tcp,Sock,Data} ->
+                    case binary_to_term(Data) of
+                        {reply, Term} ->
+                            obj:reply(Pid, {ok, Term});
+                        {error,_}=Err ->
+                            obj:reply(Pid, Err)
+                    end
+            end,
+            State;
+        error ->
+            %% Autoconnect.  Maybe make this optional?
+            State1 = handle(connect, State),
+            %% Assert sock is there before performing recursive call
+            #{ sock := _ } = State1,
+            handle(Msg, State1)
+    end;
 
 handle({tcp_closed,Sock}=_Msg, #{ sock := Sock }=State) ->
     %% log:info("~p~n", [_Msg]),
     handle(connect, State);
                     
-handle(Msg,State) ->
-    obj:handle(Msg,State).
+handle({_,dump} = Msg,State) ->
+    obj:handle(Msg,State);
+
+%% Makes it easier to use handle/2 as a delegate.
+handle(Msg, _State) ->
+    throw({?MODULE, {error, Msg}}).
+
 
 connect(State,0) ->
     exit({error_connect, State});
