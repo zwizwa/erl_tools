@@ -15,7 +15,6 @@ start_link(#{ spec := {_Host, _Port}} = Info) ->
         fun wrap_bert_rpc:handle/2})}.
 
 handle(connect, State) ->
-    %% log:info("bert_rpc: connect~n"),
     Retries = maps:get(retries, State, 1),
     State1 = maps:put(sock, connect(State, Retries), State),
     OnConnect = maps:get(on_connect, State1, fun(S) -> S end),
@@ -59,11 +58,12 @@ handle(Msg, _State) ->
 connect(State,0) ->
     exit({error_connect, State});
 connect(State=#{spec := {Host,Port}}, Tries) ->
+    log:info("bert_rpc: connect ~s:~p~n", [Host,Port]),
     case gen_tcp:connect(
            Host,Port,
            [{active,true},{packet,4},binary]) of
         {ok, Sock} ->
-            log:info("connected: ~p~n", [{Host,Port}]),
+            log:info("bert_rpc: connected: ~p~n", [{Host,Port}]),
             Sock;
         _Error = {error,econnrefused} ->
             %% log:info("error: ~p~n", [_Error]),

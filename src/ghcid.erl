@@ -1,4 +1,4 @@
-%% Simple wrapper for ghcid.
+%% Wrapper for ghcid.
 
 %% - test output is not included in ghcid output file, so maybe just
 %%   write it to another file in the hs test.
