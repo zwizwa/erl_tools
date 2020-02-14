@@ -6,11 +6,18 @@
 
 %% A nice goal would be to move data from the rigol into gtkwave.
 
+%% Notes:
+
+%% - Work in passive mode.  Operation is mostly RPC with some ad-hoc
+%%   encoding that is easier to do as read_header -> read_data
+%%   dependencies.
+
+
 start_link(#{ tcp := {_Host,_Port} } = Spec) ->
     {ok,
      serv:start(
        {handler,
-        fun() -> Spec end,
+        fun() -> self() ! connect, Spec end,
         fun ?MODULE:handle/2})}.
 
 handle(disconnect, State) ->
@@ -34,32 +41,18 @@ handle(connect, State) ->
             OnConnect(State1)
     end;
 
-%% Single ended messages.
-handle({cmd, Cmd}, #{ sock := Sock} = State) ->
-    gen_tcp:send(Sock, Cmd), State;
-handle({tcp, Sock, Data}, #{ sock := Sock } = State) ->
-    case maps:find(cont, State) of
-        {ok, Cont} ->
-            Cont(Data, maps:remove(cont, State));
-        error ->
-            log:info("no cont: ~p~n", [Data]),
-            State
-    end;
 
-%% RPCs.  Note that some SCPI commands do not produce a reply.  What
-%% we call an RPC is a bunch of such commands bundled up, followed
-%% with one command that does produce a reply.
-handle({Pid, {rpc, RPCSpec}}, State) ->
-    case rpc_scpi(RPCSpec) of
-        {error,_} = Error ->
-            obj:reply(Pid, Error),
-            State;
-        {ok, Cmd} ->
-            Cont = fun(D,S) -> obj:reply(Pid, {ok, D}), S end,
-            handle(
-              {cmd, Cmd},
-              maps:put(cont, Cont, State))
-    end;
+%% Transaction: run a user-specified program against the socket.
+handle({Pid, {run, Spec}}, #{ sock := Sock} = State) ->
+    DelayMS = 200,  %% FIXME: Is there proper flow control?
+    Write = fun(IOList) ->
+                    gen_tcp:send(Sock, IOList),
+                    timer:sleep(DelayMS)
+            end,
+    Read  = fun(N) -> read(Sock,N) end,
+    Rv = program(Write, Read, Spec),
+    obj:reply(Pid, Rv),
+    State;
 
 %% Misc
 handle({_,dump}=Msg, State) ->
@@ -68,10 +61,48 @@ handle(Msg, State) ->
     log:info("WARNING: ~p~n", [Msg]),
     State.
 
-%% RPC specs
-rpc_scpi(idn) -> {ok, "*IDN?\n"};
-rpc_scpi(RPC) -> {error, {bad_rpc, RPC}}.
-     
+rpc(Spec) ->
+    rpc(exo:need(rigol), Spec).
+rpc(Pid, Spec) ->
+    obj:call(Pid, {run, Spec}, 3000).
+
+%% Programs that communication with the devices through write and read
+%% operations.
+program(W,R,idn) ->
+    W("*IDN?\n"), {ok, R(line)};
+program(W,R,disp_data) ->
+    W(":DISP:DATA?\n"), 
+    Data = R(tmc),
+    _ = R(line),
+    {ok, Data};
+program(W,R,wav_pre) ->
+    W(":WAV:PRE?\n"), 
+    {ok, lists:zip(
+           [format,type,points,count,
+            xincrement,xorigin,xreference,
+            yincrement,yorigin,yreference],
+           lists:map(fun to_number/1,
+                     re:split(R(line),",")))};
+program(W,R,{wav_data,Chan,Start,Stop}) ->
+    W([":WAV:SOUR CHAN",p(Chan),"\n"]),
+    W([":WAV:MODE RAW\n"]),
+    W([":WAV:FORM BYTE\n"]),
+    W([":WAV:STAR ",p(Start),"\n"]),
+    W([":WAV:STOP ",p(Stop),"\n"]),
+    W("WAV:DATA?\n"), 
+    Data = R(tmc),
+    _ = R(line),
+    {ok, Data};
+program(_,_,Spec) ->
+    {error, Spec}.
+
+
+p(T) ->
+    io_lib:format("~p",[T]).
+to_number(Bin) ->
+    try binary_to_float(Bin)
+    catch _:_ -> binary_to_integer(Bin) end.
+            
 
 connect(State,0) ->
     exit({error_connect, State});
@@ -79,7 +110,7 @@ connect(State=#{tcp := {Host,Port}}, Tries) ->
     log:info("connect ~s:~p~n", [Host,Port]),
     case gen_tcp:connect(
            Host,Port,
-           [{active,true},{packet,raw},binary]) of
+           [{active,false},{packet,raw},binary]) of
         {ok, Sock} ->
             log:info("connected: ~p~n", [{Host,Port}]),
             Sock;
@@ -93,12 +124,33 @@ connect(State=#{tcp := {Host,Port}}, Tries) ->
             connect(State, Tries-1)
     end.
 
-rpc(Spec) ->
-    rpc(?MODULE, Spec).
-rpc(Pid, Spec) ->
-    obj:call(Pid, {rpc, Spec}, 3000).
-
-
+%% Receiver has some special purpose parsers.  Read errors translate
+%% to pattern matching errors.
+read(Sock, line) ->
+    case read(Sock, 1) of
+        <<"\n">> -> [];
+        <<Char>> -> [Char | read(Sock, line)]
+    end;
+read(Sock, tmc_blockheader) ->
+    <<"#",CNumSize>> = read(Sock, 2),
+    Num = CNumSize - $0,
+    SNumData = read(Sock, Num),
+    binary_to_integer(SNumData);
+read(Sock, tmc) ->
+    NumData = read(Sock, tmc_blockheader),
+    read(Sock, NumData);
+read(_Sock, 0) ->
+    <<>>;
+read(Sock, flush) ->
+    {ok, Data} = gen_tcp:recv(Sock, 0),
+    Data;
+read(Sock, N) when is_integer(N) ->
+    {ok, Data} = gen_tcp:recv(Sock, N),
+    Data.
+            
+test({size,Spec}) ->
+    Data = rpc(Spec),
+    size(Data);
 test(Spec) ->
     throw({?MODULE,bad_test_spec,Spec}).
 
