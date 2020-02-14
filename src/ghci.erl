@@ -15,7 +15,7 @@
 %% externally using Haskell->Erlang message path.
 
 -module(ghci).
--export([start_link/1, handle/2, cmd/2]).
+-export([start_link/1, handle/2]).
 
 start_link(#{ ghci_cmd := Cmd, module := Module } = Config) ->
     {ok,
@@ -42,10 +42,25 @@ handle({load, Module}, State) ->
     handle({cmds,[tools:format(":load ~s",[Module])]}, 
            maps:put(module, Module, State));
 
-handle(test, State) ->
+%% To build ad-hoc two-way communication using in-band log lines, have
+%% the caller specify a reference string.  Note that this is subject
+%% to some (ill-specified) quoting constraints.  Good enough for
+%% simple things.  For anything more elaborate, use a socket.
+handle({test,AckString}, State = #{ module := Module }) ->
     LogBuf = maps:get(log_buf, State, fun log_buf/1),
     LogBuf(clear),
-    handle({cmds,[":reload","test"]}, State);
+    handle(
+      {cmds,
+       [":reload",
+        %% Qualify calls to avoid surprises.
+        tools:format(
+          "do ~s.test ; Prelude.putStrLn \"\\n~s\"",
+          [Module, AckString])]},
+      State);
+
+handle(test, State) ->
+    AckString = maps:get(ack, State, ""),
+    handle({test, AckString}, State);
 
 handle({Port, {data, Data}}, #{ port := Port } = State) ->
     LogBuf = maps:get(log_buf, State, fun log_buf/1),
@@ -71,14 +86,10 @@ log_buf(_) -> ok.
 
 %% Console logger.
 %% FIXME: Send stuff to emacs buffer also?
-log_lines(_, [], Line) ->          lists:flatten(Line);
-log_lines(B, [$\n|Tail], Line) ->  B({line, Line}), log_lines(B, Tail,[]);
+flat(L) -> lists:flatten(L).
+     
+log_lines(_, [], Line) ->          flat(Line);
+log_lines(B, [$\n|Tail], Line) ->  B({line, flat(Line)}), log_lines(B, Tail,[]);
 log_lines(B, [Char|Tail], Line) -> log_lines(B,Tail,[Line,Char]).
-
-%% There is no synchronous command yet.  The rpc should probably be
-%% threaded through the haskell code using some Haskell->Erlang
-%% message send option.
-cmd(Pid, Cmd) ->
-    Pid ! Cmd.
 
 

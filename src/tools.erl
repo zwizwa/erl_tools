@@ -61,7 +61,7 @@
          intersperse/2,
          node_to_host/1,
          tmpdir/2,
-         race_nodes/3
+         race/3
         ]).
 
 -ifdef(EUINIT).
@@ -967,8 +967,8 @@ tmpdir(Base, Tag, NbBytes) ->
     end.
 
 %% Perform functions against nodes in parallell and return the first
-%% successful result.
-race_nodes(Nodes, TimeOut, MaybeNodeFun) ->
+%% successful result.  Note that Nodes can be anything.
+race(Nodes, TimeOut, MaybeNodeFun) ->
     MainPid = self(),
     MainRef = erlang:make_ref(),
     spawn(
@@ -983,7 +983,7 @@ race_nodes(Nodes, TimeOut, MaybeNodeFun) ->
                   end)
             end,
             Nodes),
-          Rv = race_nodes_wait(WaitRef, Nodes, TimeOut),
+          Rv = race_wait(WaitRef, Nodes, TimeOut),
           MainPid ! {MainRef, Rv}
       end),
     receive
@@ -992,13 +992,13 @@ race_nodes(Nodes, TimeOut, MaybeNodeFun) ->
             log:info("WARNING: race_nodes: timeout~n"),
             error
     end.
-race_nodes_wait(_WaitRef, [], _) -> error;
-race_nodes_wait(WaitRef, Nodes, TimeOut) ->
+race_wait(_WaitRef, [], _) -> error;
+race_wait(WaitRef, Nodes, TimeOut) ->
     receive
         {WaitRef, _Node, {ok, _}=Rv} ->
             Rv;
         {WaitRef, Node, error} ->
-            race_nodes_wait(WaitRef, lists:delete(Node,Nodes), TimeOut)
+            race_wait(WaitRef, lists:delete(Node,Nodes), TimeOut)
         after TimeOut ->
                 log:info("WARNING: race_nodes_wait: timeout~n"),
                 error
