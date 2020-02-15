@@ -73,16 +73,39 @@ push(Pid, Changed) ->
 %% Several calls against the evaluator will be performed during
 %% evaluation of the network.  The task of this monitor process is to
 %% maintain transaction semantics.
-start_link(Spec) ->
+start_link(Spec) when is_map(Spec)  ->
     {ok, serv:start(
            {handler,
             fun() -> #{ eval => start_eval(Spec) } end,
-            fun ?MODULE:handle_outer/2})}.
+            fun ?MODULE:handle_outer/2})};
+%% Not a map, then it is assumed to be a "from" spec.
+start_link(From) ->
+    log:info("loading from: ~p~n", [From]),
+    start_link(load_config(From,#{ config => From })).
+
+
+
 handle_outer(Msg, State = #{eval := Eval}) ->
+    %% log:info("handle_outer: ~p~n",[Msg]),
     case Msg of
+        {Pid, state} ->
+            obj:reply(Pid, obj:dump(Eval)),
+            State;
         {_, dump} -> 
             obj:handle(Msg, State);
+        {Pid, reload} ->
+            obj:reply(Pid, obj:call(Eval, reload)),
+            State;
+
+        %% All actions reload the configuration.
+        {Pid, {pull, outputs}} ->
+            obj:call(Eval, reload),
+            {ok, Outputs} = obj:find(Eval, outputs),
+            ok = obj:call(Eval, start_pull),
+            obj:reply(Pid, {ok, parallel_eval(Eval, Outputs)}),
+            State;
         {Pid, {pull, Products}} ->
+            obj:call(Eval, reload),
             ok = obj:call(Eval, start_pull),
             obj:reply(Pid, {ok, parallel_eval(Eval, Products)}),
             State;
@@ -93,7 +116,8 @@ handle_outer(Msg, State = #{eval := Eval}) ->
             %% stamp info.  Note that any changed items not in Changed
             %% will not cause recomputation unless they are
             %% accidentally part of some other evaluation path.
-            case obj:call(Eval, {need_update, Changed}) of
+            obj:call(Eval, reload),
+            case obj:call(Eval, {affected, Changed}) of
                 error ->
                     %% Push requires there to be a dependency network,
                     %% i.e. it only works after "priming" with pull.
@@ -101,10 +125,12 @@ handle_outer(Msg, State = #{eval := Eval}) ->
                     %% pull instead.
                     obj:reply(Pid, error),
                     State;
-                {ok, NeedUpdate} ->
+                {ok, Affected} ->
+                    debug("push:~nChanged:~n~p~nAffected:~n~p~n", 
+                          [Changed,Affected]),
                     ok = obj:call(Eval, {start_push, Changed, NotChanged}),
                     _ = need(Eval, Changed),  %% Make sure stamps are updated,
-                    obj:reply(Pid, {ok, parallel_eval(Eval, NeedUpdate)}),
+                    obj:reply(Pid, {ok, parallel_eval(Eval, Affected)}),
                     State
             end
     end.
@@ -150,11 +176,26 @@ handle({CallPid, {eval, Product}},
             %% task.  Note: if there are no deps or if the deps list
             %% is empty, we will allways poll the update function to
             %% decide what to do.
-            UpdateFun = ProductToUpdateFun(Product),
-            RedoPid = self(),
-            Deps = maps:get({deps, Product}, State, []),
-            spawn_link(fun() -> worker(RedoPid, Product, UpdateFun, Deps) end),
-            maps:put({phase, Product}, {waiting, [CallPid]}, State)
+            try
+                UpdateFun = ProductToUpdateFun(Product),
+                RedoPid = self(),
+                Deps = maps:get({deps, Product}, State, []),
+                spawn_link(
+                  fun() -> 
+                          log:set_info_name(Product),
+                          worker(RedoPid, Product, UpdateFun, Deps) end
+                 ),
+                maps:put({phase, Product}, {waiting, [CallPid]}, State)
+            catch
+                C:E ->
+                    %% Don't bring down redo when the update function
+                    %% crashes.  Print a warning instead.  Solve this
+                    %% properly later.
+                    log:info("WARNING: update failed: ~p:~n~p~n", [Product, {C,E}]),
+                    maps:put({phase, Product}, {changed, false}, State),
+                    obj:reply(CallPid, false),
+                    State
+            end
     end;
 
 
@@ -235,11 +276,11 @@ handle({Pid, {start_push, Changed, NotChanged}}, State0) ->
 %% Inverted dependencies are cached.  Not quite sure if that is really
 %% a necessary optimization, but it is probably good to have a "tap
 %% point" for that happy path.
-handle({Pid, {need_update, InputProducts}}, State) ->
-    NeedUpdate =
+handle({Pid, {affected, InputProducts}}, State) ->
+    Affected =
         fun(IDeps) ->
-                OutputProducts = depgraph:need_update_tc(IDeps, InputProducts),
-                debug("need_update: ~p~n~p~n",[InputProducts, OutputProducts]),
+                OutputProducts = depgraph:affected(IDeps, InputProducts),
+                debug("affected: ~p~n~p~n",[InputProducts, OutputProducts]),
                 OutputProducts
         end,
     case maps:get(inv_deps, State, invalid) of
@@ -252,42 +293,72 @@ handle({Pid, {need_update, InputProducts}}, State) ->
                   [], State),
             case Deps of
                 [] ->
-                    debug("need_update: no deps~n",[]),
+                    debug("affected: no deps~n",[]),
                     obj:reply(Pid, error),
                     State;
                 _ ->
-                    IDeps = depgraph:invert_deps(Deps),
-                    debug("need_update: recomputed inv_deps:~n~p~n",[IDeps]),
-                    obj:reply(Pid, {ok, NeedUpdate(IDeps)}),
+                    IDeps = depgraph:invert(Deps),
+                    debug("affected: recomputed inv_deps:~n~p~n",[IDeps]),
+                    obj:reply(Pid, {ok, Affected(IDeps)}),
                     maps:put(inv_deps, IDeps, State)
             end;
         IDeps ->
-            debug("need_update: using cached inv_deps~n",[]),
-            obj:reply(Pid, {ok, NeedUpdate(IDeps)}),
+            debug("affected: using cached inv_deps~n",[]),
+            obj:reply(Pid, {ok, Affected(IDeps)}),
             State
     end;
 
-%% Allow raw get/set from protected context.
-handle({_,dump}=Msg, State) ->
-    obj:handle(Msg, State).
+%% Allow some read only access for internal use.
+handle({_,{find,_}}=Msg, State) -> obj:handle(Msg, State);
+handle({_,dump}=Msg, State)     -> obj:handle(Msg, State);
+
+%% Reload do file
+handle({Pid, reload}, State) -> 
+    MaybeFile = maps:find(config, State),
+    State1 =
+        case MaybeFile of
+            error ->
+                log:info("no do module to reload~n"),
+                State;
+            {ok, From} ->
+                load_config(From, State)
+        end,
+    obj:reply(Pid, MaybeFile),
+    State1.
+
+load_config(From, State) ->
+    Spec = 
+        case From of
+            {mfa, {M,F,A}} -> apply(M,F,A);
+            {file, File}   -> import(File)
+        end,
+    maps:merge(State, Spec).
 
 
 %% Worker process responsible of producing the target.
 worker(RedoPid, Product, Update, OldDeps) ->
     %% need/2 will cause parallel eval of the dependencies.
-    NeedUpdate =
+    Affected =
         case OldDeps of
             [] -> true; %% First run or polling
             _  -> need(RedoPid, OldDeps)
         end,
-    debug("~p: need update: ~p~n", [Product, NeedUpdate]),
+    debug("~p: need update: ~p~n", [Product, Affected]),
     %% It's simplest to compute the state update here.
     PhaseUpdate =
-        case NeedUpdate of
+        case Affected of
             false ->
                 #{ {phase, Product} => {changed, false} };
             true ->
-                {Changed, NewDepsUnsorted} = Update(RedoPid),
+                {Changed, NewDepsUnsorted} = 
+                    try
+                        log:info("update~n"),
+                        Update(RedoPid)
+                    catch C:E ->
+                            log:info("WARNING: ~p failed: ~p~n", 
+                                     [Product,{C,E}]),
+                            {false,[]}
+                    end,
                 debug("worker: update changed: ~p~n", [Changed]),
                 NewDeps = tools:unique(NewDepsUnsorted),
                 %% Special-case the happy path.  Keeping track of dep
@@ -317,12 +388,12 @@ worker(RedoPid, Product, Update, OldDeps) ->
 %% Also called "ifchange".
 need(RedoPid, Deps) ->
     DepsUpdated = parallel_eval(RedoPid, Deps),
-    NeedUpdate =
+    Affected =
         lists:any(
           fun(Updated)-> Updated end,
           maps:values(DepsUpdated)),
-    debug("need: ~p~n",[{NeedUpdate,DepsUpdated}]),
-    NeedUpdate.
+    debug("need: ~p~n",[{Affected,DepsUpdated}]),
+    Affected.
 
 parallel_eval(RedoPid, Products) ->
     tools:pmap(
@@ -414,7 +485,7 @@ from_filename(IOList) ->
 %% Symbol tags can be multiple.
 to_filename(Tuple) ->
     [Dirs,BaseName|Tags] = lists:reverse(tuple_to_list(Tuple)),
-    Path = [[Dir,"/"] || Dir <- Dirs],
+    Path = [[Dir,"/"] || Dir <- lists:reverse(Dirs)],
     Ext  = [[".",type:encode({pterm,Tag})] || Tag <- Tags],
     tools:format("~s",[[Path,BaseName,Ext]]).
 
@@ -440,12 +511,17 @@ is_regular(RedoPid, RelPath) ->
 %% 'updated' case in handle/2 which is needed to prime the table.
 file_changed(RedoPid, Product, RelPath, Stamp) ->
     %% Needs to go outside of next call to avoid re-entry.
-    {ok, Bin} = read_file(RedoPid, RelPath),
-    New = Stamp(Bin),
-    MaybeOld = obj:call(RedoPid, {set_stamp, Product, New}),
-    Changed = {ok, New} /= MaybeOld,
-    %% debug("file_changed ~p~n", [{Product, RelPath, Changed, New, MaybeOld}]),
-    Changed.
+    case read_file(RedoPid, RelPath) of
+        {ok, Bin} ->
+            New = Stamp(Bin),
+            MaybeOld = obj:call(RedoPid, {set_stamp, Product, New}),
+            Changed = {ok, New} /= MaybeOld,
+            %% debug("file_changed ~p~n", [{Product, RelPath, Changed, New, MaybeOld}]),
+            Changed;
+        Error ->
+            throw({redo_file_changed, Product, RelPath, Error})
+    end.
+
 %% Default is md5 hash.
 file_changed(RedoPid, Product, RelPath) ->
     file_changed(RedoPid, Product, RelPath,
@@ -515,7 +591,15 @@ test(ex1) ->
 %% It needs to close up to the point that.  Maybe just run the network
 %% in reverse explicitly?
 
+%% FIXME: Add exo functionality to start a daemon.
 
+test(nlspec) ->
+    case import("/home/tom/exo/erl/apps/exo/src/nlspec_do.erl") of
+        #{ outputs := Outputs } = Spec ->
+            with_redo(
+              Spec,
+              fun(Pid) -> pull(Pid, Outputs) end)
+    end;
 test(uc_tools) ->
     test({uc_tools, fun(_Eval) -> ok end});
 test(uc_tools_v) ->

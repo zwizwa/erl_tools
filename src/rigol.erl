@@ -1,6 +1,7 @@
 -module(rigol).
--export([start_link/1, handle/2, test/1,
-        rpc/1, rpc/2]).
+-export([start_link/1, handle/2,
+         test/1,
+         cmd/2]).
 
 %% https://www.batronix.com/pdf/Rigol/ProgrammingGuide/MSO1000Z_DS1000Z_ProgrammingGuide_EN.pdf
 
@@ -11,6 +12,9 @@
 %% - Work in passive mode.  Operation is mostly RPC with some ad-hoc
 %%   encoding that is easier to do as read_header -> read_data
 %%   dependencies.
+%%
+%% - Delays are added for commands that do not have an ack.  How to do
+%%   this properly?
 
 
 start_link(#{ tcp := {_Host,_Port} } = Spec) ->
@@ -20,19 +24,9 @@ start_link(#{ tcp := {_Host,_Port} } = Spec) ->
         fun() -> self() ! connect, Spec end,
         fun ?MODULE:handle/2})}.
 
-handle(disconnect, State) ->
-    case maps:find(sock, State) of
-        error ->
-            log:info("not connected~n"),
-            State;
-        {ok, Sock} ->
-            gen_tcp:close(Sock),
-            maps:remove(sock, State)
-    end;
 handle(connect, State) ->
     case maps:find(sock, State) of
         {ok, _} ->
-            log:info("already connected~n"),
             State;
         error ->
             Retries = maps:get(retries, State, 1),
@@ -40,7 +34,6 @@ handle(connect, State) ->
             OnConnect = maps:get(on_connect, State1, fun(S) -> S end),
             OnConnect(State1)
     end;
-
 
 %% Transaction: run a user-specified program against the socket.
 handle({Pid, {run, Spec}}, #{ sock := Sock} = State) ->
@@ -61,12 +54,7 @@ handle(Msg, State) ->
     log:info("WARNING: ~p~n", [Msg]),
     State.
 
-rpc(Spec) ->
-    rpc(exo:need(rigol), Spec).
-rpc(Pid, Spec) ->
-    obj:call(Pid, {run, Spec}, 3000).
-
-%% Programs that communication with the devices through write and read
+%% Programs that communication with the device through write and read
 %% operations.
 program(W,R,idn) ->
     W("*IDN?\n"), {ok, R(line)};
@@ -77,12 +65,14 @@ program(W,R,disp_data) ->
     {ok, Data};
 program(W,R,wav_pre) ->
     W(":WAV:PRE?\n"), 
-    {ok, lists:zip(
-           [format,type,points,count,
-            xincrement,xorigin,xreference,
-            yincrement,yorigin,yreference],
-           lists:map(fun to_number/1,
-                     re:split(R(line),",")))};
+    {ok,
+     lists:zip(
+       [format,type,points,count,
+        xincrement,xorigin,xreference,
+        yincrement,yorigin,yreference],
+       lists:map(
+         fun to_number/1,
+         re:split(R(line),",")))};
 program(W,R,{wav_data,Chan,Start,Stop}) ->
     W([":WAV:SOUR CHAN",p(Chan),"\n"]),
     W([":WAV:MODE RAW\n"]),
@@ -97,13 +87,12 @@ program(_,_,Spec) ->
     {error, Spec}.
 
 
-p(T) ->
-    io_lib:format("~p",[T]).
-to_number(Bin) ->
-    try binary_to_float(Bin)
-    catch _:_ -> binary_to_integer(Bin) end.
-            
+%% user API
+cmd(Pid, Spec) ->
+    obj:call(Pid, {run, Spec}, 3000).
 
+
+%% connect with retry            
 connect(State,0) ->
     exit({error_connect, State});
 connect(State=#{tcp := {Host,Port}}, Tries) ->
@@ -147,10 +136,23 @@ read(Sock, flush) ->
 read(Sock, N) when is_integer(N) ->
     {ok, Data} = gen_tcp:recv(Sock, N),
     Data.
-            
-test({size,Spec}) ->
-    Data = rpc(Spec),
-    size(Data);
+
+%% miac tools
+p(T) ->
+    io_lib:format("~p",[T]).
+to_number(Bin) ->
+    try binary_to_float(Bin)
+    catch _:_ -> binary_to_integer(Bin) end.
+
+%% tests            
 test(Spec) ->
+    test(exo:need(rigol), Spec).
+test(P,{size,Spec}) ->
+    Data = cmd(P,Spec),
+    size(Data);
+test(P,snapshot) ->
+    {ok, Data} = cmd(P,disp_data),
+    file:write_file("/tmp/scope.bmp", Data);
+test(_,Spec) ->
     throw({?MODULE,bad_test_spec,Spec}).
 
