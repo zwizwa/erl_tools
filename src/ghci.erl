@@ -58,6 +58,7 @@ handle({run,Module,Function,AckString}, State0 = #{module := CurrentModule}) ->
             true  -> State0;
             false -> handle({load, Module}, State0)
         end,
+    log:info("run: ~p~n", [{Module,Function}]),
     LogBuf = maps:get(log_buf, State, fun log_buf/1),
     LogBuf(clear),
     handle(
@@ -151,4 +152,4 @@ call(Ghci, Module, Function, TimeOut) ->
     Pid = self(),
     Ref = erlang:make_ref(),
     Ghci ! {run_cont, Module, Function, fun() -> Pid ! Ref end},
-    receive Ref -> ok after TimeOut -> throw(timeout) end.
+    receive Ref -> ok after TimeOut -> {error, timeout} end.

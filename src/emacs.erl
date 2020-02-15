@@ -1,6 +1,7 @@
 -module(emacs).
 -export([revert/1, message/1,
          send_lisp/1,
+         send_lisp_sync/2,
          %% Internals
          lisp/1,
          connect/0,
@@ -27,6 +28,18 @@ send_lisp(Lisp) ->
     %% emacsclient_send_lisp(Lisp).
     ok.
 
+%% FIXME: Use proper rpc?
+%% FIXME: this only acks, doesn't return a value.
+send_lisp_sync(Lisp, Timeout) ->
+    Ref = erlang:make_ref(),
+    Pid = self(),
+    send_lisp(
+      ['progn',
+       Lisp,
+       ['erl-send',Pid,Ref]]),
+    receive Ref -> ok
+    after Timeout -> {error, timeout}
+    end.
 
 message(Bin) when is_binary(Bin) ->
     send_lisp(['message', Bin]);

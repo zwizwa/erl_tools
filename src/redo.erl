@@ -104,12 +104,12 @@ handle_outer(Msg, State = #{eval := Eval}) ->
             ok = obj:call(Eval, start_pull),
             obj:reply(Pid, {ok, parallel_eval(Eval, Outputs)}),
             State;
-        {Pid, {pull, Products}} ->
+        {Pid, {pull, Products}} when is_list(Products) ->
             obj:call(Eval, reload),
             ok = obj:call(Eval, start_pull),
             obj:reply(Pid, {ok, parallel_eval(Eval, Products)}),
             State;
-        {Pid, {push, Changed, NotChanged}} ->
+        {Pid, {push, Changed, NotChanged}} when is_list(Changed) and is_list(NotChanged)->
             %% Push is added as an optimization to prune the network.
             %% Pusher can supply information about changed/nochanged.
             %% Any missing information in NotChanged is polled from
