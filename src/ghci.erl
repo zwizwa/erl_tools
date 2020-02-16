@@ -75,15 +75,6 @@ handle({run,Module,Function,Arg,AckString}, State0 = #{module := CurrentModule})
           [Module, Function, Arg, AckString])]},
       State);
 
-%% Current module
-handle({run,Function,Arg,AckString}, State = #{ module := Module }) ->
-    handle({run,Module,Function,Arg,AckString}, State);
-
-%% Test always runs test in current module.
-handle(test,State) ->
-    AckString = maps:get(ack, State, ""),
-    handle({run, <<"test">>, "", AckString}, State);
-
 %% Run with Erlang continuation encoded in the ack string.
 handle({run_cont,Module,Function,Arg,Cont}, State) ->
     AckString = [$#, tools:hex(erlang:term_to_binary(Cont))],
@@ -151,7 +142,11 @@ dispatch_line(B, Line) ->
 %% timeouts.  When doing pass/fail it's possible to return anything
 %% really, so let it return a string instead.
 
+%% FIXME: Scrape error messages to avoid timeout.  They are fairly
+%% uniform, ending in ": error:"
+
 call(Ghci, Module, Function, Arg, TimeOut) ->
+    log:info("ghci:call ~999p~n", [{Module,Function,Arg,TimeOut}]),
     Pid = self(),
     Ref = erlang:make_ref(),
     Ghci ! {run_cont, Module, Function, Arg, fun() -> Pid ! Ref end},

@@ -184,7 +184,14 @@ handle({CallPid, {eval, Product}},
                 Deps = maps:get({deps, Product}, State, []),
                 spawn_link(
                   fun() -> 
-                          log:set_info_name(Product),
+                          LogName =
+                              case Product of
+                                  {Ext,BaseName,_Path} ->
+                                      {Ext,BaseName};
+                                  _ ->
+                                      Product
+                              end,
+                          log:set_info_name({redo,LogName}),
                           worker(RedoPid, Product, UpdateFun, Deps) end
                  ),
                 maps:put({phase, Product}, {waiting, [CallPid]}, State)
@@ -246,7 +253,8 @@ handle({Pid,{find_file,RelPath}}, State = #{dir := Dir}) ->
 handle({Pid, start_pull}, State) ->
     obj:reply(Pid, ok),
     maps:filter(
-      fun({phase, _}, _) -> false; (_,_) -> true end,
+      fun({phase, _}, _) -> false;
+         (_,_) -> true end,
       State);
 
 %% Same, but for a push run.  In this case we know what changed and
@@ -273,6 +281,8 @@ handle({Pid, {start_push, Changed, NotChanged}}, State0) ->
           fun(C, S) -> maps:put({phase,C}, {changed, true}, S) end,
           State2, Changed),
     State3;
+
+
 
 %% Get the dependencies in a form compatible with depgraph.erl
 %% Inverted dependencies are cached.  Not quite sure if that is really
@@ -353,16 +363,18 @@ worker(RedoPid, Product, Update, OldDeps) ->
                 #{ {phase, Product} => {changed, false} };
             true ->
                 {Changed, NewDepsUnsorted} = 
-                    try
-                        log:info("update~n"),
-                        Update(RedoPid)
+                    try Update(RedoPid)
                     catch C:E ->
                             ST = erlang:get_stacktrace(),
                             log:info("WARNING: ~p failed:~n~p~n~p~n", 
                                      [Product,{C,E},ST]),
-                            {false,[]}
+                            {error,[]}
                     end,
-                debug("worker: update changed: ~p~n", [Changed]),
+                case Changed of
+                    false -> ok;
+                    true  -> log:info("changed~n");
+                    error -> log:info("error~n")
+                end,
                 NewDeps = tools:unique(NewDepsUnsorted),
                 %% Special-case the happy path.  Keeping track of dep
                 %% graph changes allows caching the inverted dep graph
