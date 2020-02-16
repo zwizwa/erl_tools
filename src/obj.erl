@@ -113,7 +113,7 @@ wait_reply({Tagged, Pid, Req, Timeout, Warn, Ref}=Env) ->
 
 call(Obj, Req, {warn, Timeout}) ->
     call(Obj, Req, Timeout,
-         fun() -> tools:info("WARNING: obj:call(~p,~p) busy.~n", [Obj, Req])  end);
+         fun() -> tools:info("WARNING: obj:call(~999p,~999p) busy.~n", [Obj, Req])  end);
     
 call(Obj, Req, Timeout)  ->
     call(Obj, Req, Timeout,

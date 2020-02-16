@@ -1,27 +1,33 @@
 %% Wrapper for ghci.
 %% See also ghcid.erl
 
+%% Notes
 
-%% NIH: Building what I actually need, instead of trying to shoe-horn
-%% ghcid into exo.  I already have file change notifications, so just
-%% need simple reload and test run.
-
-%% The module is stateful: there is an idea of a "current" module that
-%% exposes a "test" function.
-
-%% GHCI output is dumped in the Erlang console log.  This is
-%% asynchronous only. Any other synchronization will need to be built
-%% externally using Haskell->Erlang message path.
-
-
-%% FIXME:
-%% - Look into ghcide
+%% - NIH: Building what I actually need, instead of trying to shoe-horn
+%%   ghcid into exo.  I already have file change notifications, so just
+%%   need simple reload and test run.
 %%
-%% - Since ghci is stateful, add a queue for rpcs or provide a monitor
-%%   process
+%% - The proper way to do this is to move to ghcide.
+%%
+%% - The module is stateful: there is an idea of a "current" module
+%%   that exposes a "test" function.
+%%
+%% - GHCI output can be redirected to a "buffer", which implements a
+%%   'clear' and {'line',Line} 
+%%
+%% - Ad-hoc synchronization can be used by reading an AckString from
+%%   the log.  The '#' character is used for encoding Erlang
+%%   continuations as hex-encoded binary terms.
+%%
+%% - Data exchange should go over a side channel.  Since this is used
+%%   in redo scripts, it seems simplest to just communicate through
+%%   files.  E.g. pass in/out file as parameters, and use the
+%%   AckString for synchronization.
+%%
+
 
 -module(ghci).
--export([start_link/1, handle/2, call/4]).
+-export([start_link/1, handle/2, call/5]).
 
 start_link(#{ ghci_cmd := Cmd, module := Module } = Config) ->
     {ok,
@@ -52,7 +58,7 @@ handle({load, Module}, State) ->
 %% - Ensure the correct module is loaded
 %% - Ensure an ack that the caller can use to sync or timeout on.
 %% This way it is still possible to have multiple calls in flight.
-handle({run,Module,Function,AckString}, State0 = #{module := CurrentModule}) ->
+handle({run,Module,Function,Arg,AckString}, State0 = #{module := CurrentModule}) ->
     State =
         case Module == CurrentModule of
             true  -> State0;
@@ -65,31 +71,28 @@ handle({run,Module,Function,AckString}, State0 = #{module := CurrentModule}) ->
       {cmds,
        [":reload",
         tools:format(
-          "do ~s.~s ; Prelude.putStrLn \"\\n~s\"",
-          [Module, Function, AckString])]},
+          "do ~s.~s ~s; Prelude.putStrLn \"\\n~s\"",
+          [Module, Function, Arg, AckString])]},
       State);
 
 %% Current module
-handle({run,Function,AckString}, State = #{ module := Module }) ->
-    handle({run,Module,Function,AckString}, State);
+handle({run,Function,Arg,AckString}, State = #{ module := Module }) ->
+    handle({run,Module,Function,Arg,AckString}, State);
 
 %% Test always runs test in current module.
 handle(test,State) ->
     AckString = maps:get(ack, State, ""),
-    handle({run, <<"test">>, AckString}, State);
+    handle({run, <<"test">>, "", AckString}, State);
 
 %% Run with Erlang continuation encoded in the ack string.
-handle({run_cont,Module,Function,Cont}, State) ->
+handle({run_cont,Module,Function,Arg,Cont}, State) ->
     AckString = [$#, tools:hex(erlang:term_to_binary(Cont))],
-    handle({run,Module,Function,AckString}, State);
+    handle({run,Module,Function,Arg,AckString}, State);
 
-%% Request a file to be built.  This uses the ExoFile mechanism.  It
-%% might be simpler to run two instances, one to set up the file
-%% server, and the other to run ad hoc tests.  For now, assume ExoTest
-%% is running and has the ExoFile functionality.  Additionally, a
-%% proper ack mechanism is necessary.  Maybe just put a term in the
-%% ack string and be done with it.  Let's do that first.
-
+%% Data coming from ghci gets chopped into lines and passed to a
+%% log_buf.  Mostly modeled after emacs buffer: supports append lines
+%% + buffer clear.  Line framing is used to be able to easily encode
+%% some in-band data.
 handle({Port, {data, Data}}, #{ port := Port } = State) ->
     LogBuf = maps:get(log_buf, State, fun log_buf/1),
     Buf = maps:get(buf, State, []),
@@ -148,8 +151,8 @@ dispatch_line(B, Line) ->
 %% timeouts.  When doing pass/fail it's possible to return anything
 %% really, so let it return a string instead.
 
-call(Ghci, Module, Function, TimeOut) ->
+call(Ghci, Module, Function, Arg, TimeOut) ->
     Pid = self(),
     Ref = erlang:make_ref(),
-    Ghci ! {run_cont, Module, Function, fun() -> Pid ! Ref end},
+    Ghci ! {run_cont, Module, Function, Arg, fun() -> Pid ! Ref end},
     receive Ref -> ok after TimeOut -> {error, timeout} end.

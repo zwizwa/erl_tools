@@ -3,7 +3,7 @@
          push/3, push/2,
          start_link/1, handle_outer/2, handle/2,
          file_changed/3,
-         read_file/2, is_regular/2,
+         read_file/2, write_file/3, is_regular/2,
          from_filename/1, to_filename/1,
          update_rule/3, update_file/1,
          run/2,
@@ -51,6 +51,8 @@
 %% the Erlang code, we just provide an environment in which an
 %% abstract imperative obdate is legal.
 
+
+
 debug(_F,_As) ->
     %% log:info(_F,_As),
     ok.
@@ -59,11 +61,11 @@ debug(_F,_As) ->
 
 %% Main entry point.  See test(ex1) below.
 pull(Pid, Products) ->
-    obj:call(Pid, {pull, Products}, 6124).
+    obj:call(Pid, {pull, Products}, infinity).
 
 %% Trigger update of dependent products from external change notification
 push(Pid, Changed, NotChanged) ->
-    obj:call(Pid, {push, Changed, NotChanged}, 6123).
+    obj:call(Pid, {push, Changed, NotChanged}, infinity).
 %% Providing NotChanged is just an optimization.  Not filling those in
 %% will let the network determine change statuse.
 push(Pid, Changed) ->
@@ -192,8 +194,8 @@ handle({CallPid, {eval, Product}},
                     %% crashes.  Print a warning instead.  Solve this
                     %% properly later.
                     log:info("WARNING: update failed: ~p:~n~p~n", [Product, {C,E}]),
-                    maps:put({phase, Product}, {changed, false}, State),
-                    obj:reply(CallPid, false),
+                    maps:put({phase, Product}, {changed, error}, State),
+                    obj:reply(CallPid, error),
                     State
             end
     end;
@@ -355,8 +357,9 @@ worker(RedoPid, Product, Update, OldDeps) ->
                         log:info("update~n"),
                         Update(RedoPid)
                     catch C:E ->
-                            log:info("WARNING: ~p failed: ~p~n", 
-                                     [Product,{C,E}]),
+                            ST = erlang:get_stacktrace(),
+                            log:info("WARNING: ~p failed:~n~p~n~p~n", 
+                                     [Product,{C,E},ST]),
                             {false,[]}
                     end,
                 debug("worker: update changed: ~p~n", [Changed]),
@@ -383,17 +386,19 @@ worker(RedoPid, Product, Update, OldDeps) ->
              
 
 
-
+%% Any error -> error, any change -> changed.
+changed(ChangeList) ->
+    case lists:member(error, ChangeList) of
+        true  -> error;
+        false -> lists:member(true, ChangeList)
+    end.
 
 %% Also called "ifchange".
 need(RedoPid, Deps) ->
-    DepsUpdated = parallel_eval(RedoPid, Deps),
-    Affected =
-        lists:any(
-          fun(Updated)-> Updated end,
-          maps:values(DepsUpdated)),
-    debug("need: ~p~n",[{Affected,DepsUpdated}]),
-    Affected.
+    Prod2Changed = parallel_eval(RedoPid, Deps),
+    Changed = changed(maps:values(Prod2Changed)),
+    debug("need: ~p~n",[{Changed,Prod2Changed}]),
+    Changed.
 
 parallel_eval(RedoPid, Products) ->
     tools:pmap(
@@ -500,6 +505,10 @@ gcc_deps(Bin0) ->
 read_file(RedoPid, RelPath) ->
     {ok, AbsPath} = obj:call(RedoPid, {find_file, RelPath}),
     file:read_file(AbsPath).
+
+write_file(RedoPid, RelPath, Bin) ->
+    {ok, AbsPath} = obj:call(RedoPid, {find_file, RelPath}),
+    file:write_file(AbsPath, Bin).
 
 is_regular(RedoPid, RelPath) ->
     {ok, AbsPath} = obj:call(RedoPid, {find_file, RelPath}),
