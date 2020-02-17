@@ -4,8 +4,8 @@
          start_link/1, handle_outer/2, handle/2,
          file_changed/3,
          read_file/2, write_file/3, is_regular/2,
-         from_filename/1, to_filename/1,
-         update_rule/3, update_file/1,
+         from_filename/1, to_filename/1, to_directory/1,
+         update_make/3, update_file/1,
          run/2,
          gcc_deps/1,
          import/1,
@@ -34,7 +34,9 @@
 %% - Transaction interface: each "pull" conceptually corresponds to a
 %%   single moment in time.
 %%
-%% - A bolted on "push" interface.
+
+%% Additionally, it has a bolted on "push" interface, which in
+%% practice doesn't seem to be so easy to use.
 
 
 %% So what is the trick here?  What makes the redo approach different
@@ -184,14 +186,7 @@ handle({CallPid, {eval, Product}},
                 Deps = maps:get({deps, Product}, State, []),
                 spawn_link(
                   fun() -> 
-                          LogName =
-                              case Product of
-                                  {Ext,BaseName,_Path} ->
-                                      {Ext,BaseName};
-                                  _ ->
-                                      Product
-                              end,
-                          log:set_info_name({redo,LogName}),
+                          log:set_info_name({redo,Product}),
                           worker(RedoPid, Product, UpdateFun, Deps) end
                  ),
                 maps:put({phase, Product}, {waiting, [CallPid]}, State)
@@ -200,7 +195,8 @@ handle({CallPid, {eval, Product}},
                     %% Don't bring down redo when the update function
                     %% crashes.  Print a warning instead.  Solve this
                     %% properly later.
-                    log:info("WARNING: update failed: ~p:~n~p~n", [Product, {C,E}]),
+                    log:info("WARNING: update failed: ~p:~n~p~n~p~n", 
+                             [Product, {C,E}, erlang:get_stacktrace()]),
                     maps:put({phase, Product}, {changed, error}, State),
                     obj:reply(CallPid, error),
                     State
@@ -241,8 +237,13 @@ handle({Pid,{set,Tag,Val}}, State) ->
 %% We provide file access relative to a "working directory" shared by
 %% all update scripts.  Keep this abstract so it is easy to change
 %% later.
-handle({Pid,{find_file,RelPath}}, State = #{dir := Dir}) ->
-    obj:reply(Pid, {ok, tools:format("~s/~s",[Dir,RelPath])}),
+handle({Pid,{find_file,Path}}, State = #{dir := Dir}) ->
+    RvPath =
+        case Path of
+            [$/|_]=AbsPath -> AbsPath;
+            _ -> tools:format("~s/~s",[Dir,Path])
+        end,
+    obj:reply(Pid, {ok, RvPath}),
     State;
 
     
@@ -359,8 +360,6 @@ worker(RedoPid, Product, Update, OldDeps) ->
     %% It's simplest to compute the state update here.
     PhaseUpdate =
         case Affected of
-            false ->
-                #{ {phase, Product} => {changed, false} };
             true ->
                 {Changed, NewDepsUnsorted} = 
                     try Update(RedoPid)
@@ -389,7 +388,10 @@ worker(RedoPid, Product, Update, OldDeps) ->
                         #{{phase, Product} => {changed, Changed},
                           {deps,  Product} => NewDeps,
                           inv_deps         => invalid}
-                end
+                end;
+            %% false, error
+            _ ->
+                #{ {phase, Product} => {changed, Affected} }
         end,
     RedoPid ! {worker_done, Product, PhaseUpdate},
     ok.
@@ -450,10 +452,11 @@ import(Path) ->
 %% known before the rule is running.  It resembles 'make' rules.  We
 %% split it up in two parts: rule lookup and script lookup.
 
-%% FIXME: Decouple from shell assumption.  Maybe split off redo_shell
-%% library?
+%% In addition, this lets all actuons go through run/2, which in
+%% addition adds logging to console and (later) logging of Shell
+%% scripts etc.
 
-update_rule(Rule, Build, Target) ->
+update_make(Rule, Build, Target) ->
     {Deps, ScriptSpec} = Rule(Target),
     fun(RedoPid) ->
             RunSpec = Build(ScriptSpec),
@@ -500,23 +503,33 @@ from_filename(IOList) ->
 
 %% E.g. {c,<<"dht11">>=BaseName,[]=Path}
 %% Symbol tags can be multiple.
+to_directory(Dirs) ->
+    tools:format("~s",[[[Dir,"/"] || Dir <- lists:reverse(Dirs)]]).
 to_filename(Tuple) ->
     [Dirs,BaseName|Tags] = lists:reverse(tuple_to_list(Tuple)),
-    Path = [[Dir,"/"] || Dir <- lists:reverse(Dirs)],
+    Path = to_directory(Dirs),
     Ext  = [[".",type:encode({pterm,Tag})] || Tag <- Tags],
     tools:format("~s",[[Path,BaseName,Ext]]).
 
-%% FIXME: This probably doesn't work with spaces in names.
+%% FIXME: This probably doesn't work with spaces in names.  Actually
+%% think about this and clean it up.
 gcc_deps(Bin0) ->
     Bin1 = re:replace(Bin0, "^.*: ", ""),
     Bin2 = re:replace(Bin1, "\\n$", ""),
-    Bin3 = re:replace(Bin2, " \\\\\n", "", [global]),
-    List = re:split(Bin3, " "),
+    Bin3 = re:replace(Bin2, " ?\\\\\n", "", [global]),
+    List = lists:filter(
+             fun(<<>>) -> false; (_) -> true end,
+             re:split(Bin3, " +")),
+    %% log:info("gcc_deps: ~p~n",[List]),
     lists:map(fun from_filename/1, List).
 
 read_file(RedoPid, RelPath) ->
     {ok, AbsPath} = obj:call(RedoPid, {find_file, RelPath}),
     file:read_file(AbsPath).
+
+read_file_info(RedoPid, RelPath) ->
+    {ok, AbsPath} = obj:call(RedoPid, {find_file, RelPath}),
+    file:read_file_info(AbsPath).
 
 write_file(RedoPid, RelPath, Bin) ->
     {ok, AbsPath} = obj:call(RedoPid, {find_file, RelPath}),
@@ -530,31 +543,58 @@ is_regular(RedoPid, RelPath) ->
 %% possible.  I currently see two ways to do this: filesystem
 %% timestamp or file hash, and file hash seems more general.  See also
 %% 'updated' case in handle/2 which is needed to prime the table.
-file_changed(RedoPid, Product, RelPath, Stamp) ->
+file_changed(RedoPid, Product, RelPath) ->
     %% Needs to go outside of next call to avoid re-entry.
-    case read_file(RedoPid, RelPath) of
-        {ok, Bin} ->
-            New = Stamp(Bin),
-            MaybeOld = obj:call(RedoPid, {set_stamp, Product, New}),
-            Changed = {ok, New} /= MaybeOld,
+    case read_file_info(RedoPid, RelPath) of
+        {ok,{file_info,_,_,_,
+             _Atime,
+             Mtime,
+             _CTime,
+             _,_,_,_,_,_,_}} ->
+            MaybeOld = obj:call(RedoPid, {set_stamp, Product, Mtime}),
+            Changed = {ok, Mtime} /= MaybeOld,
             %% debug("file_changed ~p~n", [{Product, RelPath, Changed, New, MaybeOld}]),
             Changed;
         Error ->
-            throw({redo_file_changed, Product, RelPath, Error})
+            log:info("~p~n",[{redo_file_changed, Product, RelPath, Error}]),
+            error
     end.
 
-%% Default is md5 hash.
-file_changed(RedoPid, Product, RelPath) ->
-    file_changed(RedoPid, Product, RelPath,
-                 fun(Bin) ->
-                         tools:hex(crypto:hash(md5, Bin))
-                 end).
+%% Hashes are slow and also do not capture the "void event" which is
+%% quite useful in case the output of the network is something
+%% happening, and not just a value change effect.
+%%
+%% file_changed_md5(RedoPid, Product, RelPath, Stamp) ->
+%%     %% Needs to go outside of next call to avoid re-entry.
+%%     case read_file(RedoPid, RelPath) of
+%%         {ok, Bin} ->
+%%             New = Stamp(Bin),
+%%             MaybeOld = obj:call(RedoPid, {set_stamp, Product, New}),
+%%             Changed = {ok, New} /= MaybeOld,
+%%             %% debug("file_changed ~p~n", [{Product, RelPath, Changed, New, MaybeOld}]),
+%%             Changed;
+%%         Error ->
+%%             throw({redo_file_changed, Product, RelPath, Error})
+%%     end.
+%%
+%% file_changed(RedoPid, Product, RelPath) ->
+%%     file_changed(RedoPid, Product, RelPath,
+%%                  fun(Bin) ->
+%%                          tools:hex(crypto:hash(md5, Bin))
+%%                  end).
                          
 
 %% Generic build command dispatch.
+
+run(RedoPid, {mfa, _MFA={M,F,A}}) ->
+    %% FIXME: This case is here to later add logging, such that logs
+    %% can be fairly high level.
+    %% log:info("run:~n~p~n",[_MFA]),
+    run(RedoPid, apply(M,F,A));
+
 run(RedoPid, {bash, Cmds}) ->
     {ok, Dir} = obj:call(RedoPid, {find_file, ""}),
-    log:info("run: ~s~n", [Cmds]),
+    %% log:info("run: bash: ~s~n", [Cmds]),
     run:fold_script(
       tools:format("bash -c 'cd ~s ; ~s'", [Dir, Cmds]), 
       fun({data,{eol,Line}}, Lines) ->

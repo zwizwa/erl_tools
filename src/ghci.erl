@@ -143,7 +143,8 @@ dispatch_line(B, Line) ->
 %% really, so let it return a string instead.
 
 %% FIXME: Scrape error messages to avoid timeout.  They are fairly
-%% uniform, ending in ": error:"
+%% uniform, ending in ": error:" Note that that would give
+%% multiple acks, so it needs to be stateful.
 
 call(Ghci, Module, Function, Arg, TimeOut) ->
     log:info("ghci:call ~999p~n", [{Module,Function,Arg,TimeOut}]),
