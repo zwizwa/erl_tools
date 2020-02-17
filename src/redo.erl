@@ -5,7 +5,7 @@
          file_changed/3,
          read_file/2, write_file/3, is_regular/2,
          from_filename/1, to_filename/1, to_directory/1,
-         update_make/3, update_file/1,
+         update_using/2, update_file/1,
          run/2,
          gcc_deps/1,
          import/1,
@@ -182,12 +182,12 @@ handle({CallPid, {eval, Product}},
             %% decide what to do.
             try
                 UpdateFun = ProductToUpdateFun(Product),
-                RedoPid = self(),
+                Eval = self(),
                 Deps = maps:get({deps, Product}, State, []),
                 spawn_link(
                   fun() -> 
                           log:set_info_name({redo,Product}),
-                          worker(RedoPid, Product, UpdateFun, Deps) end
+                          worker(Eval, Product, UpdateFun, Deps) end
                  ),
                 maps:put({phase, Product}, {waiting, [CallPid]}, State)
             catch
@@ -195,7 +195,7 @@ handle({CallPid, {eval, Product}},
                     %% Don't bring down redo when the update function
                     %% crashes.  Print a warning instead.  Solve this
                     %% properly later.
-                    log:info("WARNING: update failed: ~p:~n~p~n~p~n", 
+                    log:info("WARNING: update failed:~n~p:~n~p~n~p~n", 
                              [Product, {C,E}, erlang:get_stacktrace()]),
                     maps:put({phase, Product}, {changed, error}, State),
                     obj:reply(CallPid, error),
@@ -255,6 +255,7 @@ handle({Pid, start_pull}, State) ->
     obj:reply(Pid, ok),
     maps:filter(
       fun({phase, _}, _) -> false;
+         (log, _) -> false;
          (_,_) -> true end,
       State);
 
@@ -321,6 +322,10 @@ handle({Pid, {affected, InputProducts}}, State) ->
             State
     end;
 
+%% Asynchronous log message.
+handle({log_append,Item}, State) ->
+    maps:put(log, [Item|maps:get(log, State, [])], State);
+
 %% Allow some read only access for internal use.
 handle({_,{find,_}}=Msg, State) -> obj:handle(Msg, State);
 handle({_,dump}=Msg, State)     -> obj:handle(Msg, State);
@@ -349,12 +354,12 @@ load_config(From, State) ->
 
 
 %% Worker process responsible of producing the target.
-worker(RedoPid, Product, Update, OldDeps) ->
+worker(Eval, Product, Update, OldDeps) ->
     %% need/2 will cause parallel eval of the dependencies.
     Affected =
         case OldDeps of
             [] -> true; %% First run or polling
-            _  -> need(RedoPid, OldDeps)
+            _  -> need(Eval, OldDeps)
         end,
     debug("~p: need update: ~p~n", [Product, Affected]),
     %% It's simplest to compute the state update here.
@@ -362,11 +367,11 @@ worker(RedoPid, Product, Update, OldDeps) ->
         case Affected of
             true ->
                 {Changed, NewDepsUnsorted} = 
-                    try Update(RedoPid)
+                    try Update(Eval)
                     catch C:E ->
                             ST = erlang:get_stacktrace(),
-                            log:info("WARNING: ~p failed:~n~p~n~p~n", 
-                                     [Product,{C,E},ST]),
+                            log:info("WARNING:failed:~n~p~n~p~n", 
+                                     [{C,E},ST]),
                             {error,[]}
                     end,
                 case Changed of
@@ -384,7 +389,7 @@ worker(RedoPid, Product, Update, OldDeps) ->
                         #{{phase, Product} => {changed, Changed}};
                     false ->
                         debug("worker: deps changed: ~p~n", [{OldDeps,NewDeps}]),
-                        _ = need(RedoPid, NewDeps),
+                        _ = need(Eval, NewDeps),
                         #{{phase, Product} => {changed, Changed},
                           {deps,  Product} => NewDeps,
                           inv_deps         => invalid}
@@ -393,7 +398,7 @@ worker(RedoPid, Product, Update, OldDeps) ->
             _ ->
                 #{ {phase, Product} => {changed, Affected} }
         end,
-    RedoPid ! {worker_done, Product, PhaseUpdate},
+    Eval ! {worker_done, Product, PhaseUpdate},
     ok.
 
 
@@ -408,15 +413,15 @@ changed(ChangeList) ->
     end.
 
 %% Also called "ifchange".
-need(RedoPid, Deps) ->
-    Prod2Changed = parallel_eval(RedoPid, Deps),
+need(Eval, Deps) ->
+    Prod2Changed = parallel_eval(Eval, Deps),
     Changed = changed(maps:values(Prod2Changed)),
     debug("need: ~p~n",[{Changed,Prod2Changed}]),
     Changed.
 
-parallel_eval(RedoPid, Products) ->
+parallel_eval(Eval, Products) ->
     tools:pmap(
-      fun(P) -> obj:call(RedoPid, {eval, P}) end,
+      fun(P) -> obj:call(Eval, {eval, P}) end,
       Products).
     
 
@@ -433,8 +438,8 @@ parallel_eval(RedoPid, Products) ->
 %% scripts in such a way to properly guard imperative updates like
 %% these.
 
-set(RedoPid, Tag, Val)    -> obj:call(RedoPid, {set,Tag,Val}).
-get(RedoPid, Tag)         -> obj:call(RedoPid, {get,Tag}).
+set(Eval, Tag, Val)    -> obj:call(Eval, {set,Tag,Val}).
+get(Eval, Tag)         -> obj:call(Eval, {get,Tag}).
 
 
 
@@ -448,35 +453,14 @@ import(Path) ->
 
 %% Special kinds of update routines
 
-%% This is a nice abstraction on top of redo if the dependencies are
-%% known before the rule is running.  It resembles 'make' rules.  We
-%% split it up in two parts: rule lookup and script lookup.
-
-%% In addition, this lets all actuons go through run/2, which in
-%% addition adds logging to console and (later) logging of Shell
-%% scripts etc.
-
-update_make(Rule, Build, Target) ->
-    {Deps, ScriptSpec} = Rule(Target),
-    fun(RedoPid) ->
-            RunSpec = Build(ScriptSpec),
-            redo:need(RedoPid, Deps),
-            %% At this point, inputs are available and we can execute
-            %% the shell code.  FIXME: This
-            debug("RUN: ~s~n", [RunSpec]),
-            case run(RedoPid, RunSpec) of
-                {ok, {0, _Out}} ->
-                    {true, Deps};
-                Err ->
-                    throw(Err)
-            end
-    end.
+update_using(Deps, Body) ->
+    fun(Redo) -> redo:need(Redo, Deps), Body(Redo), {true, Deps} end.
 
 update_file(Target) ->
     File = redo:to_filename(Target),
-    fun(RedoPid) ->
+    fun(Eval) ->
             debug("c: ~p~n", [Target]),
-            {redo:file_changed(RedoPid, Target, File), []}
+            {redo:file_changed(Eval, Target, File), []}
     end.
 
 
@@ -523,35 +507,35 @@ gcc_deps(Bin0) ->
     %% log:info("gcc_deps: ~p~n",[List]),
     lists:map(fun from_filename/1, List).
 
-read_file(RedoPid, RelPath) ->
-    {ok, AbsPath} = obj:call(RedoPid, {find_file, RelPath}),
+read_file(Eval, RelPath) ->
+    {ok, AbsPath} = obj:call(Eval, {find_file, RelPath}),
     file:read_file(AbsPath).
 
-read_file_info(RedoPid, RelPath) ->
-    {ok, AbsPath} = obj:call(RedoPid, {find_file, RelPath}),
+read_file_info(Eval, RelPath) ->
+    {ok, AbsPath} = obj:call(Eval, {find_file, RelPath}),
     file:read_file_info(AbsPath).
 
-write_file(RedoPid, RelPath, Bin) ->
-    {ok, AbsPath} = obj:call(RedoPid, {find_file, RelPath}),
+write_file(Eval, RelPath, Bin) ->
+    {ok, AbsPath} = obj:call(Eval, {find_file, RelPath}),
     file:write_file(AbsPath, Bin).
 
-is_regular(RedoPid, RelPath) ->
-    {ok, AbsPath} = obj:call(RedoPid, {find_file, RelPath}),
+is_regular(Eval, RelPath) ->
+    {ok, AbsPath} = obj:call(Eval, {find_file, RelPath}),
     filelib:is_regular(AbsPath).
 
 %% I would like to keep the "changed" predicate as abstract as
 %% possible.  I currently see two ways to do this: filesystem
 %% timestamp or file hash, and file hash seems more general.  See also
 %% 'updated' case in handle/2 which is needed to prime the table.
-file_changed(RedoPid, Product, RelPath) ->
+file_changed(Eval, Product, RelPath) ->
     %% Needs to go outside of next call to avoid re-entry.
-    case read_file_info(RedoPid, RelPath) of
+    case read_file_info(Eval, RelPath) of
         {ok,{file_info,_,_,_,
              _Atime,
              Mtime,
              _CTime,
              _,_,_,_,_,_,_}} ->
-            MaybeOld = obj:call(RedoPid, {set_stamp, Product, Mtime}),
+            MaybeOld = obj:call(Eval, {set_stamp, Product, Mtime}),
             Changed = {ok, Mtime} /= MaybeOld,
             %% debug("file_changed ~p~n", [{Product, RelPath, Changed, New, MaybeOld}]),
             Changed;
@@ -564,12 +548,12 @@ file_changed(RedoPid, Product, RelPath) ->
 %% quite useful in case the output of the network is something
 %% happening, and not just a value change effect.
 %%
-%% file_changed_md5(RedoPid, Product, RelPath, Stamp) ->
+%% file_changed_md5(Eval, Product, RelPath, Stamp) ->
 %%     %% Needs to go outside of next call to avoid re-entry.
-%%     case read_file(RedoPid, RelPath) of
+%%     case read_file(Eval, RelPath) of
 %%         {ok, Bin} ->
 %%             New = Stamp(Bin),
-%%             MaybeOld = obj:call(RedoPid, {set_stamp, Product, New}),
+%%             MaybeOld = obj:call(Eval, {set_stamp, Product, New}),
 %%             Changed = {ok, New} /= MaybeOld,
 %%             %% debug("file_changed ~p~n", [{Product, RelPath, Changed, New, MaybeOld}]),
 %%             Changed;
@@ -577,8 +561,8 @@ file_changed(RedoPid, Product, RelPath) ->
 %%             throw({redo_file_changed, Product, RelPath, Error})
 %%     end.
 %%
-%% file_changed(RedoPid, Product, RelPath) ->
-%%     file_changed(RedoPid, Product, RelPath,
+%% file_changed(Eval, Product, RelPath) ->
+%%     file_changed(Eval, Product, RelPath,
 %%                  fun(Bin) ->
 %%                          tools:hex(crypto:hash(md5, Bin))
 %%                  end).
@@ -586,14 +570,16 @@ file_changed(RedoPid, Product, RelPath) ->
 
 %% Generic build command dispatch.
 
-run(RedoPid, {mfa, _MFA={M,F,A}}) ->
-    %% FIXME: This case is here to later add logging, such that logs
-    %% can be fairly high level.
-    %% log:info("run:~n~p~n",[_MFA]),
-    run(RedoPid, apply(M,F,A));
+%% This is for running external commands.  It builds a trace log
+%% useful for debugging and generating executable build traces.
+%% FIXME: Also add throttling here, e.g. to limit parallellism.
+run(Eval, {mfa, MFA={M,F,A}}) ->
+    Eval ! {log_append, MFA},
+    run_(Eval, apply(M,F,A)).
 
-run(RedoPid, {bash, Cmds}) ->
-    {ok, Dir} = obj:call(RedoPid, {find_file, ""}),
+%% Raw bash command
+run_(Eval, {bash, Cmds}) ->
+    {ok, Dir} = obj:call(Eval, {find_file, ""}),
     %% log:info("run: bash: ~s~n", [Cmds]),
     run:fold_script(
       tools:format("bash -c 'cd ~s ; ~s'", [Dir, Cmds]), 
