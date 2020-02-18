@@ -62,21 +62,21 @@ debug(_F,_As) ->
 %% -------- CORE
 
 %% Main entry point.  See test(ex1) below.
-pull(Pid, Products) ->
-    obj:call(Pid, {pull, Products}, infinity).
+pull(Redo, Products) ->
+    obj:call(Redo, {pull, Products}, infinity).
 
 %% Trigger update of dependent products from external change notification
-push(Pid, Changed, NotChanged) ->
-    obj:call(Pid, {push, Changed, NotChanged}, infinity).
+push(Redo, Changed, NotChanged) ->
+    obj:call(Redo, {push, Changed, NotChanged}, infinity).
 %% Providing NotChanged is just an optimization.  Not filling those in
 %% will let the network determine change statuse.
-push(Pid, Changed) ->
-    push(Pid, Changed, []).
+push(Redo, Changed) ->
+    push(Redo, Changed, []).
 
 
 %% For products that are Erlang values, update and return the value.
-get(Pid, Product) ->
-    obj:call(Pid, {get, Product}, infinity).
+get(Redo, Product) ->
+    obj:call(Redo, {get, Product}, infinity).
 
 %% Several calls against the evaluator will be performed during
 %% evaluation of the network.  The task of this monitor process is to
@@ -90,7 +90,6 @@ start_link(Spec) when is_map(Spec)  ->
 start_link(From) ->
     log:info("loading from: ~p~n", [From]),
     start_link(load_config(From,#{ config => From })).
-
 
 
 handle_outer(Msg, State = #{eval := Eval}) ->
@@ -199,12 +198,19 @@ handle({CallPid, {eval, Product}},
                 UpdateFun = ProductToUpdateFun(Product),
                 Eval = self(),
                 Deps = maps:get({deps, Product}, State, []),
-                spawn_link(
-                  fun() -> 
-                          log:set_info_name({redo,Product}),
-                          worker(Eval, Product, UpdateFun, Deps) end
-                 ),
-                maps:put({phase, Product}, {waiting, [CallPid]}, State)
+                Worker =
+                    spawn_link(
+                      fun() -> 
+                              log:set_info_name({redo,Product}),
+                              worker(Eval, Product, UpdateFun, Deps) end
+                     ),
+                %% We require that need/2 is only called from a worker
+                %% process.  Enforce it by initializing {need,[]} here
+                %% and using 'get' at the track_need handler.
+                maps:merge(
+                  State,
+                  #{{phase, Product} => {waiting, [CallPid]},
+                    {need, Worker} => #{}})
             catch
                 C:E ->
                     %% Don't bring down redo when the update function
@@ -217,6 +223,24 @@ handle({CallPid, {eval, Product}},
                     State
             end
     end;
+
+%% Every need/2 call registers what was needed by user.
+handle({Pid, {worker_needs, Deps}}, State) ->
+    obj:reply(Pid, ok),
+    case maps:find({need, Pid}, State) of
+        {ok, OldDeps} ->
+            maps:put(
+              {need, Pid},
+              lists:foldr(
+                fun(D, Ds) -> maps:put(D, true, Ds) end,
+                OldDeps, Deps),
+              State);
+        error ->
+            throw({need_from_non_worker, Pid, Deps})
+    end;
+handle({Pid, worker_deps}, State) ->
+    obj:reply(Pid, maps:keys(maps:get({need,Pid}, State))),
+    maps:remove({need, Pid}, State);
 
 
 %% Insert update computed by worker and notify waiters.
@@ -386,12 +410,10 @@ worker(Eval, Product, Update, OldDeps) ->
                 %% build rule has a runtime or type error.
                 {Changed, NewDepsUnsorted} = 
                     try
-                        case Update(Eval) of
-                            {Ch=true, D} when is_list(D) -> {Ch,D};
-                            {Ch=false,D} when is_list(D) -> {Ch,D};
-                            {Ch=error,D} when is_list(D) -> {Ch,D};
-                            Rv -> throw({bad_update_rv,Product,Rv})
-                        end
+                        Ch = Update(Eval),
+                        true = lists:member(Ch,[true,false,error]),
+                        Ds = obj:call(Eval, worker_deps),
+                        {Ch,Ds}
                     catch C:E ->
                             ST = erlang:get_stacktrace(),
                             log:info("WARNING:failed:~n~p~n~p~n", 
@@ -413,7 +435,7 @@ worker(Eval, Product, Update, OldDeps) ->
                         #{{phase, Product} => {changed, Changed}};
                     false ->
                         debug("worker: deps changed: ~p~n", [{OldDeps,NewDeps}]),
-                        _ = need(Eval, NewDeps),
+                        %% _ = need(Eval, NewDeps), %% FIXME: This is no longer necessary
                         #{{phase, Product} => {changed, Changed},
                           {deps,  Product} => NewDeps,
                           inv_deps         => invalid}
@@ -431,7 +453,7 @@ worker(Eval, Product, Update, OldDeps) ->
              
 
 
-%% Any error -> error, any change -> changed.
+%% Any error -> error, any change -> true.
 changed(ChangeList) ->
     case lists:member(error, ChangeList) of
         true  -> error;
@@ -440,6 +462,7 @@ changed(ChangeList) ->
 
 %% Also called "ifchange".
 need(Eval, Deps) ->
+    ok = obj:call(Eval, {worker_needs, Deps}),
     Prod2Changed = parallel_eval(Eval, Deps),
     Changed = changed(maps:values(Prod2Changed)),
     debug("need: ~p~n",[{Changed,Prod2Changed}]),
@@ -481,18 +504,20 @@ import(Path) ->
     reflection:run_module(Path, do, []).
 
 
+
+
 %% -------- LIB FOR SCRIPTS
 
 %% Special kinds of update routines
 
 update_using(Deps, Body) ->
-    fun(Redo) -> redo:need(Redo, Deps), Body(Redo), {true, Deps} end.
+    fun(Redo) -> redo:need(Redo, Deps), Body(Redo), true end.
 
 update_file(Target) ->
     File = redo:to_filename(Target),
     fun(Eval) ->
             debug("c: ~p~n", [Target]),
-            {redo:file_changed(Eval, Target, File), []}
+            redo:file_changed(Eval, Target, File)
     end.
 
 %% Update function that produces an Erlang value, but can use
@@ -503,10 +528,10 @@ update_value(Target, Deps, Body) ->
             NewVal = Body(Eval),
             case find_val(Eval, Target) of
                 {ok, NewVal} ->
-                    {false, Deps};
+                    false;
                 _ ->
                     put_val(Eval, Target, NewVal),
-                    {true, Deps}
+                    true
             end
     end.
 
@@ -516,6 +541,19 @@ update_pure(Target, Deps, PureBody) ->
     update_value(
       Target, Deps,
       fun(Eval) -> PureBody([get_val(Eval, Dep) || Dep <- Deps]) end).
+
+
+%% How to support anonymous targets?  Suppose we do not have a list of
+%% outputs, but we have an opaque function that produces a set of
+%% targets.  I would want to add functions on the fly.
+
+%% One thing I noticed is that a "need" called inside a function
+%% should actually register the dependency.  Is it not too late for
+%% that?  It would make things much more straightforward.  Maybe do
+%% that first.  Then the whole thing just becomes memoized evaluation.
+
+
+
 
 
 
@@ -610,7 +648,8 @@ file_changed(Eval, Product, RelPath) ->
 
 %% Hashes are slow and also do not capture the "void event" which is
 %% quite useful in case the output of the network is something
-%% happening, and not just a value change effect.
+%% happening, and not just a value change effect.  FIXME: Integrate
+%% "stamping" somehow.
 %%
 %% file_changed_md5(Eval, Product, RelPath, Stamp) ->
 %%     %% Needs to go outside of next call to avoid re-entry.
@@ -644,7 +683,7 @@ run(Eval, {mfa, MFA={M,F,A}}) ->
 %% Raw bash command
 run_(Eval, {bash, Cmds}) ->
     {ok, Dir} = obj:call(Eval, {find_file, ""}),
-    log:info("run: bash: ~s~n", [Cmds]),
+    %% log:info("run: bash: ~s~n", [Cmds]),
     run:fold_script(
       tools:format("bash -c 'cd ~s ; ~s'", [Dir, Cmds]), 
       fun({data,{eol,Line}}, Lines) ->
