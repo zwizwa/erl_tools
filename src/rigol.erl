@@ -109,12 +109,21 @@ program(W,R,{wav_data,Chan,Start,Stop}=P) ->
     {ok, Data};
 %% Download in chunks of 240k points.
 %% This means there are 10 chunks in total.
+
+program(W,R,{wav_data_chunks,Chan,NbChunks}) ->
+    {ok,
+     lists:map(
+       fun(N) ->
+               log:info("chunk ~p/~p~n",[N,NbChunks]),
+               {ok, Bin} = program(W,R,{wav_data_chunk, Chan, N}),
+               Bin
+       end,
+       lists:seq(1,NbChunks))};
 program(W,R,{wav_data_chunk,Chan,ChunkNb}) ->
     ChunkSize = 240000,
     Start = (ChunkNb-1) * ChunkSize + 1,
     End   = Start-1+ChunkSize,
     program(W,R,{wav_data,Chan,Start,End});
-    
 program(W,R,{wav_data,Chan}) ->
     {ok, #{ points := Points }} = program(W,R,wav_pre),
     program(W,R,{wav_data,Chan,1,Points});

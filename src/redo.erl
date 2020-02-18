@@ -1,15 +1,15 @@
 -module(redo).
--export([pull/2, need/2,
+-export([pull/2, need/2, get/2,
          push/3, push/2,
          start_link/1, handle_outer/2, handle/2,
          file_changed/3,
          read_file/2, write_file/3, is_regular/2,
          from_filename/1, to_filename/1, to_directory/1,
-         update_using/2, update_file/1,
+         update_using/2, update_file/1, update_value/3, update_pure/3,
          run/2,
          gcc_deps/1,
          import/1,
-         get/2, set/3,
+         need_val/2, put_val/3,
          test/1, u1/1, u2/1]).
 
 
@@ -74,6 +74,10 @@ push(Pid, Changed) ->
     push(Pid, Changed, []).
 
 
+%% For products that are Erlang values, update and return the value.
+get(Pid, Product) ->
+    obj:call(Pid, {get, Product}, infinity).
+
 %% Several calls against the evaluator will be performed during
 %% evaluation of the network.  The task of this monitor process is to
 %% maintain transaction semantics.
@@ -112,6 +116,17 @@ handle_outer(Msg, State = #{eval := Eval}) ->
             obj:call(Eval, reload),
             ok = obj:call(Eval, start_pull),
             obj:reply(Pid, {ok, parallel_eval(Eval, Products)}),
+            State;
+        {Pid, {get, Product}} ->
+            obj:call(Eval, reload),
+            ok = obj:call(Eval, start_pull),
+            Rv = case parallel_eval(Eval, [Product]) of
+                     error ->
+                         error;
+                     _ ->
+                         obj:call(Eval, {find, {val, Product}})
+                 end,
+            obj:reply(Pid, Rv),
             State;
         {Pid, {push, Changed, NotChanged}} when is_list(Changed) and is_list(NotChanged)->
             %% Push is added as an optimization to prune the network.
@@ -227,12 +242,12 @@ handle({Pid,{set_stamp,Tag,New}}, State) ->
 %% Implement a store inside of the evaluator.  Note that we can just
 %% as well use a completely abstract (remote/external) store and
 %% update methods that operate on that store.
-handle({Pid,{get,Tag}}, State) ->
-    obj:reply(Pid, maps:get({product, Tag}, State)),
+handle({Pid,{find_val,Tag}}, State) ->
+    obj:reply(Pid, maps:find({val, Tag}, State)),
     State;
-handle({Pid,{set,Tag,Val}}, State) ->
+handle({Pid,{put_val,Tag,Val}}, State) ->
     obj:reply(Pid, ok),
-    maps:put({product, Tag}, Val, State);
+    maps:put({val, Tag}, Val, State);
 
 %% We provide file access relative to a "working directory" shared by
 %% all update scripts.  Keep this abstract so it is easy to change
@@ -361,13 +376,22 @@ worker(Eval, Product, Update, OldDeps) ->
             [] -> true; %% First run or polling
             _  -> need(Eval, OldDeps)
         end,
+
     debug("~p: need update: ~p~n", [Product, Affected]),
     %% It's simplest to compute the state update here.
     PhaseUpdate =
         case Affected of
             true ->
+                %% Dont crash the daemon in the common case that a
+                %% build rule has a runtime or type error.
                 {Changed, NewDepsUnsorted} = 
-                    try Update(Eval)
+                    try
+                        case Update(Eval) of
+                            {Ch=true, D} when is_list(D) -> {Ch,D};
+                            {Ch=false,D} when is_list(D) -> {Ch,D};
+                            {Ch=error,D} when is_list(D) -> {Ch,D};
+                            Rv -> throw({bad_update_rv,Product,Rv})
+                        end
                     catch C:E ->
                             ST = erlang:get_stacktrace(),
                             log:info("WARNING:failed:~n~p~n~p~n", 
@@ -395,8 +419,10 @@ worker(Eval, Product, Update, OldDeps) ->
                           inv_deps         => invalid}
                 end;
             %% false, error
-            _ ->
+            _ -> 
                 #{ {phase, Product} => {changed, Affected} }
+                
+                
         end,
     Eval ! {worker_done, Product, PhaseUpdate},
     ok.
@@ -425,21 +451,27 @@ parallel_eval(Eval, Products) ->
       Products).
     
 
-%% Provide a store interface.
+%% Provide dataflow variables with values stored in the evaluator.
 %%
-%% Note that a store is not always necessary.  It is perfectly
-%% possible to have redo operate on abstract names, e.g. files in a
-%% filesystem, entries in a database, ...
-%%
-%% Calling this is only allowed from update tasks, which have get
-%% access _after_ calling need, and set access to the associated
-%% output tag during the execution of the updat task.  One way to look
-%% at it is that the purpose of the system is to schedule update
-%% scripts in such a way to properly guard imperative updates like
-%% these.
+%% Here 'find' behaves as ordinary find, e.g. it can fail, but it also
+%% calls 'need', so all variables will have to be dataflow variables.
+%% In practice this is always what you want.
 
-set(Eval, Tag, Val)    -> obj:call(Eval, {set,Tag,Val}).
-get(Eval, Tag)         -> obj:call(Eval, {get,Tag}).
+find_val(Eval, Tag) ->
+    obj:call(Eval, {find_val, Tag}).
+get_val(Eval, Tag) ->
+    case find_val(Eval, Tag) of
+        {ok, Val} -> Val;
+        error -> throw({get_val_not_found, Tag})
+    end.
+need_val(Eval, Tag) ->
+    case need(Eval, [Tag]) of
+        error -> throw({need_val_error, Tag});
+        _ -> get_val(Eval, Tag)
+    end.
+put_val(Eval, Tag, Val) ->
+    obj:call(Eval, {put_val,Tag,Val}).
+
 
 
 
@@ -462,6 +494,37 @@ update_file(Target) ->
             debug("c: ~p~n", [Target]),
             {redo:file_changed(Eval, Target, File), []}
     end.
+
+%% Update function that produces an Erlang value, but can use
+%% arbitrary references as inputs.
+update_value(Target, Deps, Body) ->
+    fun(Eval) ->
+            need(Eval, Deps),
+            NewVal = Body(Eval),
+            case find_val(Eval, Target) of
+                {ok, NewVal} ->
+                    {false, Deps};
+                _ ->
+                    put_val(Eval, Target, NewVal),
+                    {true, Deps}
+            end
+    end.
+
+%% Similar, inputs are also variables.  This brings pure Erlang
+%% functions into the mix.
+update_pure(Target, Deps, PureBody) ->
+    update_value(
+      Target, Deps,
+      fun(Eval) -> PureBody([get_val(Eval, Dep) || Dep <- Deps]) end).
+
+
+
+              
+            
+            
+
+            
+    
 
 
 %% Note that the redo core does not know about:
@@ -544,6 +607,7 @@ file_changed(Eval, Product, RelPath) ->
             error
     end.
 
+
 %% Hashes are slow and also do not capture the "void event" which is
 %% quite useful in case the output of the network is something
 %% happening, and not just a value change effect.
@@ -580,7 +644,7 @@ run(Eval, {mfa, MFA={M,F,A}}) ->
 %% Raw bash command
 run_(Eval, {bash, Cmds}) ->
     {ok, Dir} = obj:call(Eval, {find_file, ""}),
-    %% log:info("run: bash: ~s~n", [Cmds]),
+    log:info("run: bash: ~s~n", [Cmds]),
     run:fold_script(
       tools:format("bash -c 'cd ~s ; ~s'", [Dir, Cmds]), 
       fun({data,{eol,Line}}, Lines) ->
@@ -598,19 +662,19 @@ run_(Eval, {bash, Cmds}) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-u1(Pid) ->
+u1(Eval) ->
     %% Inputs and thunks are the same.
-    set(Pid, ex1, #{}),
+    put_val(Eval, ex1, #{}),
     {true, []}.
-u2(Pid) ->    
+u2(Eval) ->    
     %% Update functions use the imperative redo style: after
     %% need/2, the dependencies are guaranteed to be ready, and
     %% the output node can be set at any time.  It's
     %% straightforward to embed pure functions in this
     %% framework.
     Deps = [ex1],
-    need(Pid, Deps),
-    set(Pid, ex2, #{}),
+    need_val(Eval, Deps),
+    put_val(Eval, ex2, #{}),
     {true, Deps}.
 
 test(ex1) ->
