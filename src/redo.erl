@@ -1,11 +1,12 @@
 -module(redo).
--export([pull/2, need/2, get/2,
+-export([pull/2, get/2, with_eval/2,
          push/3, push/2,
          start_link/1, handle_outer/2, handle/2,
          file_changed/3,
          read_file/2, write_file/3, is_regular/2,
          from_filename/1, to_filename/1, to_directory/1,
          update_using/2, update_file/1, update_value/3, update_pure/3,
+         need/2, 
          run/2,
          gcc_deps/1,
          import/1,
@@ -73,10 +74,14 @@ push(Redo, Changed, NotChanged) ->
 push(Redo, Changed) ->
     push(Redo, Changed, []).
 
+%% Run evaluations against a network.
+with_eval(Redo, Fun) ->
+    obj:call(Redo, {with_eval, Fun}).
 
 %% For products that are Erlang values, update and return the value.
 get(Redo, Product) ->
-    obj:call(Redo, {get, Product}, infinity).
+    with_eval(Redo, fun(Eval) -> need_val(Eval, Product) end).
+
 
 %% Several calls against the evaluator will be performed during
 %% evaluation of the network.  The task of this monitor process is to
@@ -116,15 +121,10 @@ handle_outer(Msg, State = #{eval := Eval}) ->
             ok = obj:call(Eval, start_pull),
             obj:reply(Pid, {ok, parallel_eval(Eval, Products)}),
             State;
-        {Pid, {get, Product}} ->
+        {Pid, {with_eval, Fun}} ->
             obj:call(Eval, reload),
             ok = obj:call(Eval, start_pull),
-            Rv = case parallel_eval(Eval, [Product]) of
-                     error ->
-                         error;
-                     _ ->
-                         obj:call(Eval, {find, {val, Product}})
-                 end,
+            Rv = Fun(Eval),
             obj:reply(Pid, Rv),
             State;
         {Pid, {push, Changed, NotChanged}} when is_list(Changed) and is_list(NotChanged)->
@@ -236,12 +236,18 @@ handle({Pid, {worker_needs, Deps}}, State) ->
                 OldDeps, Deps),
               State);
         error ->
-            throw({need_from_non_worker, Pid, Deps})
+            %% This happens e.g. for with_eval call in monitor.
+            debug("worker_needs: not a worker ~p~n", [Pid]),
+            State
     end;
 handle({Pid, worker_deps}, State) ->
-    obj:reply(Pid, maps:keys(maps:get({need,Pid}, State))),
-    maps:remove({need, Pid}, State);
-
+    case maps:find({need,Pid}, State) of
+        {ok, DepMap} ->
+            obj:reply(
+              Pid,
+              lists:sort(maps:keys(DepMap))),
+            maps:remove({need, Pid}, State)
+    end;
 
 %% Insert update computed by worker and notify waiters.
 handle({worker_done, Product, PhaseUpdate}=Msg, State) ->
@@ -407,25 +413,24 @@ worker(Eval, Product, Update, OldDeps) ->
         case Affected of
             true ->
                 %% Dont crash the daemon in the common case that a
-                %% build rule has a runtime or type error.
-                {Changed, NewDepsUnsorted} = 
+                %% build rule has a runtime or type error.  Propagate
+                %% 'error' instead.
+                {Changed, NewDeps} =
                     try
                         Ch = Update(Eval),
-                        true = lists:member(Ch,[true,false,error]),
-                        Ds = obj:call(Eval, worker_deps),
-                        {Ch,Ds}
+                        case Ch of
+                            false -> ok;
+                            true  -> log:info("changed~n");
+                            error -> log:info("error~n");
+                            _ -> throw({bad_update_rv, Update, Ch})
+                        end,
+                        {Ch, obj:call(Eval, worker_deps)}
                     catch C:E ->
                             ST = erlang:get_stacktrace(),
                             log:info("WARNING:failed:~n~p~n~p~n", 
                                      [{C,E},ST]),
                             {error,[]}
                     end,
-                case Changed of
-                    false -> ok;
-                    true  -> log:info("changed~n");
-                    error -> log:info("error~n")
-                end,
-                NewDeps = tools:unique(NewDepsUnsorted),
                 %% Special-case the happy path.  Keeping track of dep
                 %% graph changes allows caching the inverted dep graph
                 %% for "push" operation and allows to prune a need/2
@@ -547,14 +552,7 @@ update_pure(Target, Deps, PureBody) ->
 %% outputs, but we have an opaque function that produces a set of
 %% targets.  I would want to add functions on the fly.
 
-%% One thing I noticed is that a "need" called inside a function
-%% should actually register the dependency.  Is it not too late for
-%% that?  It would make things much more straightforward.  Maybe do
-%% that first.  Then the whole thing just becomes memoized evaluation.
-
-
-
-
+%% FIXME
 
 
               
