@@ -1,5 +1,5 @@
 -module(redo).
--export([pull/2, get/2, with_eval/2,
+-export([pull/2, get/2, with_eval/2, make_node/2,
          push/3, push/2,
          start_link/1, handle_outer/2, handle/2,
          file_changed/3,
@@ -36,8 +36,16 @@
 %%   single moment in time.
 %%
 
-%% Additionally, it has a bolted on "push" interface, which in
-%% practice doesn't seem to be so easy to use.
+%% Additional remarks:
+%%
+%% - There is a "push" interface available once the network has
+%%   executed once.
+%%
+%% - Rule quantification is implemented through Erlang pattern
+%%   matching on node names.  Very convenient in practice.
+%%
+%% - Concrete opaque rules are supported to provide an "applicative"
+%%   interface as an alternative to the "arrow" interface.
 
 
 %% So what is the trick here?  What makes the redo approach different
@@ -64,7 +72,7 @@ debug(_F,_As) ->
 
 %% Main entry point.  See test(ex1) below.
 pull(Redo, Products) ->
-    obj:call(Redo, {pull, Products}, infinity).
+    with_eval(Redo, fun(Eval) -> need(Eval, Products) end).
 
 %% Trigger update of dependent products from external change notification
 push(Redo, Changed, NotChanged) ->
@@ -77,6 +85,10 @@ push(Redo, Changed) ->
 %% Run evaluations against a network.
 with_eval(Redo, Fun) ->
     obj:call(Redo, {with_eval, Fun}).
+
+%% Similar, but install a new opaque node using a function.
+make_node(Redo, Fun) ->
+    obj:call(Redo, {make_node, Fun}).
 
 %% For products that are Erlang values, update and return the value.
 get(Redo, Product) ->
@@ -108,26 +120,20 @@ handle_outer(Msg, State = #{eval := Eval}) ->
         {Pid, reload} ->
             obj:reply(Pid, obj:call(Eval, reload)),
             State;
-
-        %% All actions reload the configuration.
-        {Pid, {pull, outputs}} ->
-            obj:call(Eval, reload),
-            {ok, Outputs} = obj:find(Eval, outputs),
-            ok = obj:call(Eval, start_pull),
-            obj:reply(Pid, {ok, parallel_eval(Eval, Outputs)}),
-            State;
-        {Pid, {pull, Products}} when is_list(Products) ->
-            obj:call(Eval, reload),
-            ok = obj:call(Eval, start_pull),
-            obj:reply(Pid, {ok, parallel_eval(Eval, Products)}),
+        {Pid, {make_node, Fun}} ->
+            obj:reply(Pid, obj:call(Eval, {make_node, Fun})),
             State;
         {Pid, {with_eval, Fun}} ->
             obj:call(Eval, reload),
             ok = obj:call(Eval, start_pull),
-            Rv = Fun(Eval),
+            Rv =
+                try Fun(Eval)
+                catch C:E -> {error,{C,E}} end,
             obj:reply(Pid, Rv),
             State;
-        {Pid, {push, Changed, NotChanged}} when is_list(Changed) and is_list(NotChanged)->
+        {Pid, {push, Changed, NotChanged}} when 
+              is_list(Changed) and 
+              is_list(NotChanged)->
             %% Push is added as an optimization to prune the network.
             %% Pusher can supply information about changed/nochanged.
             %% Any missing information in NotChanged is polled from
@@ -195,9 +201,15 @@ handle({CallPid, {eval, Product}},
             %% is empty, we will allways poll the update function to
             %% decide what to do.
             try
-                UpdateFun = ProductToUpdateFun(Product),
-                Eval = self(),
                 Deps = maps:get({deps, Product}, State, []),
+                Eval = self(),
+                UpdateFun = 
+                    %% Two kinds: dynamically created opaque nodes or
+                    %% user-provided named nodes.
+                    case Product of
+                        {node,_} -> maps:get(Product, State);
+                        _ -> ProductToUpdateFun(Product)
+                    end,
                 Worker =
                     spawn_link(
                       fun() -> 
@@ -216,7 +228,7 @@ handle({CallPid, {eval, Product}},
                     %% Don't bring down redo when the update function
                     %% crashes.  Print a warning instead.  Solve this
                     %% properly later.
-                    log:info("WARNING: update failed:~n~p:~n~p~n~p~n", 
+                    log:info("WARNING: obtaining update failed:~n~p:~n~p~n~p~n", 
                              [Product, {C,E}, erlang:get_stacktrace()]),
                     maps:put({phase, Product}, {changed, error}, State),
                     obj:reply(CallPid, error),
@@ -367,6 +379,15 @@ handle({Pid, {affected, InputProducts}}, State) ->
             State
     end;
 
+%% Create a new node
+handle({Pid, {make_node,Fun}}, State) ->
+    N = maps:get(next_node, State, 0),
+    obj:reply(Pid, {node, N}),
+    maps:merge(
+      State,
+      #{ {node, N} => Fun,
+         next_node => N+1 });
+
 %% Asynchronous log message.
 handle({log_append,Item}, State) ->
     maps:put(log, [Item|maps:get(log, State, [])], State);
@@ -427,7 +448,7 @@ worker(Eval, Product, Update, OldDeps) ->
                         {Ch, obj:call(Eval, worker_deps)}
                     catch C:E ->
                             ST = erlang:get_stacktrace(),
-                            log:info("WARNING:failed:~n~p~n~p~n", 
+                            log:info("WARNING: update failed:~n~p~n~p~n", 
                                      [{C,E},ST]),
                             {error,[]}
                     end,
@@ -509,6 +530,12 @@ import(Path) ->
     reflection:run_module(Path, do, []).
 
 
+%% -------- DYNAMIC NETWORK
+
+%% Given an update function, insert it into the network and return an
+%% named node.  This requires some extra infrastructure.
+
+
 
 
 %% -------- LIB FOR SCRIPTS
@@ -519,8 +546,8 @@ update_using(Deps, Body) ->
     fun(Redo) -> redo:need(Redo, Deps), Body(Redo), true end.
 
 update_file(Target) ->
-    File = redo:to_filename(Target),
     fun(Eval) ->
+            File = redo:to_filename(Target),
             debug("c: ~p~n", [Target]),
             redo:file_changed(Eval, Target, File)
     end.
@@ -699,10 +726,13 @@ run_(Eval, {bash, Cmds}) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+%% FIXME: These probably bitrotted.  Module is "dogfooded" and used in
+%% a build system that exercises it thoroughly.  Delete these.
+
 u1(Eval) ->
     %% Inputs and thunks are the same.
     put_val(Eval, ex1, #{}),
-    {true, []}.
+    true.
 u2(Eval) ->    
     %% Update functions use the imperative redo style: after
     %% need/2, the dependencies are guaranteed to be ready, and
@@ -712,7 +742,7 @@ u2(Eval) ->
     Deps = [ex1],
     need_val(Eval, Deps),
     put_val(Eval, ex2, #{}),
-    {true, Deps}.
+    true.
 
 test(ex1) ->
     Updates = #{

@@ -62,7 +62,7 @@ retry_program(Spec, State=#{sock := Sock}, Retry) ->
         Rv = program(Write, Read, Spec),
         {Rv, State}
     catch _C:_E ->
-            %% log:info("errror: ~p~n",[{_C,_E}]),
+            log:info("errror: ~p~n",[{_C,_E}]),
             %% gen_tcp:close(Sock),
             %% timer:sleep(100),
             %% retry_program(Spec, connect(State))
@@ -81,6 +81,10 @@ program(W,R,disp_data) ->
     Data = R(tmc),
     _ = R(line),
     {ok, Data};
+program(W,R,{save_disp,FileName}) ->
+    {ok, Data} = program(W,R,disp_data),
+    file:write_file(FileName, Data);
+
 program(W,R,wav_stat) ->
     W(":WAV:STAT?\n"),
     {ok,R(line)};
@@ -105,28 +109,11 @@ program(W,R,{wav_data,Chan,Start,Stop}=P) ->
     W([":WAV:STOP ",p(Stop),"\n"]),
     W("WAV:DATA?\n"), 
     Data = R(tmc),
+    true = size(Data) == (Stop - Start + 1),
     _ = R(line),
     {ok, Data};
 %% Download in chunks of 240k points.
 %% This means there are 10 chunks in total.
-
-program(W,R,{wav_data_chunks,Chan,NbChunks}) ->
-    {ok,
-     lists:map(
-       fun(N) ->
-               log:info("chunk ~p/~p~n",[N,NbChunks]),
-               {ok, Bin} = program(W,R,{wav_data_chunk, Chan, N}),
-               Bin
-       end,
-       lists:seq(1,NbChunks))};
-program(W,R,{wav_data_chunk,Chan,ChunkNb}) ->
-    ChunkSize = 240000,
-    Start = (ChunkNb-1) * ChunkSize + 1,
-    End   = Start-1+ChunkSize,
-    program(W,R,{wav_data,Chan,Start,End});
-program(W,R,{wav_data,Chan}) ->
-    {ok, #{ points := Points }} = program(W,R,wav_pre),
-    program(W,R,{wav_data,Chan,1,Points});
 program(W,R,acq_mdep) ->
     W([":ACQ:MDEP?"]),
     {ok, R(line)};
@@ -155,6 +142,20 @@ program(_,_,Spec) ->
 
 
 %% user API
+
+%% Composite commands should be defined outside of the retry loop,
+%% e.g. loading several chunks.
+cmd(Pid, {save_data,Chan,NbPoints,FileName}, TO) ->
+    ChunkSize = 240000,
+    Chunks =
+        lists:map(
+          fun({Start,Endx}) ->
+                  {ok, Bin} = cmd(Pid, {wav_data, Chan, Start+1, Start+Endx}, TO),
+                  Bin
+          end,
+          tools:nchunks(0,NbPoints,ChunkSize)),
+    file:write_file(FileName, Chunks);
+
 cmd(Pid, Spec, Timeout) ->
     obj:call(Pid, {run, Spec}, Timeout).
 
@@ -186,6 +187,7 @@ read(Sock, tmc_blockheader) ->
     binary_to_integer(SNumData);
 read(Sock, tmc) ->
     NumData = read(Sock, tmc_blockheader),
+    log:info("tmc ~p~n", [NumData]),
     read(Sock, NumData);
 read(_Sock, 0) ->
     <<>>;
