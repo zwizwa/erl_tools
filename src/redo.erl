@@ -15,25 +15,22 @@
 
 
 %% This is an Erlang implementation of a variant of djb's redo.
-%% Inspired by apenwarr's blog posts.
+%% Inspired by apenwarr's blog posts.  It has been generalized a
+%% number of times as new insights appeared.
 
 %% Properties:
 %%
-%% - "pull" structure: all network inputs are polled
+%% - It is a reactive "pull" structure: a dependency graph is
+%%   constructed as part of the first evaluation.
 %%
-%% - Can be thought of as functional reactive programming structured
-%%   as a cache invalidation problem
-%%
-%% - Dependencies are generated programmatically as part of update
-%%
-%% - Imperative structure: nodes can be updated in-place in an
-%%   abstract external store; system only provides synchronization.
-%%
-%% - Abstract operators: update functions can be operators on that
-%%   abstract external store.
+%% - This is Functional Reactive Programming operating on abstract
+%%   references, which allows embedding of abstract, imperative
+%%   operations on an abstract store.  The system only provides
+%%   synchronization.
 %%
 %% - Transaction interface: each "pull" conceptually corresponds to a
 %%   single moment in time.
+%%
 %%
 
 %% Additional remarks:
@@ -456,6 +453,12 @@ worker(Eval, Product, Update, OldDeps) ->
                 %% graph changes allows caching the inverted dep graph
                 %% for "push" operation and allows to prune a need/2
                 %% call to stamp the new deps.
+
+                %% FIXME: To better implement "push": change the
+                %% (open) inverted dependencies accordingly when the
+                %% dependencies change, but don't compute the
+                %% transitive closure.  Do that on "push".
+
                 case NewDeps == OldDeps of
                     true ->
                         #{{phase, Product} => {changed, Changed}};
