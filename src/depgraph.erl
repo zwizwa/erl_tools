@@ -6,6 +6,9 @@
 %% FIXME: rewrite previous invert_deps/2 and need_update/2 to use
 %% invert and affected.
 
+%% FIXME: looks like the original code has lost its purpose.  See
+%% redo.erl for some destillation of this.  This can be removed.
+
 %% Invert a dependency graph, e.g. to implement "push" data flow.
 invert(Procs) ->
    lists:foldr(

@@ -123,37 +123,28 @@ handle_outer(Msg, State = #{eval := Eval}) ->
         {Pid, {with_eval, Fun}} ->
             obj:call(Eval, reload),
             ok = obj:call(Eval, start_pull),
-            Rv =
-                try Fun(Eval)
-                catch C:E -> {error,{C,E}} end,
-            obj:reply(Pid, Rv),
+            obj:reply(Pid, try Fun(Eval) catch C:E -> {error,{C,E}} end),
             State;
         {Pid, {push, Changed, NotChanged}} when 
               is_list(Changed) and 
               is_list(NotChanged)->
-            %% Push is added as an optimization to prune the network.
+            %% Push is added as an optimization avoid to traversing
+            %% the whole tree.  This can be beneficial in the case
+            %% that change polling is expensive.
+            %%
             %% Pusher can supply information about changed/nochanged.
             %% Any missing information in NotChanged is polled from
             %% stamp info.  Note that any changed items not in Changed
             %% will not cause recomputation unless they are
-            %% accidentally part of some other evaluation path.
+            %% accidentally part of some other evaluation path
+            %% affected by the transitive closure.
+            %%
             obj:call(Eval, reload),
-            case obj:call(Eval, {affected, Changed}) of
-                error ->
-                    %% Push requires there to be a dependency network,
-                    %% i.e. it only works after "priming" with pull.
-                    %% If this fails and you know the outputs, use
-                    %% pull instead.
-                    obj:reply(Pid, error),
-                    State;
-                {ok, Affected} ->
-                    debug("push:~nChanged:~n~p~nAffected:~n~p~n", 
-                          [Changed,Affected]),
-                    ok = obj:call(Eval, {start_push, Changed, NotChanged}),
-                    _ = need(Eval, Changed),  %% Make sure stamps are updated,
-                    obj:reply(Pid, {ok, need(Eval, Affected)}),
-                    State
-            end
+            ok = obj:call(Eval, {start_push, Changed, NotChanged}),
+            TC = obj:call(Eval, {transitive_closure, Changed}),
+            debug("TC: ~p~n", [TC]),
+            obj:reply(Pid, try need(Eval, TC) catch C:E -> {error,{C,E}} end),
+            State
     end.
 
 with_redo(Spec, Fun) ->
@@ -256,9 +247,18 @@ handle({Pid, worker_deps}, State) ->
     end;
 
 %% Insert update computed by worker and notify waiters.
-handle({worker_done, Product, PhaseUpdate}=Msg, State) ->
-    {changed, Changed} = maps:get({phase, Product}, PhaseUpdate),
+handle({worker_done, Product, PhaseUpdate}=Msg, State0) ->
     debug("worker_done: ~p~n", [{Product,PhaseUpdate}]),
+
+    %% Update reverse table if deps changed.
+    State = 
+        update_reverse_deps(
+          Product,
+          maps:find({deps, Product}, PhaseUpdate),
+          State0),
+  
+    %% Wake up everyone that is waiting for this product.
+    {changed, Changed} = maps:get({phase, Product}, PhaseUpdate),
     case maps:find({phase, Product}, State) of
         {ok, {waiting, Waiters}} ->
             lists:foreach(
@@ -336,42 +336,12 @@ handle({Pid, {start_push, Changed, NotChanged}}, State0) ->
     State3;
 
 
+%% Compute the transitive closure of the changed set.
+handle({Pid, {transitive_closure, Changed}}, State) ->
+    obj:reply(Pid, transitive_closure(Changed, State)),
+    State;
 
-%% Get the dependencies in a form compatible with depgraph.erl
-%% Inverted dependencies are cached.  Not quite sure if that is really
-%% a necessary optimization, but it is probably good to have a "tap
-%% point" for that happy path.
-handle({Pid, {affected, InputProducts}}, State) ->
-    Affected =
-        fun(IDeps) ->
-                OutputProducts = depgraph:affected(IDeps, InputProducts),
-                debug("affected: ~p~n~p~n",[InputProducts, OutputProducts]),
-                OutputProducts
-        end,
-    case maps:get(inv_deps, State, invalid) of
-        invalid ->
-            Deps =
-                maps:fold(
-                  fun({deps,Prod},Deps,Acc) -> [{Prod,'_',Deps} | Acc];
-                     (_,_,Acc) -> Acc
-                  end,
-                  [], State),
-            case Deps of
-                [] ->
-                    debug("affected: no deps~n",[]),
-                    obj:reply(Pid, error),
-                    State;
-                _ ->
-                    IDeps = depgraph:invert(Deps),
-                    debug("affected: recomputed inv_deps:~n~p~n",[IDeps]),
-                    obj:reply(Pid, {ok, Affected(IDeps)}),
-                    maps:put(inv_deps, IDeps, State)
-            end;
-        IDeps ->
-            debug("affected: using cached inv_deps~n",[]),
-            obj:reply(Pid, {ok, Affected(IDeps)}),
-            State
-    end;
+
 
 %% Create a new node
 handle({Pid, {make_node,Fun}}, State) ->
@@ -403,6 +373,58 @@ handle({Pid, reload}, State) ->
         end,
     obj:reply(Pid, MaybeFile),
     State1.
+
+%% Update the reverse dependency structure.  This is done only when
+%% the dependency list changes, which makes it fairly cheap to
+%% maintain the inverse structure to implement push.  Note that this
+%% is not a transitive closure, so push will need to traverse the
+%% inverse graph until it iterminates.
+update_reverse_deps(_, error, State) ->
+    State;
+update_reverse_deps(Product, {ok, Deps}, State0) ->
+    OldDeps = maps:get({deps, Product}, State0, []),
+    ToRemove = lists:subtract(OldDeps, Deps),
+    ToAdd    = lists:subtract(Deps, OldDeps),
+    State1 =
+        lists:foldr(
+          fun(Dep, S) ->
+                  RDeps = maps:get({rdeps, Dep}, S, []),
+                  maps:put({rdeps, Dep}, lists:delete(Product, RDeps), S)
+          end,
+          State0, ToRemove),
+    State2 =
+        lists:foldr(
+          fun(Dep, S) ->
+                  RDeps = maps:get({rdeps, Dep}, S, []),
+                  maps:put({rdeps, Dep}, [Product|RDeps], S)
+          end,
+          State1, ToAdd),
+    State2.
+
+transitive_closure(Inputs, State) ->
+    %% Recurse over leaf nodes that do not have dependencies.
+    Closure = 
+        lists:foldl(
+          fun(Node, Outputs) -> add_outputs(Node, Outputs, State) end,
+          #{}, Inputs),
+    %% Remove inputs that are also temrinals, e.g. no deps.
+    maps:keys(
+      lists:foldr(
+        fun maps:remove/2,
+        Closure, Inputs)).
+add_outputs(Node, Outputs, State) ->
+    case maps:get({rdeps,Node}, State, []) of
+        [] ->
+            %% Terminal node.
+            maps:put(Node, true, Outputs);
+        Nodes ->
+            %% Non-terminal node, keep looking.
+            lists:foldl(
+              fun(N, Os) -> add_outputs(N, Os, State) end,
+              Outputs, Nodes)
+    end.
+
+
 
 load_config(From, State) ->
     Spec = 
@@ -463,8 +485,7 @@ worker(Eval, Product, Update, OldDeps) ->
                         debug("worker: deps changed: ~p~n", [{OldDeps,NewDeps}]),
                         %% _ = need(Eval, NewDeps), %% FIXME: This is no longer necessary
                         #{{phase, Product} => {changed, Changed},
-                          {deps,  Product} => NewDeps,
-                          inv_deps         => invalid}
+                          {deps,  Product} => NewDeps}
                 end;
             %% false, error
             _ -> 
