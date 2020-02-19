@@ -6,7 +6,7 @@
          read_file/2, write_file/3, is_regular/2,
          from_filename/1, to_filename/1, to_directory/1,
          update_using/2, update_file/1, update_value/3, update_pure/3,
-         need/2, 
+         need/2, changed/2,
          run/2,
          gcc_deps/1,
          import/1,
@@ -151,7 +151,7 @@ handle_outer(Msg, State = #{eval := Eval}) ->
                           [Changed,Affected]),
                     ok = obj:call(Eval, {start_push, Changed, NotChanged}),
                     _ = need(Eval, Changed),  %% Make sure stamps are updated,
-                    obj:reply(Pid, {ok, parallel_eval(Eval, Affected)}),
+                    obj:reply(Pid, {ok, need(Eval, Affected)}),
                     State
             end
     end.
@@ -200,12 +200,12 @@ handle({CallPid, {eval, Product}},
             try
                 Deps = maps:get({deps, Product}, State, []),
                 Eval = self(),
-                UpdateFun = 
+                UpdateFun =
                     %% Two kinds: dynamically created opaque nodes or
                     %% user-provided named nodes.
                     case Product of
                         {node,_} -> maps:get(Product, State);
-                        _ -> ProductToUpdateFun(Product)
+                        _        -> ProductToUpdateFun(Product)
                     end,
                 Worker =
                     spawn_link(
@@ -213,9 +213,6 @@ handle({CallPid, {eval, Product}},
                               log:set_info_name({redo,Product}),
                               worker(Eval, Product, UpdateFun, Deps) end
                      ),
-                %% We require that need/2 is only called from a worker
-                %% process.  Enforce it by initializing {need,[]} here
-                %% and using 'get' at the track_need handler.
                 maps:merge(
                   State,
                   #{{phase, Product} => {waiting, [CallPid]},
@@ -483,7 +480,7 @@ worker(Eval, Product, Update, OldDeps) ->
 
 
 %% Any error -> error, any change -> true.
-changed(ChangeList) ->
+any_changed(ChangeList) ->
     case lists:member(error, ChangeList) of
         true  -> error;
         false -> lists:member(true, ChangeList)
@@ -491,16 +488,18 @@ changed(ChangeList) ->
 
 %% Also called "ifchange".
 need(Eval, Deps) ->
-    ok = obj:call(Eval, {worker_needs, Deps}),
-    Prod2Changed = parallel_eval(Eval, Deps),
-    Changed = changed(maps:values(Prod2Changed)),
+    Prod2Changed = changed(Eval, Deps),
+    Changed = any_changed(maps:values(Prod2Changed)),
     debug("need: ~p~n",[{Changed,Prod2Changed}]),
     Changed.
 
-parallel_eval(Eval, Products) ->
+%% Same as need, but give more detailed information.  Can be used for
+%% smart update functions.
+changed(Eval, Deps) ->
+    ok = obj:call(Eval, {worker_needs, Deps}),
     tools:pmap(
       fun(P) -> obj:call(Eval, {eval, P}) end,
-      Products).
+      Deps).
     
 
 %% Provide dataflow variables with values stored in the evaluator.
