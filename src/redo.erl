@@ -330,6 +330,7 @@ handle({Pid, {start_push, Changed, NotChanged}}, State0) ->
           State1, NotChanged),
     State3 =
         %% Same for known changes.  This avoids a poll.
+        %% FIXME: poll is probably necessary to update stamps!
         lists:foldr(
           fun(C, S) -> maps:put({phase,C}, {changed, true}, S) end,
           State2, Changed),
@@ -516,6 +517,12 @@ need(Eval, Deps) ->
 
 %% Same as need, but give more detailed information.  Can be used for
 %% smart update functions.
+%%
+%% FIXME: There is already one worker process per product, so this
+%% pmap isn't really necessary.  It could just as well be something
+%% that sends out the call messages, then waits for all replies.  That
+%% would cut the number of processes in half.
+%%
 changed(Eval, Deps) ->
     ok = obj:call(Eval, {worker_needs, Deps}),
     tools:pmap(

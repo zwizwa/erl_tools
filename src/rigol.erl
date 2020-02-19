@@ -1,23 +1,28 @@
 -module(rigol).
 -export([start_link/1, handle/2,
+         run_primop/3,
          test/1,
          cmd/3]).
 
 %% https://www.batronix.com/pdf/Rigol/ProgrammingGuide/MSO1000Z_DS1000Z_ProgrammingGuide_EN.pdf
 
-%% A nice goal would be to move data from the rigol into gtkwave.
-
 %% Notes:
 
-%% - Work in passive mode.  Operation is mostly RPC with some ad-hoc
-%%   encoding that is easier to do as read_header -> read_data
-%%   dependencies.
+%% - Use TCP in passive mode.  Operation is mostly RPC with some
+%%   ad-hoc encoding that is easier to do sequentially.
 %%
-%% - Delays are added for commands that do not have an ack.  How to do
-%%   this properly?
-
-%% Sampling parameters.  The ms/div can be set.  The rest is set by scope:
-%% 500ms/div => 2MHz, 12Mpts, 6000ms
+%% - The SCPI implementation doesn't seem to be very robust, or at
+%%   least I have no idea how to do proper flow control, so:
+%%
+%%   - Delays are added for commands that do not have an ack.
+%%
+%%   - Retries and consistency checks are added as the scope seems to
+%%     just abort a command without any explanation.
+%%
+%% - Sampling rate can't be set directly.  It is set indirectly by
+%%   setting the time div:
+%%
+%%   500ms/div => 2MHz, 12Mpts, 6000ms
 
 
 start_link(#{ tcp := {_Host,_Port} } = Spec) ->
@@ -27,21 +32,26 @@ start_link(#{ tcp := {_Host,_Port} } = Spec) ->
         fun() -> self() ! connect, Spec end,
         fun ?MODULE:handle/2})}.
 
-handle(connect, State) ->
+handle(connect, State=#{tcp := {Host,Port}}) ->
     case maps:find(sock, State) of
         {ok, _} ->
             State;
         error ->
-            connect(State)
+            log:info("connect ~s:~p~n", [Host,Port]),
+            case gen_tcp:connect(
+                   Host,Port,
+                   [{active,false},{packet,raw},binary]) of
+                {ok, Sock} ->
+                    log:info("connected: ~p~n", [{Host,Port}]),
+                    maps:put(sock, Sock, State);
+                Error ->
+                    throw(Error)
+            end
     end;
-
-%% Transaction: run a user-specified program against the socket.
 handle({Pid, {run, Spec}}, State) ->
-    {Rv, State1} = retry_program(Spec, State, 5),
+    {Rv, State1} = ?MODULE:run_primop(Spec, State, 5),
     obj:reply(Pid, Rv),
     State1;
-
-%% Misc
 handle({_,dump}=Msg, State) ->
     obj:handle(Msg, State);
 handle(Msg, State) ->
@@ -49,129 +59,136 @@ handle(Msg, State) ->
     State.
 
 %% This thing is buggy.  Keep retrying on error.
-retry_program(Spec, _, 0) ->
-    throw({rigol_retry_program, Spec});
-retry_program(Spec, State=#{sock := Sock}, Retry) ->
-    DelayMS = 200,  %% FIXME: Is there proper flow control?
-    Write = fun(IOList) ->
-                    gen_tcp:send(Sock, IOList),
-                    timer:sleep(DelayMS)
-            end,
-    Read  = fun(N) -> read(Sock,N) end,
+run_primop(Spec, _, 0) ->
+    throw({rigol_run_primop, Spec});
+run_primop(Spec, State=#{sock := Sock}, Retry) ->
+    Write =
+        fun(IOList) ->
+                gen_tcp:send(Sock, IOList),
+                %% FIXME: Is there proper flow control?
+                DelayMS = 200,  
+                timer:sleep(DelayMS)
+        end,
+    Read =
+        fun(N) ->
+                read(Sock,N) 
+        end,
     try 
-        Rv = program(Write, Read, Spec),
+        log:info("~p~n", [Spec]),
+        Rv = primop(Write, Read, Spec),
         {Rv, State}
     catch _C:_E ->
             log:info("errror: ~p~n",[{_C,_E}]),
-            %% gen_tcp:close(Sock),
-            %% timer:sleep(100),
-            %% retry_program(Spec, connect(State))
             Read(flush),
-            retry_program(Spec, State, Retry-1)
+            run_primop(Spec, State, Retry-1)
     end.
     
+%% Primops communicate with the device through write and read
+%% operations.  These are the bits that form a transaction, and get
+%% retried on error.  It seems simplest to keep them generic.
+%% Abstracting all commands is too much work. Instead this abstracts
+%% command classes, and commands that have exceptional return values
+%% that as to need their own parsers.  The use case for this is mostly
+%% write-once scripts.
 
-
-%% Programs that communication with the device through write and read
-%% operations.
-program(W,R,idn) ->
-    W("*IDN?\n"), {ok, R(line)};
-program(W,R,disp_data) ->
-    W(":DISP:DATA?\n"), 
+%% Generic operations.
+primop(W,R,{tmc,Query}) ->
+    W([Query,"\n"]),
+    R(tmc);
+primop(W,R,{tmc_line,Query}) ->
+    W([Query,"\n"]),
     Data = R(tmc),
     _ = R(line),
-    {ok, Data};
-program(W,R,{save_disp,FileName}) ->
-    {ok, Data} = program(W,R,disp_data),
-    file:write_file(FileName, Data);
-
-program(W,R,wav_stat) ->
-    W(":WAV:STAT?\n"),
-    {ok,R(line)};
-program(W,R,wav_pre) ->
-    W(":WAV:PRE?\n"), 
-    {ok,
-     maps:from_list(
-       lists:zip(
-         [format,type,points,count,
-          xincrement,xorigin,xreference,
-          yincrement,yorigin,yreference],
-         lists:map(
-           fun to_number/1,
-           re:split(R(line),","))))};
-program(W,R,{wav_data,Chan,Start,Stop}=P) ->
-    log:info("~p~n",[P]),
-    W([":STOP"]),
-    W([":WAV:SOUR CHAN",p(Chan),"\n"]),
-    W([":WAV:MODE RAW\n"]),
-    W([":WAV:FORM BYTE\n"]),
-    W([":WAV:STAR ",p(Start),"\n"]),
-    W([":WAV:STOP ",p(Stop),"\n"]),
-    W("WAV:DATA?\n"), 
-    Data = R(tmc),
-    true = size(Data) == (Stop - Start + 1),
-    _ = R(line),
-    {ok, Data};
-%% Download in chunks of 240k points.
-%% This means there are 10 chunks in total.
-program(W,R,acq_mdep) ->
-    W([":ACQ:MDEP?"]),
-    {ok, R(line)};
-program(W,R,acq_srat) ->
-    W([":ACQ:SRAT?"]),
-    {ok, to_number(R(line))};
-program(W,_,{acq_mdep,N}) when is_number(N) ->
-    W(tools:format(":ACQ:MDEP ~p~n",[N]));
-program(W,_,run) ->
-    W(":RUN");
-program(W,_,stop) ->
-    W(":STOP");
-
-%% DOESNT WORK
-%% program(W,R,trig_pos) ->
-%%     W([":TRIG:POS?"]),
-%%     {ok, R(line)};
-program(W,R,tim_main_scal) ->
-    W([":TIM:MAIN:SCAL?"]),
-    {ok, to_number(R(line))};
-program(W,_,{tim_main_scal,PerDiv}) ->
-    W(tools:format(":TIM:MAIN:SCAL ~p",[PerDiv]));
-    
-program(_,_,Spec) ->
-    {error, Spec}.
+    Data;
+primop(W,R,{tmc,Query,ExpectedSize}) ->
+    Data = primop(W,R,{tmc,Query}),
+    true = size(Data) == ExpectedSize,
+    Data;
+primop(W,R,{line,Query}) ->
+    W([Query,"\n"]),
+    R(line);
+primop(W,R,{number,Query}) ->
+    W([Query,"\n"]),
+    to_number(R(line));
+primop(W,_,Cmd) ->
+    W([Cmd,"\n"]).
 
 
 %% user API
 
+%% Useful commands:
+
+%% *IDN?
+%% *IOPC
+%% *RST
+%% *:ACQ:MDEP?
+%% :WAV:STAT?
+%% :ACQ:MDEP?
+%% :ACQ:SRAT?
+%% :RUN
+%% :STOP
+%% :TRIG:MODE?
+%% :TRIG::EDG:LEV?
+%% :TRIG::EDG:SLOP?
+%% :TIM:MAIN:SCAL?
+
+
 %% Composite commands should be defined outside of the retry loop,
 %% e.g. loading several chunks.
-cmd(Pid, {save_data,Chan,NbPoints,FileName}, TO) ->
-    ChunkSize = 240000,
+cmd(Pid, {save_wav_data,Chan,NbPoints,FileName}, TO) ->
+    Cmd = fun(C) -> cmd(Pid, C, TO) end,
+    Cmd([":STOP"]),
+    Cmd([":WAV:SOUR CHAN",p(Chan)]),
+    Cmd([":WAV:MODE RAW"]),
+    Cmd([":WAV:FORM BYTE"]),
+    %% ChunkSize = 240000,
+    ChunkSize = 1000000,
     Chunks =
         lists:map(
-          fun({Start,Endx}) ->
-                  {ok, Bin} = cmd(Pid, {wav_data, Chan, Start+1, Start+Endx}, TO),
-                  Bin
+          fun({Start,N}) ->
+                  %% Cmd([":STOP"]),
+                  Cmd([":WAV:STAR ",p(Start+1)]),
+                  Cmd([":WAV:STOP ",p(Start+N)]),
+                  Cmd({tmc,"WAV:DATA?",N})
           end,
           tools:nchunks(0,NbPoints,ChunkSize)),
     file:write_file(FileName, Chunks);
 
+cmd(Pid, wav_pre, TO) ->
+    Reply = cmd(Pid, {line, ":WAV:PRE?"}, TO),
+    maps:from_list(
+      lists:zip(
+        [format,type,points,count,
+         xincrement,xorigin,xreference,
+         yincrement,yorigin,yreference],
+        lists:map(
+          fun to_number/1,
+          re:split(Reply,","))));
+
+cmd(Pid, c8_test, TO) ->
+    lists:foreach(
+      fun(Cmd) -> cmd(Pid, Cmd, TO) end,
+      [[":STOP"],
+       [":ACQ:TYPE AVER"],
+       [":TIM:MAIN:SCAL ",p(0.0005)],
+       [":TRIG:MODE ","EDGE"],
+       [":TRIG:EDG:SLOP ","NEG"],
+       [":TRIG:EDG:LEV ",p(1.5)],
+       [":TRIG:EDG:SOUR ","CHAN1"],
+       [":RUN"]]);
+
+cmd(Pid, disp_data, TO) ->
+    cmd(Pid, {tmc_line, ":DISP:DATA?"}, TO);
+
+cmd(Pid, {save_disp_data, FileName}, TO) ->
+    Data = cmd(Pid, disp_data, TO),
+    file:write_file(FileName, Data);
+
+%% Primitive operation.
 cmd(Pid, Spec, Timeout) ->
     obj:call(Pid, {run, Spec}, Timeout).
 
 
-%% connect with retry            
-connect(State=#{tcp := {Host,Port}}) ->
-    log:info("connect ~s:~p~n", [Host,Port]),
-    case gen_tcp:connect(
-           Host,Port,
-           [{active,false},{packet,raw},binary]) of
-        {ok, Sock} ->
-            log:info("connected: ~p~n", [{Host,Port}]),
-            maps:put(sock, Sock, State);
-        Error ->
-            throw(Error)
-    end.
 
 %% Receiver has some special purpose parsers.  Read errors translate
 %% to pattern matching errors.
@@ -181,10 +198,16 @@ read(Sock, line) ->
         <<Char>> -> [Char | read(Sock, line)]
     end;
 read(Sock, tmc_blockheader) ->
-    <<"#",CNumSize>> = read(Sock, 2),
-    Num = CNumSize - $0,
-    SNumData = read(Sock, Num),
-    binary_to_integer(SNumData);
+    case read(Sock, 1) of
+        <<"#">> ->
+            <<CNumSize>> = read(Sock, 1), 
+            Num = CNumSize - $0,
+            SNumData = read(Sock, Num),
+            binary_to_integer(SNumData);
+        _ ->
+            %% Skip junk
+            read(Sock, tmc_blockheader)
+    end;
 read(Sock, tmc) ->
     NumData = read(Sock, tmc_blockheader),
     log:info("tmc ~p~n", [NumData]),
