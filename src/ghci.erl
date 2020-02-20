@@ -15,14 +15,13 @@
 %% - GHCI output can be redirected to a "buffer", which implements a
 %%   'clear' and {'line',Line} 
 %%
-%% - Ad-hoc synchronization can be used by reading an AckString from
-%%   the log.  The '#' character is used for encoding Erlang
+%% - Ad-hoc synchronization use the '#' character to encode
 %%   continuations as hex-encoded binary terms.
 %%
 %% - Data exchange should go over a side channel.  Since this is used
 %%   in redo scripts, it seems simplest to just communicate through
-%%   files.  E.g. pass in/out file as parameters, and use the
-%%   AckString for synchronization.
+%%   files.  E.g. pass in/out file as parameters, and use the '#'
+%%   mechanism to signal.
 %%
 
 

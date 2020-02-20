@@ -8,7 +8,7 @@
          from_filename/1, to_filename/1, to_directory/1,
          update_using/2, update_file/1, update_value/3, update_pure/3,
          need/2, changed/2,
-         run/2,
+         run/2, run/3,
          gcc_deps/1,
          with_vars/2,
          import/1,
@@ -793,18 +793,26 @@ file_changed(Eval, Product, RelPath) ->
 %% This is for running external commands.  It builds a trace log
 %% useful for debugging and generating executable build traces.
 %% FIXME: Also add throttling here, e.g. to limit parallellism.
-run(Eval, {mfa, MFA={M,F,A}}) ->
+
+run(Eval, Thing) ->
+    run(Eval, Thing,
+        fun(clear) -> ok;
+           ({line,Line}) -> log:info("~s~n", [Line])
+        end).
+
+run(Eval, {mfa, MFA={M,F,A}}, Log) ->
     Eval ! {log_append, MFA},
-    run_(Eval, apply(M,F,A)).
+    run(Eval, apply(M,F,A), Log);
 
 %% Raw bash command
-run_(Eval, {bash, Cmds}) ->
+run(Eval, {bash, Cmds}, Log) ->
     {ok, Dir} = obj:call(Eval, {find_file, ""}),
     %% log:info("run: bash: ~s~n", [Cmds]),
+    Log(clear),
     run:fold_script(
       tools:format("bash -c 'cd ~s ; ~s'", [Dir, Cmds]), 
       fun({data,{eol,Line}}, Lines) ->
-              %% tools:info("~s~n",[Line]),
+              Log({line,Line}),
               {cont, [Line ++ "\n"|Lines]};
          ({exit_status, ExitCode},Lines) ->
               {done, {ExitCode, lists:flatten(lists:reverse(Lines))}}
