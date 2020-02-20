@@ -1,6 +1,6 @@
 -module(rigol).
 -export([start_link/1, handle/2,
-         run_primop/3,
+         run_prim/3,
          test/1,
          cmd/3]).
 
@@ -49,7 +49,7 @@ handle(connect, State=#{tcp := {Host,Port}}) ->
             end
     end;
 handle({Pid, {run, Spec}}, State) ->
-    {Rv, State1} = ?MODULE:run_primop(Spec, State, 5),
+    {Rv, State1} = ?MODULE:run_prim(Spec, State, 5),
     obj:reply(Pid, Rv),
     State1;
 handle({_,dump}=Msg, State) ->
@@ -59,9 +59,9 @@ handle(Msg, State) ->
     State.
 
 %% This thing is buggy.  Keep retrying on error.
-run_primop(Spec, _, 0) ->
-    throw({rigol_run_primop, Spec});
-run_primop(Spec, State=#{sock := Sock}, Retry) ->
+run_prim(Spec, _, 0) ->
+    throw({rigol_run_prim, Spec});
+run_prim(Spec, State=#{sock := Sock}, Retry) ->
     Write =
         fun(IOList) ->
                 gen_tcp:send(Sock, IOList),
@@ -75,42 +75,39 @@ run_primop(Spec, State=#{sock := Sock}, Retry) ->
         end,
     try 
         log:info("~p~n", [Spec]),
-        Rv = primop(Write, Read, Spec),
+        Rv = prim(Write, Read, Spec),
         {Rv, State}
     catch _C:_E ->
             log:info("errror: ~p~n",[{_C,_E}]),
             Read(flush),
-            run_primop(Spec, State, Retry-1)
+            run_prim(Spec, State, Retry-1)
     end.
     
-%% Primops communicate with the device through write and read
-%% operations.  These are the bits that form a transaction, and get
-%% retried on error.  It seems simplest to keep them generic.
-%% Abstracting all commands is too much work. Instead this abstracts
-%% command classes, and commands that have exceptional return values
-%% that as to need their own parsers.  The use case for this is mostly
-%% write-once scripts.
+%% Primitive commands communicate with the device through write and
+%% read operations on the socket.  These primitives are treated as
+%% transaction, and get retried on error.  It seems simplest to keep
+%% them generic, based on the replies that are expected.
 
 %% Generic operations.
-primop(W,R,{tmc,Query}) ->
+prim(W,R,{tmc,Query}) ->
     W([Query,"\n"]),
     R(tmc);
-primop(W,R,{tmc_line,Query}) ->
+prim(W,R,{tmc_line,Query}) ->
     W([Query,"\n"]),
     Data = R(tmc),
     _ = R(line),
     Data;
-primop(W,R,{tmc,Query,ExpectedSize}) ->
-    Data = primop(W,R,{tmc,Query}),
+prim(W,R,{tmc,Query,ExpectedSize}) ->
+    Data = prim(W,R,{tmc,Query}),
     true = size(Data) == ExpectedSize,
     Data;
-primop(W,R,{line,Query}) ->
+prim(W,R,{line,Query}) ->
     W([Query,"\n"]),
     R(line);
-primop(W,R,{number,Query}) ->
+prim(W,R,{number,Query}) ->
     W([Query,"\n"]),
     to_number(R(line));
-primop(W,_,Cmd) ->
+prim(W,_,Cmd) ->
     W([Cmd,"\n"]).
 
 
@@ -223,7 +220,7 @@ read(Sock, N) when is_integer(N) ->
 
 
 
-%% miac tools
+%% misc tools
 p(T) ->
     io_lib:format("~p",[T]).
 to_number(IOList) ->

@@ -1,5 +1,6 @@
 -module(redo).
--export([pull/2, get/2, with_eval/2, make_node/2,
+-export([pull/2, get/2, with_eval/2,
+         make_node/2, make_node/3,
          push/3, push/2,
          start_link/1, handle_outer/2, handle/2,
          file_changed/3,
@@ -9,6 +10,7 @@
          need/2, changed/2,
          run/2,
          gcc_deps/1,
+         with_vars/2,
          import/1,
          need_val/2, put_val/3,
          test/1, u1/1, u2/1]).
@@ -60,6 +62,11 @@
 %% abstract imperative obdate is legal.
 
 
+%% FIXME: Allow for a "window" timestamp to be included at startup.
+%% E.g. don't take into account anything older than that.
+%% Alternatively, save the timestamps somewhere, or derive them from
+%% products.
+
 
 debug(_F,_As) ->
     %% log:info(_F,_As),
@@ -85,7 +92,9 @@ with_eval(Redo, Fun) ->
 
 %% Similar, but install a new opaque node using a function.
 make_node(Redo, Fun) ->
-    obj:call(Redo, {make_node, Fun}).
+    make_node(Redo, Fun, '_NEW_').
+make_node(Redo, Fun, NodeTag) ->
+    obj:call(Redo, {make_node, Fun, NodeTag}).
 
 %% For products that are Erlang values, update and return the value.
 get(Redo, Product) ->
@@ -117,8 +126,8 @@ handle_outer(Msg, State = #{eval := Eval}) ->
         {Pid, reload} ->
             obj:reply(Pid, obj:call(Eval, reload)),
             State;
-        {Pid, {make_node, Fun}} ->
-            obj:reply(Pid, obj:call(Eval, {make_node, Fun})),
+        {Pid, {make_node, Fun, MaybeNode}} ->
+            obj:reply(Pid, obj:call(Eval, {make_node, Fun, MaybeNode})),
             State;
         {Pid, {with_eval, Fun}} ->
             obj:call(Eval, reload),
@@ -162,7 +171,7 @@ with_redo(Spec, Fun) ->
 start_eval(Spec = #{ update := _ }) ->
     serv:start(
       {handler,
-       fun() -> Spec end,
+       fun() -> log:set_info_name({redo,eval}), Spec end,
        fun ?MODULE:handle/2}).
 
 %% RetVal  Meaning
@@ -195,8 +204,16 @@ handle({CallPid, {eval, Product}},
                     %% Two kinds: dynamically created opaque nodes or
                     %% user-provided named nodes.
                     case Product of
-                        {node,_} -> maps:get(Product, State);
-                        _        -> ProductToUpdateFun(Product)
+                        {node,_} ->
+                            maps:get(
+                              Product, 
+                              State,
+                              fun(_) ->
+                                      log:info("stale reference ~p~n",[Product]),
+                                      true
+                              end);
+                        _ -> 
+                            ProductToUpdateFun(Product)
                     end,
                 Worker =
                     spawn_link(
@@ -345,13 +362,43 @@ handle({Pid, {transitive_closure, Changed}}, State) ->
 
 
 %% Create a new node
-handle({Pid, {make_node,Fun}}, State) ->
-    N = maps:get(next_node, State, 0),
-    obj:reply(Pid, {node, N}),
-    maps:merge(
-      State,
-      #{ {node, N} => Fun,
-         next_node => N+1 });
+handle({Pid, {make_node,Fun,NodeTag}}, State) ->
+    case NodeTag of
+        '_NEW_' ->
+            N = maps:get(next_node, State, 0),
+            obj:reply(Pid, {node, N}),
+            maps:merge(
+              State,
+              #{ {node, N} => Fun,
+                 next_node => N+1 });
+        _ ->
+            obj:reply(Pid, {node, NodeTag}),
+            case is_pid(NodeTag) of
+                true -> erlang:monitor(process, NodeTag);
+                false -> ok
+            end,
+            maps:merge(
+              State,
+              #{ {node, NodeTag} => Fun })
+    end;    
+
+%% FIXME: This cleans up cases where a {node,Pid} is an output node,
+%% e.g. removes the node, the deps of that node, and the corresponding
+%% rdeps.  It does not work very well if some other node started
+%% depending on that node this would need more effort to not leak in
+%% those cases.  We at least clean up the rdep so push will not wake
+%% up any of those nodes, and pull will then likely cause an error
+%% once the node is gone.
+handle({'DOWN', _Ref, process, Pid, Reason}, State) ->
+    Node = {node, Pid},
+    log:info("removing ~p: ~p ~n", [Node,Reason]),
+    Deps = maps:get({deps, {node, Pid}}, State),
+    %% remove 4 things:
+    %% node, deps, node's rdeps, and remove node from dep's rdeps
+    State1 = maps:remove(Node, State),
+    State2 = maps:remove({deps, Node}, State1),
+    State3 = maps:remove({rdeps, Node}, State2),
+    lists:foldl(remove_rdeps(Node),State3,Deps);
 
 %% Asynchronous log message.
 handle({log_append,Item}, State) ->
@@ -386,21 +433,22 @@ update_reverse_deps(Product, {ok, Deps}, State0) ->
     OldDeps = maps:get({deps, Product}, State0, []),
     ToRemove = lists:subtract(OldDeps, Deps),
     ToAdd    = lists:subtract(Deps, OldDeps),
-    State1 =
-        lists:foldr(
-          fun(Dep, S) ->
-                  RDeps = maps:get({rdeps, Dep}, S, []),
-                  maps:put({rdeps, Dep}, lists:delete(Product, RDeps), S)
-          end,
-          State0, ToRemove),
-    State2 =
-        lists:foldr(
-          fun(Dep, S) ->
-                  RDeps = maps:get({rdeps, Dep}, S, []),
-                  maps:put({rdeps, Dep}, [Product|RDeps], S)
-          end,
-          State1, ToAdd),
+    State1   = lists:foldr(remove_rdeps(Product), State0, ToRemove),
+    State2   = lists:foldr(add_rdeps(Product), State1, ToAdd),
     State2.
+
+remove_rdeps(Product) ->
+    fun(Dep, S) ->
+            RDeps = maps:get({rdeps, Dep}, S, []),
+            maps:put({rdeps, Dep}, lists:delete(Product, RDeps), S)
+    end.
+
+add_rdeps(Product) ->
+    fun(Dep, S) ->
+            RDeps = maps:get({rdeps, Dep}, S, []),
+            maps:put({rdeps, Dep}, [Product|RDeps], S)
+    end.
+    
 
 transitive_closure(Inputs, State) ->
     %% Recurse over leaf nodes that do not have dependencies.
@@ -662,6 +710,20 @@ gcc_deps(Bin0) ->
              re:split(Bin3, " +")),
     %% log:info("gcc_deps: ~p~n",[List]),
     lists:map(fun from_filename/1, List).
+
+%% Convert Erlang map to a sequence of variable assignments separated with ':'
+with_vars(Map, Cmd) when is_map(Map) ->
+    with_vars(maps:to_list(Map), Cmd);
+with_vars(AList,Cmd) ->
+    [lists:map(
+       fun({K,V}) -> [s(K),"=", quote(V)," ; "] end,
+       AList),
+     Cmd].
+%% FIXME: There is a proper shell variable quoter somewhere.
+quote(IOList) -> p(s(IOList)).
+s(T) -> tools:format("~s",[T]).
+p(T) -> tools:format("~p",[T]).
+
 
 read_file(Eval, RelPath) ->
     {ok, AbsPath} = obj:call(Eval, {find_file, RelPath}),
