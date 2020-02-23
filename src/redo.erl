@@ -1,6 +1,6 @@
 -module(redo).
 -export([pull/2, get/2, with_eval/2,
-         make_var/2, make_var/3,
+         make_var/1, make_var/2, make_var/3,
          push/3, push/2,
          start_link/1, handle_outer/2, handle/2,
          file_changed/3,
@@ -98,6 +98,8 @@ with_eval(Redo, Fun) ->
     obj:call(Redo, {with_eval, Fun}).
 
 %% Similar, but install a new opaque var using a function.
+make_var(Redo) ->
+    make_var(Redo, undefined).
 make_var(Redo, Fun) ->
     make_var(Redo, Fun, '_NEW_').
 make_var(Redo, Fun, VarTag) ->
@@ -368,7 +370,6 @@ handle({Pid, {start_push, Changed, NotChanged}}, State0) ->
 handle({Pid, {transitive_closure, Changed}}, State) ->
     obj:reply(Pid, transitive_closure(Changed, State)),
     State;
-
 
 
 %% Create a new var
