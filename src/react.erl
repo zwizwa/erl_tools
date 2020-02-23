@@ -1,16 +1,22 @@
 %% Incremental UI rendering ala react can be implemented on top of the
 %% memoizing evaluator by introducing a side effect and modifying the
-%% propagation of change.
+%% meaning of change propagation.
 
 %% Basically, an incremental evaluator is the same as a
 %% non-incremental evaluator except for one change: "smart containers"
 %% can either send incremantal updates via a side-channel, or
-%% re-render and let their parent container make a similar decision.
+%% re-render and let their parent container go through a similar
+%% decision process.
 
-%% It is surprising to me that this is simple to express with a
-%% pruning memoizing evaluator, but was completely non-trivial to
+%% SUMMARY:
+%% send the change through the side channel XOR propagate up.
+
+
+
+%% I found it very surprising that this is simple to express with a
+%% pruning memoizing evaluator.  It was completely non-trivial to
 %% discover.  In fact the problem seemed "upside down": we DON'T just
-%% propagate if there is change!
+%% propagate if there is change.
 
 -module(react).
 -export([test/1, update/5, compile/4]).
@@ -20,12 +26,7 @@
 
 %% UPDATE function.
 %%
-%% What needs to be done:
-%%
-%% - generic evaluator that can implement the side effects such that
-%%   expression construction is just applicative.
-%%
-%% focus on apply.  apply knows about:
+%% This knows about:
 %% - the evaluation status of the arguments
 %% - the (pure) constructor function
 %% - the side channel for incremental updates
@@ -37,11 +38,11 @@
 %% OutVar:      Output var name
 %% InVars:      Input var names
 
-%% Some properties:
+%% Some conventions:
 
 %% - The pure data constructor gets {Var,Val} pairs where the Var are
-%%   unique redo node names.  This makes it possible to name nodes,
-%%   for later side-channel updates.
+%%   unique redo node names.  This makes it possible to attach names
+%%   to subtrees for later side-channel updates.
 
 %% The redo Eval is at the end here to allow for lambda-lifted
 %% "reloadable closures".
@@ -67,9 +68,9 @@ update(SideChannel, Cons, OutVar, InVars, Eval) ->
                  ({Var,true}) ->
                       %% Update the others in place.
                       Val = redo:need_val(Eval, Var),
-                      SideChannel(Var,Val)
+                      SideChannel({Var,Val})
               end,
-              maps:to_list(ChangeList)),
+              maps:to_list(Map)),
             %% And signal upstream that no more changes are
             %% necessary.
             false
@@ -110,6 +111,7 @@ compile(Redo, SideChannel, Cons, InVars) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 test(compile) ->
+    %% Model the inputs as producing their initial value.
     Inputs =
         fun (Var) ->
                 redo:update_pure(
@@ -135,18 +137,15 @@ test(compile) ->
     %% The expressions then become straighforward
     Body =
         A(body,
-          [A(list,   [var1, var2]),
-           A(select, [var3, var4])]),
-    %% Inputs will have to be defined.
-    lists:foreach(
-      fun(V) -> redo:update_pure(V,[],fun([]) -> {val,V} end) end,
-      [var1, var2, var3, var4]),
+          [A(list,   [in1, in2]),
+           A(select, [in3, in4])]),
 
     %% Pull once to do initial render
     Render = redo:get(Redo, Body),
-    log:info("render: ~p~n", [Render]),
+    log:info("render:~n~p~n", [Render]),
     
-    
+    %% Push a variable to awake side effect channel.
+    redo:push(Redo, [var1]),
 
     unlink(Redo),
     exit(Redo, kill),
