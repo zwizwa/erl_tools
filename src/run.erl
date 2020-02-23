@@ -13,6 +13,12 @@
          script_xml/2, 
 
          to_script/2,
+         bash/3,
+
+         %% runner
+         runner_start/1,
+         runner_handle/2,
+         default_log/1,
 
          %% For reloads
          session_receive/2
@@ -139,3 +145,44 @@ to_script(Cmd, Out) ->
     port_command(Port, Out),
     port_close(Port).
 
+
+%% See redo.erl
+bash(Dir, Cmds, Log) ->
+    %% log:info("run: bash: ~s~n", [Cmds]),
+    Log(clear),
+    Log({line,Cmds}),
+    run:fold_script(
+      tools:format("bash -c 'cd ~s ; ~s'", [Dir, Cmds]), 
+      fun({data,{eol,Line}}, Lines) ->
+              Log({line,Line}),
+              {cont, [Line ++ "\n"|Lines]};
+         ({exit_status, ExitCode},Lines) ->
+              {done, {ExitCode, lists:flatten(lists:reverse(Lines))}}
+      end,
+      [],
+      infinity,
+      [{line, 1024}]).
+
+
+%% A place to run script sequentially.
+runner_start(Spec) ->
+    {ok, serv:start(
+           {handler,
+            fun() ->
+                    Spec 
+            end,
+            fun ?MODULE:runner_handle/2})}.
+runner_handle(Msg, State) ->
+    case Msg of
+        {bash, Dir, Cmds, Log} ->
+            _ = bash(Dir, Cmds, Log),
+            State;
+        {bash, Dir, Cmds} ->
+            _ = bash(Dir, Cmds, fun ?MODULE:default_log/1),
+            State
+    end.
+
+default_log({line,Line}) ->
+    log:info("~s~n", [Line]);
+default_log(_) ->
+    ok.

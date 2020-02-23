@@ -1,9 +1,10 @@
 -module(redo).
 -export([pull/2, get/2, with_eval/2,
-         make_node/2, make_node/3,
+         make_var/2, make_var/3,
          push/3, push/2,
          start_link/1, handle_outer/2, handle/2,
          file_changed/3,
+         from_list_dir/2,
          read_file/2, write_file/3, is_regular/2,
          from_filename/1, to_filename/1, to_directory/1,
          update_using/2, update_file/1, update_value/3, update_pure/3,
@@ -12,7 +13,8 @@
          gcc_deps/1,
          with_vars/2,
          import/1,
-         need_val/2, put_val/3,
+         need_val/2, find_val/2, put_val/3,
+         no_update/1,
          test/1, u1/1, u2/1]).
 
 
@@ -41,7 +43,7 @@
 %%   executed once.
 %%
 %% - Rule quantification is implemented through Erlang pattern
-%%   matching on node names.  Very convenient in practice.
+%%   matching on var names.  Very convenient in practice.
 %%
 %% - Concrete opaque rules are supported to provide an "applicative"
 %%   interface as an alternative to the "arrow" interface.
@@ -66,6 +68,11 @@
 %% E.g. don't take into account anything older than that.
 %% Alternatively, save the timestamps somewhere, or derive them from
 %% products.
+%%
+%% FIXME: Partial rebuilds don't work properly, e.g. if you have A->B
+%% and you redo A, then B doesn't build when you redo B after.  It
+%% seems that stamps would need to be stored associated to the rule,
+%% not in general.
 
 
 debug(_F,_As) ->
@@ -90,11 +97,11 @@ push(Redo, Changed) ->
 with_eval(Redo, Fun) ->
     obj:call(Redo, {with_eval, Fun}).
 
-%% Similar, but install a new opaque node using a function.
-make_node(Redo, Fun) ->
-    make_node(Redo, Fun, '_NEW_').
-make_node(Redo, Fun, NodeTag) ->
-    obj:call(Redo, {make_node, Fun, NodeTag}).
+%% Similar, but install a new opaque var using a function.
+make_var(Redo, Fun) ->
+    make_var(Redo, Fun, '_NEW_').
+make_var(Redo, Fun, VarTag) ->
+    obj:call(Redo, {make_var, Fun, VarTag}).
 
 %% For products that are Erlang values, update and return the value.
 get(Redo, Product) ->
@@ -126,8 +133,8 @@ handle_outer(Msg, State = #{eval := Eval}) ->
         {Pid, reload} ->
             obj:reply(Pid, obj:call(Eval, reload)),
             State;
-        {Pid, {make_node, Fun, MaybeNode}} ->
-            obj:reply(Pid, obj:call(Eval, {make_node, Fun, MaybeNode})),
+        {Pid, {make_var, Fun, MaybeVar}} ->
+            obj:reply(Pid, obj:call(Eval, {make_var, Fun, MaybeVar})),
             State;
         {Pid, {with_eval, Fun}} ->
             obj:call(Eval, reload),
@@ -167,8 +174,8 @@ with_redo(Spec, Fun) ->
 
 
 %% Evaluator maintains dependency table, store (optional), and keeps
-%% track of which nodes have been checked in a single network run.
-start_eval(Spec = #{ update := _ }) ->
+%% track of which vars have been checked in a single network run.
+start_eval(Spec) when is_map(Spec) ->
     serv:start(
       {handler,
        fun() -> log:set_info_name({redo,eval}), Spec end,
@@ -177,8 +184,7 @@ start_eval(Spec = #{ update := _ }) ->
 %% RetVal  Meaning
 %% true    object has been rebuilt, output propagation needed
 %% false   no change, no propagation needed
-handle({CallPid, {eval, Product}},
-       State = #{update := ProductToUpdateFun}) ->
+handle({CallPid, {eval, Product}}, State) ->
     case maps:find({phase, Product}, State) of
         {ok, {changed, Changed}} ->
             %% Already evaluated as change/nochange in this evaluation
@@ -201,10 +207,10 @@ handle({CallPid, {eval, Product}},
                 Deps = maps:get({deps, Product}, State, []),
                 Eval = self(),
                 UpdateFun =
-                    %% Two kinds: dynamically created opaque nodes or
-                    %% user-provided named nodes.
+                    %% Two kinds: dynamically created opaque vars or
+                    %% user-provided named vars.
                     case Product of
-                        {node,_} ->
+                        {var,_} ->
                             maps:get(
                               Product, 
                               State,
@@ -212,8 +218,12 @@ handle({CallPid, {eval, Product}},
                                       log:info("stale reference ~p~n",[Product]),
                                       true
                               end);
-                        _ -> 
-                            ProductToUpdateFun(Product)
+                        _ ->
+                            ToUpdateFun = 
+                                maps:get(
+                                  update, State,
+                                  fun ?MODULE:no_update/1),
+                            ToUpdateFun(Product)
                     end,
                 Worker =
                     spawn_link(
@@ -361,44 +371,44 @@ handle({Pid, {transitive_closure, Changed}}, State) ->
 
 
 
-%% Create a new node
-handle({Pid, {make_node,Fun,NodeTag}}, State) ->
-    case NodeTag of
+%% Create a new var
+handle({Pid, {make_var,Fun,VarTag}}, State) ->
+    case VarTag of
         '_NEW_' ->
-            N = maps:get(next_node, State, 0),
-            obj:reply(Pid, {node, N}),
+            N = maps:get(next_var, State, 0),
+            obj:reply(Pid, {var, N}),
             maps:merge(
               State,
-              #{ {node, N} => Fun,
-                 next_node => N+1 });
+              #{ {var, N} => Fun,
+                 next_var => N+1 });
         _ ->
-            obj:reply(Pid, {node, NodeTag}),
-            case is_pid(NodeTag) of
-                true -> erlang:monitor(process, NodeTag);
+            obj:reply(Pid, {var, VarTag}),
+            case is_pid(VarTag) of
+                true -> erlang:monitor(process, VarTag);
                 false -> ok
             end,
             maps:merge(
               State,
-              #{ {node, NodeTag} => Fun })
+              #{ {var, VarTag} => Fun })
     end;    
 
-%% FIXME: This cleans up cases where a {node,Pid} is an output node,
-%% e.g. removes the node, the deps of that node, and the corresponding
-%% rdeps.  It does not work very well if some other node started
-%% depending on that node this would need more effort to not leak in
+%% FIXME: This cleans up cases where a {var,Pid} is an output var,
+%% e.g. removes the var, the deps of that var, and the corresponding
+%% rdeps.  It does not work very well if some other var started
+%% depending on that var this would need more effort to not leak in
 %% those cases.  We at least clean up the rdep so push will not wake
-%% up any of those nodes, and pull will then likely cause an error
-%% once the node is gone.
+%% up any of those vars, and pull will then likely cause an error
+%% once the var is gone.
 handle({'DOWN', _Ref, process, Pid, Reason}, State) ->
-    Node = {node, Pid},
-    log:info("removing ~p: ~p ~n", [Node,Reason]),
-    Deps = maps:get({deps, {node, Pid}}, State),
+    Var = {var, Pid},
+    log:info("removing ~p: ~p ~n", [Var,Reason]),
+    Deps = maps:get({deps, {var, Pid}}, State),
     %% remove 4 things:
-    %% node, deps, node's rdeps, and remove node from dep's rdeps
-    State1 = maps:remove(Node, State),
-    State2 = maps:remove({deps, Node}, State1),
-    State3 = maps:remove({rdeps, Node}, State2),
-    lists:foldl(remove_rdeps(Node),State3,Deps);
+    %% var, deps, var's rdeps, and remove var from dep's rdeps
+    State1 = maps:remove(Var, State),
+    State2 = maps:remove({deps, Var}, State1),
+    State3 = maps:remove({rdeps, Var}, State2),
+    lists:foldl(remove_rdeps(Var),State3,Deps);
 
 %% Asynchronous log message.
 handle({log_append,Item}, State) ->
@@ -414,13 +424,19 @@ handle({Pid, reload}, State) ->
     State1 =
         case MaybeFile of
             error ->
-                log:info("no do module to reload~n"),
+                debug("no do module to reload~n",[]),
                 State;
             {ok, From} ->
                 load_config(From, State)
         end,
     obj:reply(Pid, MaybeFile),
     State1.
+
+no_update(Target) ->
+    fun(_Eval) ->
+            log:info("WARNING: no update/1 function defined~"),
+            error
+    end.
 
 %% Update the reverse dependency structure.  This is done only when
 %% the dependency list changes, which makes it fairly cheap to
@@ -451,26 +467,26 @@ add_rdeps(Product) ->
     
 
 transitive_closure(Inputs, State) ->
-    %% Recurse over leaf nodes that do not have dependencies.
+    %% Recurse over leaf vars that do not have dependencies.
     Closure = 
         lists:foldl(
-          fun(Node, Outputs) -> add_outputs(Node, Outputs, State) end,
+          fun(Var, Outputs) -> add_outputs(Var, Outputs, State) end,
           #{}, Inputs),
     %% Remove inputs that are also temrinals, e.g. no deps.
     maps:keys(
       lists:foldr(
         fun maps:remove/2,
         Closure, Inputs)).
-add_outputs(Node, Outputs, State) ->
-    case maps:get({rdeps,Node}, State, []) of
+add_outputs(Var, Outputs, State) ->
+    case maps:get({rdeps,Var}, State, []) of
         [] ->
-            %% Terminal node.
-            maps:put(Node, true, Outputs);
-        Nodes ->
-            %% Non-terminal node, keep looking.
+            %% Terminal var.
+            maps:put(Var, true, Outputs);
+        Vars ->
+            %% Non-terminal var, keep looking.
             lists:foldl(
               fun(N, Os) -> add_outputs(N, Os, State) end,
-              Outputs, Nodes)
+              Outputs, Vars)
     end.
 
 
@@ -503,7 +519,8 @@ worker(Eval, Product, Update, OldDeps) ->
                 %% 'error' instead.
                 {Changed, NewDeps} =
                     try
-                        Ch = Update(Eval),
+                        %% app/2 allows for "reloadable closures".
+                        Ch = app(Update,[Eval]),
                         case Ch of
                             false -> ok;
                             true  -> log:info("changed~n");
@@ -611,7 +628,7 @@ import(Path) ->
 %% -------- DYNAMIC NETWORK
 
 %% Given an update function, insert it into the network and return an
-%% named node.  This requires some extra infrastructure.
+%% named var.  This requires some extra infrastructure.
 
 
 
@@ -660,7 +677,11 @@ update_pure(Target, Deps, PureBody) ->
 %% FIXME
 
 
-              
+%% Allow for "reloadable closures".
+app(F,Args) when is_function(F) ->
+    apply(F,Args);
+app({F,CArgs},Args) when is_function(F) ->
+    apply(F,CArgs++Args).
             
             
 
@@ -716,7 +737,7 @@ with_vars(Map, Cmd) when is_map(Map) ->
     with_vars(maps:to_list(Map), Cmd);
 with_vars(AList,Cmd) ->
     [lists:map(
-       fun({K,V}) -> [s(K),"=", quote(V)," ; "] end,
+       fun({K,V}) -> ["export ",s(K),"=", quote(V)," ; "] end,
        AList),
      Cmd].
 %% FIXME: There is a proper shell variable quoter somewhere.
@@ -725,21 +746,37 @@ s(T) -> tools:format("~s",[T]).
 p(T) -> tools:format("~p",[T]).
 
 
-read_file(Eval, RelPath) ->
+with_abs_path(Eval, RelPath, Fun) ->
     {ok, AbsPath} = obj:call(Eval, {find_file, RelPath}),
-    file:read_file(AbsPath).
+    Fun(AbsPath).
+
+read_file(Eval, RelPath) ->
+    with_abs_path(Eval, RelPath, fun file:read_file/1).
 
 read_file_info(Eval, RelPath) ->
-    {ok, AbsPath} = obj:call(Eval, {find_file, RelPath}),
-    file:read_file_info(AbsPath).
+    with_abs_path(Eval, RelPath, fun file:read_file_info/1).
 
 write_file(Eval, RelPath, Bin) ->
-    {ok, AbsPath} = obj:call(Eval, {find_file, RelPath}),
-    file:write_file(AbsPath, Bin).
+    with_abs_path(Eval, RelPath, fun(A) -> file:write_file(A, Bin) end).
 
 is_regular(Eval, RelPath) ->
-    {ok, AbsPath} = obj:call(Eval, {find_file, RelPath}),
-    filelib:is_regular(AbsPath).
+    with_abs_path(Eval, RelPath, fun filelib:is_regular/1).
+
+%% Convert a path list into a list of files in that directory,
+%% expressed in target token form.
+from_list_dir(Eval, Path) ->
+    RelDir = to_directory(Path),
+    with_abs_path(
+      Eval, RelDir, 
+      fun(AbsDir) ->
+              {ok, Files} = file:list_dir(AbsDir),
+              lists:map(
+                fun(FileName) ->
+                        {Ext,Bn,[]} = from_filename(FileName),
+                        {Ext,Bn,Path}
+                end,
+                Files)
+      end).
 
 %% I would like to keep the "changed" predicate as abstract as
 %% possible.  I currently see two ways to do this: filesystem
@@ -807,20 +844,19 @@ run(Eval, {mfa, MFA={M,F,A}}, Log) ->
 %% Raw bash command
 run(Eval, {bash, Cmds}, Log) ->
     {ok, Dir} = obj:call(Eval, {find_file, ""}),
-    %% log:info("run: bash: ~s~n", [Cmds]),
-    Log(clear),
-    run:fold_script(
-      tools:format("bash -c 'cd ~s ; ~s'", [Dir, Cmds]), 
-      fun({data,{eol,Line}}, Lines) ->
-              Log({line,Line}),
-              {cont, [Line ++ "\n"|Lines]};
-         ({exit_status, ExitCode},Lines) ->
-              {done, {ExitCode, lists:flatten(lists:reverse(Lines))}}
-      end,
-      [],
-      infinity,
-      [{line, 1024}]).
+    run:bash(Dir, Cmds, Log);
 
+%% Via rpc.  Note that this does the rpc call here, so we can (later)
+%% still do logging on this host, but run the command remotely via
+%% whatever means.
+
+%% FIXME: Make sure Log stays local.
+
+run(Eval, {remote_bash, Var, Cmds}, Log) ->
+    case rpc:call(Var, ?MODULE, run, [Eval, {bash, Cmds}, Log]) of
+        Rv -> Rv
+    end.
+             
 
 
 
@@ -836,7 +872,7 @@ u1(Eval) ->
 u2(Eval) ->    
     %% Update functions use the imperative redo style: after
     %% need/2, the dependencies are guaranteed to be ready, and
-    %% the output node can be set at any time.  It's
+    %% the output var can be set at any time.  It's
     %% straightforward to embed pure functions in this
     %% framework.
     Deps = [ex1],
@@ -864,12 +900,6 @@ test(ex1) ->
     exit(Pid, kill),
     {Changed1,Changed2,Changed3};
 
-
-%% FIXME: I think that "push" is wrong because it is not transitive.
-%% It needs to close up to the point that.  Maybe just run the network
-%% in reverse explicitly?
-
-%% FIXME: Add exo functionality to start a daemon.
 
 test(nlspec) ->
     case import("/home/tom/exo/erl/apps/exo/src/nlspec_do.erl") of
