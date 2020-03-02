@@ -755,14 +755,47 @@ port_kill(Port,Signal) ->
 
 
 %% Abstract open_port
+%%
+%% Suppose that an Erlang service is integrated into a heterogeneous
+%% system that is a mix of Erlang and non-Erlang systems, and has
+%% networking components that are not based on Erlang distribution.
+%%
+%% The Erlang program needs to delegate starting of a port to the
+%% system in which it is integrated.  This can be done by having the
+%% host 1. Resolve names, and 2. start the program using Erlang's
+%% open_port/3.
+%%
+%% The API then consists of the following:
+%% - An abstraction over open_port/3  (tools:spawn_port/3)
+%% - A way to represent remote locations
+%%
+%% Note that remote locations do not need to be Erlang nodes.  They
+%% can be anything that is meaningful in the larger system.  These
+%% references are passed into the Erlang service from the outside and
+%% are only used in an abstract way, e.g. by passing it to a
+%% spawn_port function.
 
-%% Context: if you can't run Erlang on a particular piece of hardware,
+
+%% Some examples: if you can't run Erlang on a particular piece of hardware,
 %% instead run a C program that exposes the node's hardware (sensors,
 %% actuators, communication devices) as a port program, and run the
 %% Erlang side of the driver somewhere else in the hive.  I've used
 %% this on tiny OpenWRT nodes that start port programs through
 %% dropbear SSH, and on hub nodes that expose a collection of
 %% USB-connected microcontrollers.
+
+%% The host system provides the spawner as a "reloadable closure" that
+%% needs to be invoked using tools:apply/3.
+%% The following functions implement the API.
+
+%% spawn_port(Cmd, Args, Opts).
+%% - Env:  misc extra information, e.g. host
+%% - Cmd:  iolist command name
+%% - Args: list of iolist arguments
+%% - Opts: options passed to erlang:open_port/3
+
+
+%% Some examples:
 
 %% case: Spawner is abstract and defined in the local environment.
 %% This can e.g. be used when starting of an Erlang port management

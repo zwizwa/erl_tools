@@ -6,15 +6,17 @@
          file_changed/3,
          from_list_dir/2,
          read_file/2, write_file/3, is_regular/2,
-         from_filename/1, to_filename/1, to_directory/1,
-         update_using/2, update_file/1, update_value/3, update_pure/3,
+         from_filename/1, to_filename/1, to_directory/1, to_includes/1,
+         path_find/4,
+         update_using/2, update_file/1, update_value/3, update_pure/3, update_const/2,
          need/2, changed/2,
          run/2, run/3,
-         gcc_deps/1,
+         gcc_deps/1, need_gcc_deps/2,
          with_vars/2,
          import/1,
          need_val/2, find_val/2, put_val/3,
          no_update/1,
+         default_script_log/1,
          test/1, u1/1, u2/1]).
 
 
@@ -83,7 +85,20 @@ debug(_F,_As) ->
 
 %% Main entry point.  See test(ex1) below.
 pull(Redo, Products) ->
-    with_eval(Redo, fun(Eval) -> need(Eval, Products) end).
+    with_eval(
+      Redo,
+      fun(Eval) ->
+              %% FIXME: Put this elsewhere?
+              Log =
+                  case obj:call(Eval, script_log) of
+                      {ok, L} -> L;
+                      _ -> fun(_) -> ok end
+                  end,
+              Log(clear),
+              Rv =need(Eval, Products),
+              Log({line,tools:format("pull: ~p~n~p",[Rv,Products])}),
+              Rv
+      end).
 
 %% Trigger update of dependent products from external change notification
 push(Redo, Changed, NotChanged) ->
@@ -113,15 +128,14 @@ get(Redo, Product) ->
 %% Several calls against the evaluator will be performed during
 %% evaluation of the network.  The task of this monitor process is to
 %% maintain transaction semantics.
-start_link(Spec) when is_map(Spec)  ->
+start_link(Spec0) when is_map(Spec0)  ->
     {ok, serv:start(
            {handler,
-            fun() -> #{ eval => start_eval(Spec) } end,
-            fun ?MODULE:handle_outer/2})};
-%% Not a map, then it is assumed to be a "from" spec.
-start_link(From) ->
-    log:info("loading from: ~p~n", [From]),
-    start_link(load_config(From,#{ config => From })).
+            fun() ->
+                    Spec = load_config(Spec0),
+                    #{ eval => start_eval(Spec) } 
+            end,
+            fun ?MODULE:handle_outer/2})}.
 
 
 handle_outer(Msg, State = #{eval := Eval}) ->
@@ -415,25 +429,21 @@ handle({'DOWN', _Ref, process, Pid, Reason}, State) ->
 handle({log_append,Item}, State) ->
     maps:put(log, [Item|maps:get(log, State, [])], State);
 
+
+handle({Pid, script_log}, State) ->
+    obj:reply(Pid, maps:find(script_log, State)),
+    State;
+
 %% Allow some read only access for internal use.
 handle({_,{find,_}}=Msg, State) -> obj:handle(Msg, State);
 handle({_,dump}=Msg, State)     -> obj:handle(Msg, State);
 
 %% Reload do file
 handle({Pid, reload}, State) -> 
-    MaybeFile = maps:find(config, State),
-    State1 =
-        case MaybeFile of
-            error ->
-                debug("no do module to reload~n",[]),
-                State;
-            {ok, From} ->
-                load_config(From, State)
-        end,
-    obj:reply(Pid, MaybeFile),
-    State1.
+    obj:reply(Pid, ok),
+    load_config(State).
 
-no_update(Target) ->
+no_update(_Target) ->
     fun(_Eval) ->
             log:info("WARNING: no update/1 function defined~"),
             error
@@ -491,12 +501,12 @@ add_outputs(Var, Outputs, State) ->
     end.
 
 
-
-load_config(From, State) ->
-    Spec = 
-        case From of
-            {mfa, {M,F,A}} -> apply(M,F,A);
-            {file, File}   -> import(File)
+load_config(State) ->
+    Spec =
+        case maps:find(config, State) of
+            {ok, {mfa, {M,F,A}}} -> apply(M,F,A);
+            {ok,  {file, File}}  -> import(File);
+            _ -> #{}
         end,
     maps:merge(State, Spec).
 
@@ -670,6 +680,9 @@ update_pure(Target, Deps, PureBody) ->
       Target, Deps,
       fun(Eval) -> PureBody([get_val(Eval, Dep) || Dep <- Deps]) end).
 
+update_const(Target, Val) ->
+    update_pure(Target, [], fun([]) -> Val end).
+                                    
 
 %% How to support anonymous targets?  Suppose we do not have a list of
 %% outputs, but we have an opaque function that produces a set of
@@ -701,25 +714,36 @@ app({F,CArgs},Args) when is_function(F) ->
 
 %% Files and scripts
 
-%% Convert between Erlang data type that is easy to pattern match, and
-%% a "dotted list" file name encoding.
+%% Convert between Erlang data type that is easy to pattern match"
+%% {Type,BaseName,ReversePath}, and a "dotted list" file name
+%% encoding.  Type can be a tuple to allow for composite types.
 from_filename(IOList) ->
     %% debug("from_filename: ~s~n", [IOList]),
     [FileName|RPath] = lists:reverse(re:split(IOList,"/")),
     [BaseName|BinDotNames] = re:split(FileName,"\\."),
     %% debug("BinDotNames ~p~n",[BinDotNames]),
     DotNames =  [type:decode({pterm,Bin}) || Bin <- BinDotNames],
-    list_to_tuple(lists:reverse(DotNames) ++ [BaseName,RPath] ).
+    {case DotNames of
+         [DotName] -> DotName;
+         _ -> list_to_tuple(lists:reverse(DotNames))
+     end,
+     BaseName,RPath}.
 
 %% E.g. {c,<<"dht11">>=BaseName,[]=Path}
 %% Symbol tags can be multiple.
 to_directory(Dirs) ->
     tools:format("~s",[[[Dir,"/"] || Dir <- lists:reverse(Dirs)]]).
-to_filename(Tuple) ->
-    [Dirs,BaseName|Tags] = lists:reverse(tuple_to_list(Tuple)),
+to_filename({Type,BaseName,Dirs}) ->
+    Tags = case is_tuple(Type) of
+               true -> lists:reverse(tuple_to_list(Type));
+               false -> [Type]
+           end,
     Path = to_directory(Dirs),
     Ext  = [[".",type:encode({pterm,Tag})] || Tag <- Tags],
     tools:format("~s",[[Path,BaseName,Ext]]).
+
+to_includes(Paths) ->
+    [[" -I",to_directory(P)] || P <- Paths].
 
 %% FIXME: This probably doesn't work with spaces in names.  Actually
 %% think about this and clean it up.
@@ -733,6 +757,14 @@ gcc_deps(Bin0) ->
     %% log:info("gcc_deps: ~p~n",[List]),
     lists:map(fun from_filename/1, List).
 
+%% A need wrapper for the above.
+need_gcc_deps(Eval, {_Type,_BaseName,_Path}=D) ->
+    DepsFile = to_filename(D),
+    {ok, DepsBin} = read_file(Eval, DepsFile),
+    Deps = gcc_deps(DepsBin),
+    need(Eval,Deps).
+
+
 %% Convert Erlang map to a sequence of variable assignments separated with ':'
 with_vars(Map, Cmd) when is_map(Map) ->
     with_vars(maps:to_list(Map), Cmd);
@@ -742,6 +774,7 @@ with_vars(AList,Cmd) ->
        AList),
      Cmd].
 %% FIXME: There is a proper shell variable quoter somewhere.
+quote([]) -> "\"\"";
 quote(IOList) -> p(s(IOList)).
 s(T) -> tools:format("~s",[T]).
 p(T) -> tools:format("~p",[T]).
@@ -801,6 +834,23 @@ file_changed(Eval, Product, RelPath) ->
     end.
 
 
+%% FIXME: The .do version allows for configuration to add .c and .h
+%% files from external repositories.  It uses environment variables to
+%% do so.  We do it with explicit configuration items.
+
+path_find(_Eval, _Ext, _BaseName, []) ->
+    error;
+path_find(Eval, Ext, BaseName, [Path|Paths]) ->
+    File = to_filename({Ext,BaseName,Path}),
+    %% log:info("find_c ~p~n",[File]),
+    case redo:is_regular(Eval, File) of
+        true  ->
+            {ok, Path};
+        false ->
+            path_find(Eval, Ext, BaseName, Paths)
+    end.
+
+
 %% Hashes are slow and also do not capture the "void event" which is
 %% quite useful in case the output of the network is something
 %% happening, and not just a value change effect.  FIXME: Integrate
@@ -833,10 +883,15 @@ file_changed(Eval, Product, RelPath) ->
 %% FIXME: Also add throttling here, e.g. to limit parallellism.
 
 run(Eval, Thing) ->
-    run(Eval, Thing,
-        fun(clear) -> ok;
-           ({line,Line}) -> log:info("~s~n", [Line])
-        end).
+    Log =
+        case obj:call(Eval, script_log) of
+            {ok, L} -> L;
+            _ -> fun ?MODULE:default_script_log/1
+        end,
+    run(Eval, Thing, Log).
+
+default_script_log({line,Line}) -> log:info("~s~n", [Line]);
+default_script_log(_) -> ok.
 
 run(Eval, {mfa, MFA={M,F,A}}, Log) ->
     Eval ! {log_append, MFA},

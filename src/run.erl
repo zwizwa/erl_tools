@@ -149,7 +149,7 @@ to_script(Cmd, Out) ->
 %% See redo.erl
 bash(Dir, Cmds, Log) ->
     %% log:info("run: bash: ~s~n", [Cmds]),
-    Log(clear),
+    %% Log(clear), %% Don't!
     Log({line,Cmds}),
     run:fold_script(
       tools:format("bash -c 'cd ~s ; ~s'", [Dir, Cmds]), 

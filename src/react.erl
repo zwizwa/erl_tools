@@ -145,7 +145,7 @@ test(compile) ->
     log:info("render:~n~p~n", [Render]),
     
     %% Push a variable to awake side effect channel.
-    redo:push(Redo, [var1]),
+    redo:push(Redo, [in1]),
 
     unlink(Redo),
     exit(Redo, kill),

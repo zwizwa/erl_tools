@@ -1,10 +1,10 @@
 -module(gdbstub_hub).
--export([start_link/0, start_link/1,
+-export([start_link/1,
          send/1, call/1,
          dev/1, devs/0,
          %% Some high level calls
          info/1,
-         find_uid/1, uids/0,
+         find_uid/1, uids/0, uids/1,
          ping/1,
          call/3,
 
@@ -18,13 +18,15 @@
          default_handle_packet/2,
          encode_packet/3,
          decode_packet/3,
-         decode_info/2
+         decode_info/2,
+
+         test/1
 ]).
 
 -include("slip.hrl").
 
 %% This module is a hub for uc_tools gdbstub-based devices.  See also
-%% gdbstub.erl
+%% gdbstub.erl for GDB RSP protocol code.
 
 %% Singal flow:
 %% - gdbstub_hub board gets enumerated on some host
@@ -43,13 +45,12 @@
 %% The host name + devpath is enough to uniquely identify the location
 %% of the device.
 
-start_link() ->
-    start_link(fun gdbstub_hub:hub_handle/2).
-start_link(HubHandle) ->
+start_link(Config) ->
+    HubHandle = maps:get(hub_handle, Config, fun gdbstub_hub:hub_handle/2),
     {ok,
      serv:start(
        {handler,
-        fun() -> process_flag(trap_exit, true), #{ } end,
+        fun() -> process_flag(trap_exit, true), Config end,
         HubHandle})}.
 
 %% Udev events will eventuall propagate to here.
@@ -66,6 +67,8 @@ hub_handle({add_tty,BHost,TTYDev,DevPath,AppRunning}=_Msg, State)
        is_binary(DevPath) ->
     Host = binary_to_atom(BHost, utf8),
     log:info("~p~n", [_Msg]),
+
+    SpawnPort = maps:get(spawn_port, State),
 
     {ID,Info0} = 
         case devpath_usb_port(DevPath) of
@@ -89,6 +92,7 @@ hub_handle({add_tty,BHost,TTYDev,DevPath,AppRunning}=_Msg, State)
                      maps:merge(
                        Info0,
                        #{ hub => Hub,
+                          spawn_port => SpawnPort,
                           log => fun gdbstub_hub:ignore/2,
                           %% log => fun(Msg,S) -> log:info("~p~n",[Msg]),S end,
                           host => Host,
@@ -100,7 +104,7 @@ hub_handle({add_tty,BHost,TTYDev,DevPath,AppRunning}=_Msg, State)
                           id => ID })),
             _Ref = erlang:monitor(process, Pid),
             log:info("adding ~p~n", [{ID,Pid}]),
-            maps:put(ID, Pid, State)
+            maps:put({dev,ID}, Pid, State)
     end;
 
 hub_handle({up, Pid}, State) when is_pid(Pid) ->
@@ -140,9 +144,11 @@ hub_remove_pid(Pid, State) ->
 %% serial port.  If app is not running, the wire protcol is RSP.  If
 %% app is running it can have its own protocol.  The common case is
 %% SLIP supporting wrapped RSP.
-dev_start(#{ tty := Dev, id := {Host, _},
-             hub := Hub,
-             app := AppRunning } = Init0) ->
+dev_start(#{ tty        := Dev,
+             id         := {Host, _},
+             hub        := Hub,
+             spawn_port := SpawnPort,
+             app        := AppRunning } = Init0) ->
     %% When app is running we need to make an assumption about the
     %% application's serial port framing protocol.  SLIP is a good
     %% standard.  It is also assumed that the packet level supports
@@ -163,13 +169,15 @@ dev_start(#{ tty := Dev, id := {Host, _},
        fun() ->
                log:set_info_name({Host,Dev}),
                log:info("connecting...~n"),
-               %% FIXME: Use the more general tools:open_port/3 to
-               %% dispatch, and pass in context to daemon start.
-               Port =
-                   exo_port:spawn_port(
-                     #{ host => Host },
-                     {"gdbstub_connect", [Dev]},
-                     [use_stdio, binary, exit_status]),
+
+               %% The tools:spawn_port/1 API is used to allow starting
+               %% of remote binary code in an abstract manner.
+               Port = tools:apply(
+                        SpawnPort,
+                        [#{ host => Host,
+                            cmd  => "gdbstub_connect",
+                            args => [Dev],
+                            opts => [use_stdio, binary, exit_status] }]),
                log:info("connected ~p~n",[Port]),
                Gdb = gdb_start(maps:merge(Init, #{ pid => self() })),
                Pid = self(),
@@ -568,13 +576,14 @@ devs() ->
     
 uids(Hub) ->
     lists:foldl(
-      fun({_ID,Pid},Map) ->
+      fun({{dev,_ID},Pid},Map) when is_atom(_ID)->
               case obj:dump(Pid) of
                   #{ uid := UID} ->
                       maps:put(UID,Pid,Map);
                   _ ->
                       Map
-              end
+              end;
+         (_,Map) -> Map
       end,
       #{},
       maps:to_list(obj:dump(Hub))).
@@ -682,3 +691,29 @@ call(Pid, Msg, Timeout) ->
     obj:call(Pid, {call,Msg}, Timeout).
 
 
+%% If udev is not available, do something like this:
+%% ssh root@$IP tail -n0 -f /tmp/messages
+%% And watch the output
+find_ttyACM(Line) ->
+    Rv = re:run(Line, "cdc_acm (.*): (ttyACM\\d+): USB ACM device",[{capture,all,binary}]),
+    case Rv of
+        {match,[_,UsbAddr,Dev]} -> {ok, {UsbAddr, Dev}};
+        _ -> error
+    end.    
+
+test(messages) ->
+    Line = <<"Oct  6 15:28:44 buildroot kern.info kernel: "
+             "cdc_acm 2-1:1.0: ttyACM0: USB ACM device">>,
+    test({messages,Line});
+test({messages,Line}) ->
+    find_ttyACM(Line);
+test(board) ->
+    run:bash(
+      ".", "ssh root@10.1.3.123 cat /tmp/messages",
+      fun({line,Line}) -> 
+              case test({messages,Line}) of
+                  error -> ok;
+                  {ok, Dev} -> log:info("~p~n", [Dev])
+              end
+      end),
+    ok.

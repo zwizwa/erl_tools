@@ -162,13 +162,14 @@ sql(DB,Qs) ->
 
 
 %% TEST
+%% Exo is 
     
-test({find,Key}) ->
-    find(exo:db_local(),fun exo_net:columns/1, Key);
-test({put,Key,Val}) ->
-    put(exo:db_local(),fun exo_net:columns/1, Key, Val);
-test({to_list,Table}) ->
-    to_list(exo:db_local(),fun exo_net:columns/1, Table, [ts,var]);
+test({find,Exo,Key}) ->
+    find(Exo:db_local(),fun exo_net:columns/1, Key);
+test({put,Exo,Key,Val}) ->
+    put(Exo:db_local(),fun exo_net:columns/1, Key, Val);
+test({to_list,Exo,Table}) ->
+    to_list(Exo:db_local(),fun exo_net:columns/1, Table, [ts,var]);
 
 test(Spec) ->
     throw({test,Spec}).
