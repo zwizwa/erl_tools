@@ -45,16 +45,8 @@ cmd(Spec) ->
         {cmd, Cmd}           -> Cmd
     end.
 
-%% Note that shell quoting is a real pain.  This pops up here when ssh
-%% is used.  We solve the problem explicitly.  FIXME: Not complete,
-%% but good enough for now.
-quote([]) -> [];
-quote([H|T]) ->
-    Special = [$\\,$",$',$ ,$>,$$],
-    case lists:member(H,Special) of
-        true  -> [$\\,H|quote(T)];
-        false -> [H|quote(T)]
-    end.
+quote(Cmd) ->
+    run:quote(Cmd).
 
 %% https://stackoverflow.com/questions/15783701/which-characters-need-to-be-escaped-when-using-bash
 

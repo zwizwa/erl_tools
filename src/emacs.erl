@@ -185,8 +185,10 @@ lisp(Any) ->
     io_lib:format("~p", [Any]).
 
 
-
-
+%% This is a bit of work...
+%% Do it the other way around: check distel log to see what is sent, then compare.
+%% etf(List) ->
+%%     G = igen:from_list(List),
 
 %% =WARNING REPORT==== 2-Mar-2020::11:52:56 ===
 %% 'exo@10.1.3.29' got a corrupted external term from 'distel_3704@panda' on distribution channel 28198

@@ -14,6 +14,7 @@
 
          to_script/2,
          bash/3,
+         quote/1,
 
          %% runner
          runner_start/1,
@@ -137,6 +138,16 @@ script_print(Cmd, Timeout) ->
     fold_script(Cmd, fun port_print/2, none, Timeout, [{line, 1024}]).
 
 
+%% Shell quoting is a real pain.  The problem pops up frequently when
+%% ssh is used.  FIXME: Not complete, but good enough for now.
+quote([]) -> [];
+quote([H|T]) ->
+    Special = "\\\"' >$;()",
+    case lists:member(H,Special) of
+        true  -> [$\\,H|quote(T)];
+        false -> [H|quote(T)]
+    end.
+
 
 
 %% Print to output
@@ -144,6 +155,7 @@ to_script(Cmd, Out) ->
     Port = open_port({spawn,Cmd},[]),
     port_command(Port, Out),
     port_close(Port).
+
 
 
 %% See redo.erl

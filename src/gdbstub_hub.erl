@@ -7,9 +7,11 @@
          find_uid/1, uids/0, uids/1,
          ping/1,
          call/3,
+         parse_syslog_ttyACM/1,
 
          %% Debug
          devpath_usb_port/1,
+
 
          %% Internal, for reloads
          ignore/2, print_etf/2,
@@ -694,7 +696,7 @@ call(Pid, Msg, Timeout) ->
 %% If udev is not available, do something like this:
 %% ssh root@$IP tail -n0 -f /tmp/messages
 %% And watch the output
-find_ttyACM(Line) ->
+parse_syslog_ttyACM(Line) ->
     Rv = re:run(Line, "cdc_acm (.*): (ttyACM\\d+): USB ACM device",[{capture,all,binary}]),
     case Rv of
         {match,[_,UsbAddr,Dev]} -> {ok, {UsbAddr, Dev}};
@@ -706,7 +708,7 @@ test(messages) ->
              "cdc_acm 2-1:1.0: ttyACM0: USB ACM device">>,
     test({messages,Line});
 test({messages,Line}) ->
-    find_ttyACM(Line);
+    parse_syslog_ttyACM(Line);
 test(board) ->
     run:bash(
       ".", "ssh root@10.1.3.123 cat /tmp/messages",
