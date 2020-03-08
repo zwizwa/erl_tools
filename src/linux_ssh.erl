@@ -1,5 +1,5 @@
 -module(linux_ssh).
--export([start_link/1, handle/2, put_cmd/2]).
+-export([start_link/1, handle/2, putx_cmd/2]).
 
 %% Given ssh access, this code takes care of:
 %%
@@ -51,7 +51,7 @@ handle(Msg, State = #{log := LogPort, host := Host}) ->
         %% Upload a binary
         {Pid, {putx, Path, Bin}} ->
             Opts = [use_stdio, exit_status, binary],
-            Cmd = put_cmd(Host,Path),
+            Cmd = putx_cmd(Host,Path),
             log:info("Cmd=~s",[Cmd]),
             Port = open_port({spawn, Cmd}, Opts),
             Port ! {self(), {command, Bin}},
@@ -70,8 +70,7 @@ handle(Msg, State = #{log := LogPort, host := Host}) ->
             log:info("WARNING: ~p~n", [Msg])
     end.
 
-put_cmd(Host, Path) ->
-    %% FIXME: Quoting
+putx_cmd(Host, Path) ->
     Cmd1 = tools:format(
              "P=~p;"
              "mkdir -p $(dirname \"$P\");"

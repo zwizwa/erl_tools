@@ -1,5 +1,8 @@
 -module(linux).
--export([interfaces/0, interfaces_re/1, brctl_addif/2, ip_addresses/1, netmask_number/1]).
+-export(
+   [interfaces/0, interfaces_re/1, brctl_addif/2,
+    ip_addresses/1, netmask_number/1,
+    devpath_to_dev/1, devpath_usb_port/1]).
 
 %% Wrappers around linux commands.
 %% FIXME: parsers are very ad-hoc.
@@ -62,3 +65,35 @@ netmask_number({A,B,C,D}) ->
     %% Be good and assert proper format.
     lists:foreach(fun(Bit) -> 0 = Bit end, Tail),
     length(Head).
+
+%% FIXME: This currently works for tty.
+devpath_to_dev(DevPath) ->
+    [TTY,<<"tty">>|_] = lists:reverse(re:split(DevPath,"/")),
+    tools:format_binary("/dev/~s", [TTY]).
+
+
+%%devpath_usb_port(test) ->
+%%    devpath_usb_port(
+%%      <<"/devices/pci0000:00/0000:00:16.0/usb9/9-2/9-2.4/9-2.4:1.0/tty/ttyACM1\n">>);
+
+%% gdbstub_hub:devpath_usb_port(<<"/devices/pci0000:00/0000:00:16.0/usb9/9-2/9-2.4/9-2.4:1.0/tty/ttyACM1\n">>);
+
+%% gdbstub_hub:devpath_usb_port(<<"/devices/pci0000:00/0000:00:12.2/usb1/1-1/1-1.3/1-1.3.4/1-1.3.4.4/1-1.3.4.4:1.0/ttyUSB0/tty/ttyUSB0">>).
+
+devpath_usb_port(DevPath) when is_binary(DevPath) ->
+    Split =
+        fun(UsbPort) ->
+                case re:split(UsbPort,"-") of
+                    [Interface,Chain] ->
+                        ChainList = re:split(Chain,"\\."),
+                        {ok, [binary_to_integer(C) || C <- [Interface | ChainList]]};
+                    _ -> error
+                end
+        end,
+    case lists:reverse(re:split(DevPath,"/")) of
+        %% Why are there two forms?  The former was discovered more
+        %% recently (rackhub exo_notify.sh from tty rename script).
+        [_ttyUSBx,<<"tty">>,_ttyUSBx,_,UsbPort|_] -> Split(UsbPort);
+        [_ttyACMx,<<"tty">>,_,UsbPort|_] -> Split(UsbPort);
+        _ -> error
+    end.

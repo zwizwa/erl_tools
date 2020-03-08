@@ -9,10 +9,6 @@
          call/3,
          parse_syslog_ttyACM/1,
 
-         %% Debug
-         devpath_usb_port/1,
-
-
          %% Internal, for reloads
          ignore/2, print_etf/2,
          dev_start/1, dev_handle/2,
@@ -73,7 +69,7 @@ hub_handle({add_tty,BHost,TTYDev,DevPath,AppRunning}=_Msg, State)
     SpawnPort = maps:get(spawn_port, State),
 
     {ID,Info0} = 
-        case devpath_usb_port(DevPath) of
+        case linux:devpath_usb_port(DevPath) of
             {ok, UsbPort} -> {{Host,UsbPort}, #{ usbport => UsbPort }};
             _ -> {{Host,{tty,TTYDev}}, #{}}
         end,
@@ -504,31 +500,6 @@ gdb_loop(State = #{ sock := Sock, log := Log }) ->
 gdb_dispatch(#{ pid := Pid}, Request) ->
     obj:call(Pid, {rsp_call, Request}, 6002).
 
-%%devpath_usb_port(test) ->
-%%    devpath_usb_port(
-%%      <<"/devices/pci0000:00/0000:00:16.0/usb9/9-2/9-2.4/9-2.4:1.0/tty/ttyACM1\n">>);
-
-%% gdbstub_hub:devpath_usb_port(<<"/devices/pci0000:00/0000:00:16.0/usb9/9-2/9-2.4/9-2.4:1.0/tty/ttyACM1\n">>);
-
-%% gdbstub_hub:devpath_usb_port(<<"/devices/pci0000:00/0000:00:12.2/usb1/1-1/1-1.3/1-1.3.4/1-1.3.4.4/1-1.3.4.4:1.0/ttyUSB0/tty/ttyUSB0">>).
-
-devpath_usb_port(Bin) ->
-    Split =
-        fun(UsbPort) ->
-                case re:split(UsbPort,"-") of
-                    [Interface,Chain] ->
-                        ChainList = re:split(Chain,"\\."),
-                        {ok, [binary_to_integer(C) || C <- [Interface | ChainList]]};
-                    _ -> error
-                end
-        end,
-    case lists:reverse(re:split(Bin,"/")) of
-        %% Why are there two forms?  The former was discovered more
-        %% recently (rackhub exo_notify.sh from tty rename script).
-        [_ttyUSBx,<<"tty">>,_ttyUSBx,_,UsbPort|_] -> Split(UsbPort);
-        [_ttyACMx,<<"tty">>,_,UsbPort|_] -> Split(UsbPort);
-        _ -> error
-    end.
 
 %% It might be convenient. But maybe best not expose a naked Erlang
 %% console on a TCP port without any form of authentication.
@@ -573,22 +544,23 @@ find_uid(UID) ->
     maps:find(UID, uids()).
 uids() ->
     uids(gdbstub_hub).
+devs(Hub) ->
+    [Pid || {{dev,_Dev},Pid} <- maps:to_list(obj:dump(Hub))].
 devs() ->
-    maps:values(obj:dump(gdbstub_hub)).
+    devs(gdbstub_hub).
     
 uids(Hub) ->
     lists:foldl(
-      fun({{dev,_ID},Pid},Map) when is_atom(_ID)->
+      fun(Pid, Map) ->
               case obj:dump(Pid) of
                   #{ uid := UID} ->
                       maps:put(UID,Pid,Map);
                   _ ->
                       Map
-              end;
-         (_,Map) -> Map
+              end
       end,
       #{},
-      maps:to_list(obj:dump(Hub))).
+      devs(Hub)).
 
 
 
