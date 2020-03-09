@@ -67,17 +67,15 @@ handle(Msg, State = #{log := LogPort, host := Host}) ->
             Port ! {self(), close},
             Info = {putx, Path},
             maps:put({cmd,Port}, {Pid, Info}, State);
-        %% Start a remote port program.
-        {Pid, {spawn_port, #{ cmd := Cmd, args := Args, opts := Opts }=_SpawnSpecs}} ->
+        %% Start a remote port program using the spawn_port spec format.
+        {Pid, {open_port_cmd, #{ cmd := Cmd, args := Args }=_SpawnSpecs}} ->
             log:info("linux_ssh:spawn_port ~p~n", [_SpawnSpecs]),
-            %% Use canonical location and extension.
-            Elf = tools:format("bin/~s.elf",[Cmd]),
+            %% Use canonical location and extension.  FIXME: Not clear
+            %% whether to hard-code, or somehow make it configurable?
+            Elf = tools:format("bin/~s.elf", [Cmd]),
             ShellCommand = run:shell_command(Elf, Args),
             SshCmd = tools:format("ssh ~s '~s'", [Host, ShellCommand]),
-            log:info("SshCmd = ~s~n", [SshCmd]),
-            Port = open_port({spawn, SshCmd}, Opts),
-            Port ! {self(), {connect, Pid}},
-            obj:reply(Pid, {ok, Port}),
+            obj:reply(Pid, {ok, SshCmd}),
             State;
         {_, dump} ->
             obj:handle(Msg, State);
