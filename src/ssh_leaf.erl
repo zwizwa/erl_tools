@@ -1,11 +1,11 @@
--module(linux_ssh).
+-module(ssh_leaf).
 -export([start_link/1, handle/2, putx_cmd/2]).
 
 %% Given ssh access, this code takes care of:
 %%
-%% - Event monitoring by watching the messages log
-%% - Remote port program execution
-%% - Binary code deployment
+%% - read:  Event monitoring by watching the messages log
+%% - exec:  Remote port program execution
+%% - write: Binary code deployment
 %%
 %% Useful when it's not practically possible to run a remote Erlang
 %% node.
@@ -29,6 +29,7 @@ start_link(#{ host := Host }=Config) ->
         end,
         fun ?MODULE:handle/2})}.
 handle(Msg, State = #{log := LogPort, host := Host}) ->
+    Notify = maps:get(notify, State, fun(_)->ok end),
     case Msg of
         %% Parse log message
         {LogPort, PMsg} ->
@@ -36,15 +37,23 @@ handle(Msg, State = #{log := LogPort, host := Host}) ->
                 {data, {eol, Line}} -> 
                     %% log:info("log: ~p~n", [Line]),
                     case gdbstub_hub:parse_syslog_ttyACM(Line) of
-                        {ok, TTY} -> log:info("TTY ~p~n", [TTY]);
-                        _ -> ok
+                        {ok, {USB, ACM}} -> 
+                            SpawnSpec = #{
+                              proxy => self(),
+                              host => Host %% only for logging
+                             },
+                            Notify({tty,SpawnSpec,USB,ACM});
+                        _ ->
+                            ok
                     end,
                     State
                 end;
         %% Ack from one-shot commands
         {CmdPort, PMsg} when is_port(CmdPort) ->
             case {PMsg, maps:find({cmd, CmdPort}, State)} of
-                {closed, {ok, Pid}} ->
+                %% OK if we receive closed before exit_status
+                {closed, {ok, {Pid, Info}}} ->
+                    log:info("done: ~p~n", [Info]),
                     obj:reply(Pid, ok),
                     State
             end;
@@ -56,11 +65,17 @@ handle(Msg, State = #{log := LogPort, host := Host}) ->
             Port = open_port({spawn, Cmd}, Opts),
             Port ! {self(), {command, Bin}},
             Port ! {self(), close},
-            maps:put({cmd,Port}, Pid, State);
+            Info = {putx, Path},
+            maps:put({cmd,Port}, {Pid, Info}, State);
         %% Start a remote port program.
-        {Pid, {open_port, {spawn, Cmd0}, Opts}} ->
-            Cmd = tools:format("ssh ~p '~p'",[Cmd0]),
-            Port = open_port({sapwn, Cmd}, Opts),
+        {Pid, {spawn_port, #{ cmd := Cmd, args := Args, opts := Opts }=_SpawnSpecs}} ->
+            log:info("linux_ssh:spawn_port ~p~n", [_SpawnSpecs]),
+            %% Use canonical location and extension.
+            Elf = tools:format("bin/~s.elf",[Cmd]),
+            ShellCommand = run:shell_command(Elf, Args),
+            SshCmd = tools:format("ssh ~s '~s'", [Host, ShellCommand]),
+            log:info("SshCmd = ~s~n", [SshCmd]),
+            Port = open_port({spawn, SshCmd}, Opts),
             Port ! {self(), {connect, Pid}},
             obj:reply(Pid, {ok, Port}),
             State;
@@ -72,11 +87,11 @@ handle(Msg, State = #{log := LogPort, host := Host}) ->
 
 putx_cmd(Host, Path) ->
     Cmd1 = tools:format(
-             "P=~p;"
+             "P=~s;"
              "mkdir -p $(dirname \"$P\");"
              "rm -f \"$P\";"
              "cat >\"$P\";"
              "chmod +x \"$P\"",
              [Path]),
-    Cmd = tools:format("ssh ~s ~s", [Host, run:quote(Cmd1)]),
+    Cmd = tools:format("ssh ~s ~s", [Host, run:shell_quote(Cmd1)]),
     Cmd.

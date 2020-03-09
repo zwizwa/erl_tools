@@ -56,54 +56,46 @@ start_link(Config) ->
 %% Add a TTY device, most likely USB.  DevPath is used to uniquely
 %% identify the device, based on the physical USB port location.  It
 %% is assumed the device is still in gdbstub mode (app not running).
-hub_handle({add_tty,BHost,TTYDev,DevPath}, State) ->
-    hub_handle({add_tty,BHost,TTYDev,DevPath,false}, State);
+hub_handle({add_tty,Host,TTYDev,DevPath}, State) ->
+    hub_handle({add_tty,Host,TTYDev,DevPath,false}, State);
 
-hub_handle({add_tty,BHost,TTYDev,DevPath,AppRunning}=_Msg, State)
-  when is_binary(BHost) and
-       is_binary(TTYDev) and
+hub_handle({add_tty,HostSpec,TTYDev,DevPath,AppRunning}=_Msg, State)
+  when is_binary(TTYDev) and
        is_binary(DevPath) ->
-    Host = binary_to_atom(BHost, utf8),
+
     log:info("~p~n", [_Msg]),
 
-    SpawnPort = maps:get(spawn_port, State),
-
-    {ID,Info0} = 
-        case linux:devpath_usb_port(DevPath) of
-            {ok, UsbPort} -> {{Host,UsbPort}, #{ usbport => UsbPort }};
-            _ -> {{Host,{tty,TTYDev}}, #{}}
+    %% Host is abstract, and is only used to pass to SpawnPort to
+    %% connect to the board.  The spawn_spec is required to have a
+    %% host field.
+    SpawnSpec =
+        case HostSpec of
+            _ when is_binary(HostSpec) ->
+                #{ host => binary_to_atom(HostSpec, utf8) };
+            #{ host := _ } ->
+                HostSpec
         end,
-    case maps:find(ID, State) of
-        {ok, Pid} ->
-            log:info("already have ~p~n", [{ID,Pid}]),
-            State;
-        _ ->
-            %% Easier to decouple GDB communication if there is a
-            %% dedicated process per device.
 
-            %% FIXME: Use listen errors to determine next port.
-            Hub = self(),
-            <<Offset:14,_:2,_/binary>> = crypto:hash(sha, [BHost,DevPath]),
-            TcpPort = 10000 + Offset,
-
-            Pid = ?MODULE:dev_start(
-                     maps:merge(
-                       Info0,
-                       #{ hub => Hub,
-                          spawn_port => SpawnPort,
-                          log => fun gdbstub_hub:ignore/2,
-                          %% log => fun(Msg,S) -> log:info("~p~n",[Msg]),S end,
-                          host => Host,
-                          tty => TTYDev,
-                          devpath => DevPath,
-                          tcp_port => TcpPort,
-                          app => AppRunning,
-                          line_buf => <<>>,
-                          id => ID })),
-            _Ref = erlang:monitor(process, Pid),
-            log:info("adding ~p~n", [{ID,Pid}]),
-            maps:put({dev,ID}, Pid, State)
-    end;
+    Hub = self(),
+    <<Offset:14,_:2,_/binary>> = 
+        crypto:hash(
+          sha,
+          term_to_binary({HostSpec,DevPath})),
+    TcpPort = 10000 + Offset,
+    Pid = ?MODULE:dev_start(
+             #{ hub => Hub,
+                spawn_port => maps:get(spawn_port, State),
+                spawn_spec => SpawnSpec,
+                host => maps:get(host, SpawnSpec),
+                log => fun gdbstub_hub:ignore/2,
+                %% log => fun(Msg,S) -> log:info("~p~n",[Msg]),S end,
+                tty => TTYDev,
+                devpath => DevPath,
+                tcp_port => TcpPort,
+                app => AppRunning,
+                line_buf => <<>>}),
+    _Ref = erlang:monitor(process, Pid),
+    maps:put({dev,Pid}, true, State);
 
 hub_handle({up, Pid}, State) when is_pid(Pid) ->
     %% Ignore here.  Useful for Handle override.
@@ -143,7 +135,8 @@ hub_remove_pid(Pid, State) ->
 %% app is running it can have its own protocol.  The common case is
 %% SLIP supporting wrapped RSP.
 dev_start(#{ tty        := Dev,
-             id         := {Host, _},
+             host       := Host,
+             spawn_spec := SpawnSpec,
              hub        := Hub,
              spawn_port := SpawnPort,
              app        := AppRunning } = Init0) ->
@@ -172,14 +165,15 @@ dev_start(#{ tty        := Dev,
                %% of remote binary code in an abstract manner.
                Port = tools:apply(
                         SpawnPort,
-                        [#{ host => Host,
-                            cmd  => "gdbstub_connect",
-                            args => [Dev],
-                            opts => [use_stdio, binary, exit_status] }]),
+                        [maps:merge(
+                           SpawnSpec,
+                           #{ cmd  => "gdbstub_connect",
+                              args => [Dev],
+                              opts => [use_stdio, binary, exit_status] })]),
                log:info("connected ~p~n",[Port]),
                Gdb = gdb_start(maps:merge(Init, #{ pid => self() })),
                Pid = self(),
-               spawn(
+               spawn_link(
                  fun() ->
                          log:info("getting meta info~n"),
                          %% This needs to be a separate process
@@ -262,7 +256,7 @@ dev_handle_({CallerPid, {rsp_call, Request}},
             BinReq = iolist_to_binary(Request),
             MainPid = self(),
             WaiterPid = 
-                spawn(
+                spawn_link(
                   fun() ->
                           %% log:info("to_gdbstub: ~p~n", [BinReq]),
                           MainPid ! {send_packet, <<?TAG_GDB:16, BinReq/binary>>},
@@ -465,10 +459,16 @@ decode_info(Msg, State = #{ line_buf := Buf }) ->
 
 %% GDB RSP server.
 
-gdb_start(#{ tty := Dev, id := {Host, _}, tcp_port := TCPPort } = Init) ->
+gdb_start(#{ tty := Dev,
+             host := Host,
+             tcp_port := TCPPort,
+             pid := DevPid } = Init) ->
     serv:start(
       {handler,
        fun() ->
+               %% FIXME: Why does the process survive?
+               erlang:monitor(process, DevPid),
+
                log:set_info_name({gdb_serv,{Dev,Host}}),
                log:info("GDB remote access on TCP port ~p~n",[TCPPort]),
                serv_tcp:init(
@@ -545,7 +545,7 @@ find_uid(UID) ->
 uids() ->
     uids(gdbstub_hub).
 devs(Hub) ->
-    [Pid || {{dev,_Dev},Pid} <- maps:to_list(obj:dump(Hub))].
+    [Pid || {{dev,Pid},_} <- maps:to_list(obj:dump(Hub))].
 devs() ->
     devs(gdbstub_hub).
     

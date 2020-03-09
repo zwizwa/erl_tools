@@ -82,18 +82,21 @@ devpath_to_dev(DevPath) ->
 
 devpath_usb_port(DevPath) when is_binary(DevPath) ->
     Split =
-        fun(UsbPort) ->
+        fun(UsbPIF) ->
+                [UsbPort,_Interface] = re:split(UsbPIF,":"),
                 case re:split(UsbPort,"-") of
                     [Interface,Chain] ->
                         ChainList = re:split(Chain,"\\."),
-                        {ok, [binary_to_integer(C) || C <- [Interface | ChainList]]};
-                    _ -> error
+                        {ok, [binary_to_integer(C)
+                              || C <- [Interface | ChainList]]};
+                    _ ->
+                        error
                 end
         end,
     case lists:reverse(re:split(DevPath,"/")) of
         %% Why are there two forms?  The former was discovered more
         %% recently (rackhub exo_notify.sh from tty rename script).
-        [_ttyUSBx,<<"tty">>,_ttyUSBx,_,UsbPort|_] -> Split(UsbPort);
-        [_ttyACMx,<<"tty">>,_,UsbPort|_] -> Split(UsbPort);
+        [_ttyUSBx,<<"tty">>,_ttyUSBx,UsbPIF|_] -> Split(UsbPIF);
+        [_ttyACMx,<<"tty">>,UsbPIF|_] -> Split(UsbPIF);
         _ -> error
     end.

@@ -14,7 +14,8 @@
 
          to_script/2,
          bash/3,
-         quote/1,
+         shell_quote/1,
+         shell_command/2,
 
          %% runner
          runner_start/1,
@@ -137,16 +138,26 @@ script_xml(Cmd, Timeout) ->
 script_print(Cmd, Timeout) ->
     fold_script(Cmd, fun port_print/2, none, Timeout, [{line, 1024}]).
 
-
 %% Shell quoting is a real pain.  The problem pops up frequently when
-%% ssh is used.  FIXME: Not complete, but good enough for now.
-quote([]) -> [];
-quote([H|T]) ->
-    Special = "\\\"' >$;()",
+%% ssh is used.  FIXME: This is trial-and-error. Traditional works-for-me...
+%% For more info:
+%% https://stackoverflow.com/questions/15783701/which-characters-need-to-be-escaped-when-using-bash
+%% Alternatively: shell out to /usr/bin/format and use "%q"
+shell_quote(IOList) ->
+    shell_quote_(binary_to_list(iolist_to_binary(IOList))).
+shell_quote_([]) -> [];
+shell_quote_([H|T]) ->
+    %% FIXME: Unprintables? Though those are uncommon.
+    Special = "\\\"' >$;(){}#|~[]?*!\n^,",
     case lists:member(H,Special) of
-        true  -> [$\\,H|quote(T)];
-        false -> [H|quote(T)]
+        true  -> [$\\,H|shell_quote_(T)];
+        false -> [H|shell_quote_(T)]
     end.
+
+
+shell_command(Cmd,ArgList) ->
+    [run:shell_quote(Cmd) |
+     [[" ", run:shell_quote(Arg)] || Arg <- ArgList]].
 
 
 

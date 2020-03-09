@@ -43,7 +43,7 @@
          filter_tag/2, filter_tags/2,
          register/2,
          register_suffix/2,
-         port_pid/1, port_kill/2, spawn_port/3, cmdline/2,
+         port_pid/1, port_kill/2, spawn_port/3,
          xmlElement_attributes/1, xmlAttribute_pair/1, xmlElement_attributes_proplist/1,
          proxy/1,
          max_gt/2, max_i/2, min_i/2,
@@ -810,7 +810,7 @@ spawn_port(Env = #{ spawn_port := SpawnPort }, Program={_Cmd,_ArgList}, Opts) ->
 %% of the port binary.
 spawn_port(_Env = #{ port_dir := PortDir }, {Cmd,ArgList}, Opts) ->
     log:info("~p~n", [_Env]),
-    CmdLine = cmdline(tools:format("~s/~s",[PortDir,Cmd]), ArgList),
+    CmdLine = run:shell_command(tools:format("~s/~s",[PortDir,Cmd]), ArgList),
     open_port({spawn, CmdLine}, Opts);
 
 %% case: If the port belongs to an app, we can find the port dir.
@@ -822,12 +822,6 @@ spawn_port(_Env = #{ app := App }, Program, Opts) ->
 spawn_port(_Env, Program, Opts) ->
     log:info("~p~n", [_Env]),
     spawn_port(#{ app => erl_tools }, Program, Opts).
-
-
-%% FIXME: This will need proper shell escaping.
-cmdline(Cmd,ArgList) ->
-    [Cmd | [[" ", Arg] || Arg <- ArgList]].
-    
 
 
 

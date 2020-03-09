@@ -4,7 +4,6 @@
 -export([pty/1,tcp_listen/1,
          open_spec/1,cmd/1,
          start_link/1, handle/2,
-         quote/1,
          test/1]).
 
 %% 1) PROCESS SPEC
@@ -41,16 +40,10 @@ cmd(Spec) ->
         {dd_of, File}        -> fmt("dd 'of=~s' 2>/dev/null", [File]);
         {pipe, [S]}          -> cmd(S);
         {pipe, [S|Ss]}       -> fmt("~s | ~s", [cmd(S), cmd({pipe, Ss})]);
-        {ssh,S1,UAH,S2}      -> fmt("~s | ssh '~s' ~s", [cmd(S1), UAH, quote(cmd(S2))]);
+        {ssh,S1,UAH,S2}      -> fmt("~s | ssh '~s' ~s", [cmd(S1), UAH, run:shell_quote(cmd(S2))]);
         {cmd, Cmd}           -> Cmd
     end.
 
-quote(Cmd) ->
-    run:quote(Cmd).
-
-%% https://stackoverflow.com/questions/15783701/which-characters-need-to-be-escaped-when-using-bash
-
-%% Alternatively: shell out to /usr/bin/format and use "%q"
 
 
 
