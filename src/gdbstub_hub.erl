@@ -1,9 +1,8 @@
 -module(gdbstub_hub).
 -export([start_link/1,
-         send/1, call/1,
-         dev/1, devs/0,
+         dev/2, devs/1,
          %% Some high level calls
-         info/1,
+         info/2,
          find_uid/1, uids/0, uids/1,
          ping/1,
          call/3,
@@ -120,14 +119,7 @@ hub_handle(Msg, State) ->
     obj:handle(Msg, State).
 
 hub_remove_pid(Pid, State) ->
-    IState = tools:maps_inverse(State),
-    case maps:find(Pid, IState) of
-        {ok, ID} ->
-            maps:remove(ID, State);
-        _ ->
-            log:info("Warning: ~p not registered~n", [Pid]),
-            State
-    end.
+    maps:remove({dev, Pid}, State).
 
 
 %% Start a process as a companion to the device, communicating over
@@ -527,15 +519,15 @@ gdb_dispatch(#{ pid := Pid}, Request) ->
 
 
 %% FIXME: Resolution isn't done very well.
-send(Msg) -> gdbstub_hub ! Msg.
-call(Msg) -> obj:call(gdbstub_hub, Msg, 6003).
+send(Hub, Msg) -> Hub ! Msg.
+call(Hub, Msg) -> obj:call(Hub, Msg, 6003).
 
-dev(Pid) when is_pid(Pid) -> Pid;
-dev(ID) -> {ok, Pid} = call({dev_pid, ID}), Pid.
+dev(Hub, Pid) when is_pid(Pid) -> Pid;
+dev(Hub, ID) -> {ok, Pid} = call(Hub, {dev_pid, ID}), Pid.
 
 
-info(ID) ->
-    case call({dev_pid,ID}) of
+info(Hub, ID) ->
+    case call(Hub, {dev_pid,ID}) of
         {ok, Pid} -> obj:dump(Pid);
         E -> E
     end.
