@@ -9,7 +9,7 @@
          from_filename/1, to_filename/1, to_directory/1, to_includes/1,
          path_find/4,
          update_using/2, update_file/1, update_value/3, update_pure/3, update_const/2,
-         need/2, changed/2,
+         need/2, changed/2, stamp/3,
          run/2, run/3,
          gcc_deps/1, need_gcc_deps/2,
          with_vars/2,
@@ -856,15 +856,11 @@ path_find(Eval, Ext, BaseName, [Path|Paths]) ->
 %% happening, and not just a value change effect.  FIXME: Integrate
 %% "stamping" somehow.
 %%
-%% file_changed_md5(Eval, Product, RelPath, Stamp) ->
+%% file_changed_stamp(Eval, Product, RelPath, Stamp) ->
 %%     %% Needs to go outside of next call to avoid re-entry.
 %%     case read_file(Eval, RelPath) of
 %%         {ok, Bin} ->
-%%             New = Stamp(Bin),
-%%             MaybeOld = obj:call(Eval, {set_stamp, Product, New}),
-%%             Changed = {ok, New} /= MaybeOld,
-%%             %% debug("file_changed ~p~n", [{Product, RelPath, Changed, New, MaybeOld}]),
-%%             Changed;
+%%             stamp(Eval, Product, Stamp(Bin))
 %%         Error ->
 %%             throw({redo_file_changed, Product, RelPath, Error})
 %%     end.
@@ -874,7 +870,13 @@ path_find(Eval, Ext, BaseName, [Path|Paths]) ->
 %%                  fun(Bin) ->
 %%                          tools:hex(crypto:hash(md5, Bin))
 %%                  end).
-                         
+
+stamp(Eval, Product, NewStamp) ->
+    MaybeOldStamp = obj:call(Eval, {set_stamp, Product, NewStamp}),
+    Changed = {ok, NewStamp} /= MaybeOldStamp,
+    %% debug("file_changed ~p~n", [{Product, RelPath, Changed, New, MaybeOld}]),
+    Changed.
+
 
 %% Generic build command dispatch.
 
