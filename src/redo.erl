@@ -9,7 +9,8 @@
          from_filename/1, to_filename/1, to_directory/1, to_includes/1,
          path_find/4,
          update_using/2, update_file/1, update_value/3, update_pure/3, update_const/2,
-         need/2, changed/2, stamp/3,
+         need/2, changed/2,
+         stamp/3, stamp_hash/2,
          run/2, run/3,
          gcc_deps/1, need_gcc_deps/2,
          with_vars/2,
@@ -96,7 +97,9 @@ pull(Redo, Products) ->
                   end,
               Log(clear),
               Rv =need(Eval, Products),
-              Log({line,tools:format("pull: ~p~n~p",[Rv,Products])}),
+              %% Printing products is too verbose.
+              %% Log({line,tools:format("pull: ~p~n~p",[Rv,Products])}),
+              Log({line,tools:format("pull: ~p",[Rv])}),
               Rv
       end).
 
@@ -256,7 +259,7 @@ handle({CallPid, {eval, Product}}, State) ->
                     %% Don't bring down redo when the update function
                     %% crashes.  Print a warning instead.  Solve this
                     %% properly later.
-                    log:info("WARNING: obtaining update failed:~n~p:~n~p~n~p~n", 
+                    log:info("WARNING: UpdateFun failed:~n~p:~n~p~n~p~n", 
                              [Product, {C,E}, erlang:get_stacktrace()]),
                     maps:put({phase, Product}, {changed, error}, State),
                     obj:reply(CallPid, error),
@@ -604,7 +607,7 @@ changed(Eval, Deps) ->
     tools:pmap(
       fun(P) -> obj:call(Eval, {eval, P}) end,
       Deps).
-    
+
 
 %% Provide dataflow variables with values stored in the evaluator.
 %%
@@ -798,8 +801,8 @@ is_regular(Eval, RelPath) ->
 
 %% Convert a path list into a list of files in that directory,
 %% expressed in target token form.
-from_list_dir(Eval, Path) ->
-    RelDir = to_directory(Path),
+from_list_dir(Eval, PathList) ->
+    RelDir = to_directory(PathList),
     with_abs_path(
       Eval, RelDir, 
       fun(AbsDir) ->
@@ -807,7 +810,7 @@ from_list_dir(Eval, Path) ->
               lists:map(
                 fun(FileName) ->
                         {Ext,Bn,[]} = from_filename(FileName),
-                        {Ext,Bn,Path}
+                        {Ext,Bn,PathList}
                 end,
                 Files)
       end).
@@ -877,6 +880,9 @@ stamp(Eval, Product, NewStamp) ->
     %% debug("file_changed ~p~n", [{Product, RelPath, Changed, New, MaybeOld}]),
     Changed.
 
+stamp_hash(Eval, Product) ->
+    {ok, Bin} = read_file(Eval, to_filename(Product)),
+    stamp(Eval, Product, crypto:hash(md5, Bin)).
 
 %% Generic build command dispatch.
 

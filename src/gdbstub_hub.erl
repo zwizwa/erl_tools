@@ -3,7 +3,7 @@
          dev/2, devs/1,
          %% Some high level calls
          info/2,
-         find_uid/1, uids/0, uids/1,
+         find_uid/2, uids/1,
          ping/1,
          call/3,
          parse_syslog_ttyACM/1,
@@ -532,14 +532,10 @@ info(Hub, ID) ->
         E -> E
     end.
 
-find_uid(UID) ->
-    maps:find(UID, uids()).
-uids() ->
-    uids(gdbstub_hub).
+find_uid(Hub, UID) ->
+    maps:find(UID, uids(Hub)).
 devs(Hub) ->
     [Pid || {{dev,Pid},_} <- maps:to_list(obj:dump(Hub))].
-devs() ->
-    devs(gdbstub_hub).
     
 uids(Hub) ->
     lists:foldl(
@@ -589,7 +585,7 @@ encoder(slip)         -> {fun ?MODULE:encode_packet/3, slip};
 encoder(raw)          -> {fun ?MODULE:encode_packet/3, raw};
 encoder({driver,_,P}) -> encoder(P);
 encoder(_Enc) -> 
-    log:info("WARNING: unknown encoder ~p~n", [_Enc]),
+    log:info("WARNING: unknown encoder=~p~n", [_Enc]),
     encoder(raw).
 
 encode_packet(slip,Bin,[]) when is_binary(Bin) ->
