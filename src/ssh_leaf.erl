@@ -1,6 +1,9 @@
 -module(ssh_leaf).
 -export([start_link/1, handle/2, cmd/2]).
 
+%% TODO:
+%% - Allow on-demand with off state.
+
 %% Given ssh access, this code takes care of:
 %%
 %% - read:  Event monitoring by watching the messages log
@@ -24,18 +27,23 @@ start_link(#{ host := Host }=Config) ->
         fun() ->
                 %% Note Host can be user@host also
                 log:set_info_name({?MODULE, Host}),
-                Cmd = cmd(Config, {ssh, "tail -n0 -f /tmp/messages"}),
-                %% log:info("Cmd = ~s~n", [Cmd]),
-                Opts = [use_stdio, exit_status, binary, {line, 1024}],
-                LogPort = open_port({spawn, Cmd}, Opts),
-                maps:merge(
-                  Config,
-                  #{ log => LogPort})
+                self() ! connect,
+                Config
         end,
         fun ?MODULE:handle/2})}.
-handle(Msg, State = #{log := LogPort, host := Host}) ->
+handle(Msg, State = #{host := Host}) ->
+    LogPort = maps:get(log, State, none),
     Notify = maps:get(notify, State, fun(_)->ok end),
     case Msg of
+
+        %% Connect log port
+        connect ->
+            log:info("connecting~n"),
+            Cmd = cmd(#{host => Host}, {ssh, "tail -n0 -f /tmp/messages"}),
+            %% log:info("Cmd = ~s~n", [Cmd]),
+            Opts = [use_stdio, exit_status, binary, {line, 1024}],
+            Port = open_port({spawn, Cmd}, Opts),
+            maps:put(log, Port, State);
 
         %% Parse log message
         {LogPort, PMsg} ->
@@ -52,29 +60,26 @@ handle(Msg, State = #{log := LogPort, host := Host}) ->
                         _ ->
                             ok
                     end,
-                    State
-                end;
+                    State;
+                {exit_status,_} ->
+                    log:info("~p~n",[Msg]),
+                    self() ! connect,
+                    maps:remove(log, State)
+            end;
 
         %% Ack from one-shot commands
         {CmdPort, PMsg} when is_port(CmdPort) ->
-            case {PMsg, maps:find({cmd, CmdPort}, State)} of
-                %% OK if we receive closed before exit_status
-                {closed, {ok, {Pid, Info}}} ->
-                    log:info("done: ~p~n", [Info]),
+            case {PMsg,
+                  maps:find({cmd, CmdPort}, State)} of
+                {{exit_status, _},
+                 {ok, {Pid, Info}}} ->
+                    log:info("done: ~p~n", [{PMsg,Info}]),
                     obj:reply(Pid, ok),
+                    State;
+                Other ->
+                    log:info("other: ~p~n", [Other]),
                     State
             end;
-
-        %% Upload a binary
-        {Pid, {putx, Path, Bin}} ->
-            Opts = [use_stdio, exit_status, binary],
-            Cmd = cmd(State,{putx,Path}),
-            %% log:info("Cmd=~s",[Cmd]),
-            Port = open_port({spawn, Cmd}, Opts),
-            Port ! {self(), {command, Bin}},
-            Port ! {self(), close},
-            Info = {putx, Path},
-            maps:put({cmd,Port}, {Pid, Info}, State);
 
         %% Rsync a tree.  The SrcPath is on the local node.
         {Pid, {rsync, SrcPath, DstPath}=Info} ->
@@ -82,7 +87,6 @@ handle(Msg, State = #{log := LogPort, host := Host}) ->
             Cmd = cmd(State,{rsync,SrcPath,DstPath}),
             log:info("Cmd=~s",[Cmd]),
             Port = open_port({spawn, Cmd}, Opts),
-            Port ! {self(), close},
             maps:put({cmd,Port}, {Pid, Info}, State);
 
         %% Start a remote port program using the spawn_port spec
@@ -116,17 +120,6 @@ handle(Msg, State = #{log := LogPort, host := Host}) ->
 %% Command formatter
 cmd(#{host := Host}, {ssh, Cmd}) ->
     tools:format("ssh ~s ~s", [Host, q(Cmd)]);
-cmd(Env, {putx, Path}) ->
-    cmd(
-      Env,
-      {ssh,
-       tools:format(
-         "P=~s;"
-         "mkdir -p $(dirname \"$P\");"
-         "rm -f \"$P\";"
-         "cat >\"$P\";"
-         "chmod +x \"$P\"",
-         [Path])});
 cmd(#{host := Host}, {rsync, SrcPath, DstPath}) ->
     Cmd = tools:format(
             "rsync "
@@ -134,7 +127,7 @@ cmd(#{host := Host}, {rsync, SrcPath, DstPath}) ->
             "--delete "
             "--one-file-system "
             "--rsh=ssh "
-            "~s/ ~s:~s/",
+            "~s ~s:~s",
             [q(SrcPath), Host, q(DstPath)]),
     Cmd;
 cmd(Env, Spec) ->
