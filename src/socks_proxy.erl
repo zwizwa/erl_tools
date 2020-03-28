@@ -211,29 +211,34 @@ handle(Msg,State) ->
 
 connect_via_socks(ProxyHost,ProxyPort,
         Host,Port,Opts) ->
-    {ok, Sock} = 
-        gen_tcp:connect(
-          ProxyHost, ProxyPort,
-          [binary,
-           {send_timeout,3000},
-           {packet, raw},
-           {active, false},
-           {reuseaddr, true}]),
+    case gen_tcp:connect(
+           ProxyHost, ProxyPort,
+           [binary,
+            {send_timeout,3000},
+            {packet, raw},
+            {active, false},
+            {reuseaddr, true}]) of
+        {ok, Sock} ->
+            {Send,Recv} = io(Sock),
 
-    {Send,Recv} = io(Sock),
-
-    Send(<<5,1,0>>),
-    <<5,0>> = Recv(2),
-    case Host of
-        {A,B,C,D} ->
-            Send([<<5,1,0,1,A,B,C,D,Port:16>>]);
-        _ ->
-            Send([<<5,1,0,3>>,length(Host),Host,<<Port:16>>])
-    end,
-    <<5,0,0,1,_:32,_:16>> = Recv(10),
-    
-    inet:setopts(Sock, Opts),
-    {ok, Sock}.
+            Send(<<5,1,0>>),
+            <<5,0>> = Recv(2),
+            case Host of
+                {A,B,C,D} ->
+                    Send([<<5,1,0,1,A,B,C,D,Port:16>>]);
+                _ ->
+                    Send([<<5,1,0,3>>,length(Host),Host,<<Port:16>>])
+            end,
+            <<5,0,0,1,_:32,_:16>> = Recv(10),
+            
+            inet:setopts(Sock, Opts),
+            {ok, Sock};
+        Error ->
+            throw({?MODULE,connect_via_socks,
+                   ProxyHost,ProxyPort,
+                   Host,Port,Opts,
+                   Error})
+    end.
 
 
 
