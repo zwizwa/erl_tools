@@ -13,7 +13,6 @@
          stamp/3, stamp_hash/2,
          run/2, run/3,
          gcc_deps/1, need_gcc_deps/2,
-         with_vars/2,
          import/1,
          need_val/2, find_val/2, put_val/3,
          no_update/1,
@@ -767,20 +766,6 @@ need_gcc_deps(Eval, {_Type,_BaseName,_Path}=D) ->
     Deps = gcc_deps(DepsBin),
     need(Eval,Deps).
 
-
-%% Convert Erlang map to a sequence of variable assignments separated with ':'
-with_vars(Map, Cmd) when is_map(Map) ->
-    with_vars(maps:to_list(Map), Cmd);
-with_vars(AList,Cmd) ->
-    [lists:map(
-       fun({K,V}) -> ["export ",s(K),"=", quote(V)," ; "] end,
-       AList),
-     Cmd].
-%% FIXME: There is a proper shell variable quoter somewhere.
-quote([]) -> "\"\"";
-quote(IOList) -> p(s(IOList)).
-s(T) -> tools:format("~s",[T]).
-p(T) -> tools:format("~p",[T]).
 
 
 with_abs_path(Eval, RelPath, Fun) ->

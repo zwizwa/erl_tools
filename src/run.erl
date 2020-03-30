@@ -16,6 +16,7 @@
          bash/3,
          shell_quote/1,
          shell_command/2,
+         with_vars/2,
 
          %% runner
          runner_start/1,
@@ -158,6 +159,21 @@ shell_quote_([H|T]) ->
 shell_command(Cmd,ArgList) ->
     [run:shell_quote(Cmd) |
      [[" ", run:shell_quote(Arg)] || Arg <- ArgList]].
+
+
+%% Convert Erlang map to a sequence of variable assignments separated with ';'
+with_vars(Map, Cmd) when is_map(Map) ->
+    with_vars(maps:to_list(Map), Cmd);
+with_vars(AList,Cmd) ->
+    [lists:map(
+       fun({K,V}) -> ["export ",s(K),"=", shell_quote(V)," ; "] end,
+       AList),
+     Cmd].
+
+s(T) -> tools:format("~s",[T]).
+%%p(T) -> tools:format("~p",[T]).
+
+
 
 
 
