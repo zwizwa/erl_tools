@@ -1,0 +1,288 @@
+A small writeup about Exo.
+
+* Introduction
+
+A word of warning: this documentation is untested.
+
+The Exo project is a synthesis of many ideas that are simple and
+straightforward in isolation.  The usefulness of this project is in
+how these ideas are combined.  I currently experience a lot of trouble
+linearizing the documentation to explain how these parts interact.  If
+things are unclear to you, that will be on me, so do not hesitate to
+ask questions or send remarks.
+
+The implementation is still in constant flux.  Some parts are
+stabilized and will have to be simplified further, other parts only
+have "happy path" implementations and will need to be made more robust
+to cover real world scenarios.
+
+The name of the project is derived from the name "exocortex", which I
+believe I picked up from a Charles Stross novel.  It is a pretentious
+name for what the project eventually evolved into.  Just to be clear:
+I am currently not really interested in solving brain-computer
+interfaces or AI until I have solved the organizational problem that
+is created by the exploding complexity of computer systems, in first
+iteration using myself as guinea pig.  This is all just meat &
+potatoes software engineering.
+
+Exo is about integration.  Its first couple of iterations were aimed
+at just connecting devices and services that run on my personal
+network.  It quickly turned meta, supporting my main activity which is
+_incremental development_ of such an integrated system.
+
+
+* Exo pilars
+
+This section aims at describing some of the ideas and software
+patterns used in Exo.
+
+** Incremental improvement, refactoring
+
+The problem domain is complex.  Integration is difficult.  I'm going
+to get it wrong if I try to design it.  So I start building the happy
+path, and iterate.  I make it easy to make small changes.  I trust
+that something will emerge, and when it is clear what it needs to be,
+usually through negative examples -- i.e. what it is _now_ is not
+correct or cannot support a certain use case -- I clean it up and
+factor it out into library code.
+
+Incremental development is built on the ideas behind redo,
+re-implemented in Erlang, using Erlang's pattern matching for generic
+rule specification, functions for rule composition and delegation,
+Erlang's dynamic code reload to change rules on the fly, and some
+ad-hoc subsystems for restaring and redeploying non-Erlang components.
+
+It resembles the idea of continuous integration, but I want to stress
+that the granularity I have arrived at is much finer.  Updates are in
+the order of seconds to milliseconds, and this kind of response time
+is an important feature: the idea is to avoid a mental context switch
+between code edit and code test.
+
+
+** Idiosyncratic structure
+
+This overarching Exo project is explicitly aimed at providing an
+interface for just myself, so I unapologetically can be very
+idiosyncratic.  This means it is tailored to how my brain works,
+basically it is shaped by the evolutionary pressure created by how I
+forget and remember things.
+
+Think of Exo as an incubator: whenever some useful pattern emerges, it
+is straightforward to fork off a library component that can be reused
+by other people.  At that point, documentation is added first as
+source code comments, and possibly later in prose form depending on
+the need.
+
+
+** Discoverability
+
+Exo code uses an approach that I believe is called "discoverable code
+patterns".  It is based on the idea that documentation is very
+expensive, and that in many cases it is really better to not create
+paper documentation, but to first make the code base more
+discoverable.  This is done by leaving "bread crumbs", pointers to
+places to start reading code.  These can then be used later to be
+pointed to from paper documentation.
+
+I found that this approach is assisted tremendously by the ability to
+perform incremental code edits on a running system.  I.e. to learn the
+system, you "nudge" the running system into a different regime by
+editing it while it is running.  Recognize Smalltalk, but extended to
+any kind of heterogeneous platform.
+
+A typical process of re-familiarizing myself with a design is to
+uncomment log statements directly in the code, instead of having
+infrastructure for enabling/disabling log statements through
+configuration variables.  Every developer I know works like that.  In
+a system that can be edited when it is live this is very
+straightfoward to do and avoids the complexity of creating a separate
+configuration system.
+
+Not having configurable log infrastructure is an example of
+intentionally not building an abstraction.  A typical pitfall of
+application development is developer feature creep, i.e. to build in
+too much infrastructure that is just aimed at developers.  The idea is
+not bad, but it is best to not make this part of the application, but
+part of the meta system that is only used by developers.
+
+
+** Distributed Systems
+
+Due to the physical component of the work I do (embedded software),
+the system is necessarily distributed.  This creates a lot of
+problems.  So much in fact that the core design of Exo is built around
+dealing with the non-locality.  It uses Erlang's distribution system
+as a backbone, and any leaf/edge node interfaces are extended in the
+same fashion.
+
+** Simplicity
+
+Systems are getting too complex to understand.  This is turning into a
+real problem.
+
+For Exo, I aim at simplicity of implementation.  Focus on happy path,
+use fault-tolerant principles to deal with and discover failure modes,
+and re-implement existing ideas without the bells and whistles of
+highly configurable libraries.
+
+I also try to aim at simplicity of features.  My assessment is that
+feature creep is the root of all evil.  It obscures what a system can
+do, and tends to lead to a lot of duplication.  This means I need to
+abstain from wanting cool frivolous "stuff".  One way to get here is
+that I am running this on old and cheap hardware, and do not take part
+in the "mobile" and "cloud" arms race for the base system development.
+
+** Dependencies are a liability
+
+As part of the focus on simplicity is the realization that code reuse
+does not always have a positive effect and in today's landscape often
+doesn't.
+
+Bringing in dependencies adds integration problems, maintenance issues
+due to upstream bugs, and generally code bloat due to duplication
+across dependnecies.
+
+Obviously there is a tradeoff here, and it is very much conditional on
+the structure of the development team.  For Exo's top layer, there is
+a team of one, and this strongly nudges the requirement towards
+simplicity first, which often means to boil down and rewrite.
+
+Exo's reusable library layer is _not_ written with a team of one in
+mind.  Basically, I want to understand both what is good for me
+personally working in isolation, _and_ what is good in a collaborative
+context.  In the latter context, the Exo spin-offs result in simple
+libraries that can be reused in other projects that each can walk
+their own inevitable path of feature creep on an as-needed basis.
+
+This approach is also used for contract work: I start out integrating
+a client's system into Exo, and then gradually cut the umbilical
+towards a simple, self-contained system.
+
+
+
+** Functions and Processes
+
+Exo is heavily built on the ideas that underlie Erlang: use (pure)
+functional code wherever possible, and gradually introduce processes
+(distributed objects) as real-world constraints start making this a
+necessity.
+
+Pure Functions (and the dual, pure data), are about composition, and
+composition/refactoring of functions and data is the most important
+tool in the programmer's toolbox.
+
+After all these years it still regularly amazes me how good of a
+one-size-fits-all abstraction function composition really is, and how
+difficult it is to internalize this and trust it to guide almost every
+design decision.
+
+** A note on types.
+
+In the context of Exo, there is an important line to be drawn between
+dynamically typed and statically typed code.  It has become more clear
+over time that there is a tradeoff here, and that both paradigms are
+useful, and that there is a skill to learn is how to "move" the
+interface between the two.  My current assessment is that the main
+reason to use static types is to facilitate maintenance of complex
+projects.  The main reason not to is to implement
+Smalltalk/Lisp/Erlang-like systems like Exo that are intended to be
+modified on the fly.  Code that is stable can be moved from one end to
+the other, and strongly typed code is easier to develop when
+integrated in a more fluid framework or test jig.
+
+Exo contains interfaces for incremental development of C, Rust and
+Haskell code.
+
+
+** Composite names and the connectivity problem
+
+A recent realization is how composition can be used in naming,
+essentially solving the routing problem in a decentralized way.
+
+The basic premise is that the internet is broken.  IP doesn't work
+properly because it is centrally managed, so people already implement
+source routing (composite multi-hop addresses) on top of the internet
+in many ad-hoc ways.  So why not solve the problem separately?
+
+If you combine a decentralized naming scheme with source routing, you
+can basically solve this problem.
+
+I've solved this problem over and over again.  The current
+implementation is based on 1) exo_db, a distributed, highly available,
+eventually consistent store augmented with hard-coded defaults, and 2)
+epid, a two-level erlang based source routing implementation.
+
+
+** Routing, multipath and path optimization
+
+It is important to distinguish control plane and data plane.  An
+example here is the ability to simplify routing.  E.g. instead of
+going through a server, allow local network delivery if possible.
+
+One example is routing MIDI controllers in Exo: there is the generic
+Erlang epid mechanism, but there is also local connectivity e.g. if
+both source and sink are part of the same jack daemon.
+
+Another topic that is close to this one: binding is very important.
+The integration layer of a system often contains a registry, a place
+where abstract names can be translated into concrete (routable) names.
+The objective of Exo is to be essentially just a library, with the
+"instantiation" of the system being such a registry that allows
+components to find each other.
+
+** Composite naming: redo
+
+Composite naming also shows up in the "redo" implementation in Exo,
+and seems to be a generic pattern that has to do with designing
+algebraic data structures such that the functionality implemented over
+them is factored properly.  The interplay is between code and data.
+
+
+** Link to DevOps systems
+
+TODO
+
+
+* Exo, Seen as a Build System
+
+FIXME: This is turning into a duplication of the previous section.
+
+See next section for individual pilars.  This section aims at
+explaining how the components fit together.
+
+** Pattern Matching
+
+Erlang pattern matching is used to implement generic rules that can
+build specific targets.
+
+** Target Names
+
+To facilitate pattern matching, targets are named using Erlang
+composite data structures, using some guidelines that have proven to
+yield straightforward composition without a lot of
+rewriting/restructuring.
+
+Put differently, the redo implementation has two components: one is
+mechanism, implementing the reactive system, the other is policy:
+there is some code that assists in organization of build rules,
+following some best practices that have survived being used in anger.
+
+** Incremental code load, allways on systems
+
+To create and debug build and deployment rules, the system's practical
+usefulness relies heavily on the absence of a compile step: When a
+rule is edited, it takes effect immediately and rebuilds what is
+needed.
+
+** Abstract targets
+
+Target names are always abstract.  The "store" or "cell" associated to
+a name is opaque, and can be anything: a file, a database entry,
+microcontroller firmware, a particular configuration of a much larger
+system.  The unifying principle is that the system is declarative: the
+redo network of interlinked build rules and the collection of targets
+to be built specifies the desired end state of the opaquely named
+cells.  Generalizing from files to any kind of state is tremendously
+powerful.
+
+
