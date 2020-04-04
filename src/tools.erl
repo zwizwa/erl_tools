@@ -631,7 +631,7 @@ annotate_pid(Pid) ->
 info(Msg) -> info(Msg,[]).
 info(Msg, Args) -> info(annotate_pid(self()), Msg, Args).
 info(Tag, Msg, Args) ->
-    TagMsg = "~p: " ++ Msg,
+    TagMsg = "~999p: " ++ Msg,
     TagArgs = [Tag|Args],
     case whereis(info_bc) of
         undefined -> io:format(TagMsg,TagArgs);

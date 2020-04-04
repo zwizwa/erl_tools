@@ -17,19 +17,20 @@ have "happy path" implementations and will need to be made more robust
 to cover real world scenarios.
 
 The name of the project is derived from the name "exocortex", which I
-believe I picked up from a Charles Stross novel.  It is a pretentious
-name for what the project eventually evolved into.  Just to be clear:
-I am currently not really interested in solving brain-computer
-interfaces or AI until I have solved the organizational problem that
-is created by the exploding complexity of computer systems, in first
-iteration using myself as guinea pig.  This is all just meat &
-potatoes software engineering.
+believe I picked up from a Charles Stross novel[1].  It is a
+pretentious name for what the project eventually evolved into.  Just
+to be clear: I am currently not really interested in solving
+brain-computer interfaces or AI until I have solved the organizational
+problem that is created by the exploding complexity of computer
+systems, in first iteration using myself as guinea pig.  This is all
+just meat & potatoes software engineering.
 
 Exo is about integration.  Its first couple of iterations were aimed
 at just connecting devices and services that run on my personal
 network.  It quickly turned meta, supporting my main activity which is
 _incremental development_ of such an integrated system.
 
+[1] https://futurehumanity.wordpress.com/2012/09/09/exocortex/
 
 * Exo pilars
 
@@ -115,6 +116,7 @@ dealing with the non-locality.  It uses Erlang's distribution system
 as a backbone, and any leaf/edge node interfaces are extended in the
 same fashion.
 
+
 ** Simplicity
 
 Systems are getting too complex to understand.  This is turning into a
@@ -131,6 +133,7 @@ do, and tends to lead to a lot of duplication.  This means I need to
 abstain from wanting cool frivolous "stuff".  One way to get here is
 that I am running this on old and cheap hardware, and do not take part
 in the "mobile" and "cloud" arms race for the base system development.
+
 
 ** Dependencies are a liability
 
@@ -175,6 +178,7 @@ After all these years it still regularly amazes me how good of a
 one-size-fits-all abstraction function composition really is, and how
 difficult it is to internalize this and trust it to guide almost every
 design decision.
+
 
 ** A note on types.
 
@@ -230,6 +234,7 @@ The objective of Exo is to be essentially just a library, with the
 "instantiation" of the system being such a registry that allows
 components to find each other.
 
+
 ** Composite naming: redo
 
 Composite naming also shows up in the "redo" implementation in Exo,
@@ -237,6 +242,39 @@ and seems to be a generic pattern that has to do with designing
 algebraic data structures such that the functionality implemented over
 them is factored properly.  The interplay is between code and data.
 
+
+** Names create the network
+
+TODO: This is not explained well. Document the final idea -- global
+namespace -- instead of the idea that it isnt hard to insert
+global->local name translations.
+
+Naming is the tool that implements module interaction.  The trick here
+is that if you keep name lookup abstract, you can start out with no
+name lookup at all, i.e. keeping naming scheme identical at both ends.
+Often this tells you that naming doesn't need to be abstracted
+further, and that you have an opportunity to simplify right there.
+I.e. focusing on naming makes integration simpler, and allows
+simplification during integration.  Put differently: every time you
+have a name translation step, you can ask the question: can I refactor
+to eliminate the need, and standardize the naming scheme?
+
+The big lesson is to prefer a namespace that is shared.  The
+interesting tension here is that while most software engineering
+prefers locality or distributed architecture over centralized
+architecture, naming is really different.  Essentially, name
+resolution servce the purpose of a lingua franca.
+
+
+** Is it possible to agree on a global naming scheme?
+
+Every time someone introduces a global scheme, someone else adds a
+source routing tag to it.  Is it possible to solve this problem by
+assuming it is impossible to create a root in the first place?
+
+The topology we want is a network, not a tree.  Each node can still
+have a local tree view, e.g. where an arbitrary node is picked as
+root.
 
 ** Link to DevOps systems
 

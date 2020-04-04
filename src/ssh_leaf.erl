@@ -1,5 +1,5 @@
 -module(ssh_leaf).
--export([start_link/1, handle/2, cmd/2]).
+-export([start_link/1, handle/2, cmd/2, handle_log_reply/2]).
 
 %% TODO:
 %% - Allow on-demand with off state.
@@ -31,61 +31,53 @@ start_link(#{ host := Host }=Config) ->
                 Config
         end,
         fun ?MODULE:handle/2})}.
-handle(Msg, State = #{host := Host}) ->
-    LogPort = maps:get(log, State, none),
-    Notify = maps:get(notify, State, fun(_)->ok end),
-    case Msg of
 
+%% All the other handlers can go in a single case.    
+handle(Msg, State = #{host := Host}) ->
+    case Msg of
         %% Connect log port
         connect ->
             log:info("connecting~n"),
-            Cmd = cmd(#{host => Host}, {ssh, "tail -n0 -f /tmp/messages"}),
+            Cmd = cmd(#{host => Host}, {ssh, "exec tail -n0 -f /tmp/messages"}),
             %% log:info("Cmd = ~s~n", [Cmd]),
             Opts = [use_stdio, exit_status, binary, {line, 1024}],
             Port = open_port({spawn, Cmd}, Opts),
-            maps:put(log, Port, State);
+            maps:put({log,Port}, #{handle => fun ?MODULE:handle_log_reply/2}, State);
 
-        %% Parse log message
-        {LogPort, PMsg} ->
-            case PMsg of
-                {data, {eol, Line}} -> 
-                    %% log:info("log: ~p~n", [Line]),
-                    case gdbstub_hub:parse_syslog_ttyACM(Line) of
-                        {ok, {USB, ACM}} -> 
-                            SpawnSpec = #{
-                              proxy => self(),
-                              host => Host %% only for logging
-                             },
-                            Notify({tty,SpawnSpec,USB,ACM});
+        %% Port replies
+        {Port, PMsg} when is_port(Port) ->
+            case maps:find({log, Port}, State) of
+                %% Logs have abstract handlers.
+                {ok, #{handle := Handle}} ->
+                    Handle(Msg, State);
+                %% Ack from one-shot commands
+                error ->
+                    case {PMsg, maps:find({cmd, Port}, State)} of
+                        {{exit_status, _}, {ok, {Pid, Info}}} ->
+                            %% log:info("done: ~p~n", [{PMsg,Info}]),
+                            log:info("done: ~999p~n", [Info]),
+                            obj:reply(Pid, ok),
+                            State;
                         _ ->
-                            ok
-                    end,
-                    State;
-                {exit_status,_} ->
-                    log:info("~p~n",[Msg]),
-                    self() ! connect,
-                    maps:remove(log, State)
-            end;
-
-        %% Ack from one-shot commands
-        {CmdPort, PMsg} when is_port(CmdPort) ->
-            case {PMsg,
-                  maps:find({cmd, CmdPort}, State)} of
-                {{exit_status, _},
-                 {ok, {Pid, Info}}} ->
-                    log:info("done: ~p~n", [{PMsg,Info}]),
-                    obj:reply(Pid, ok),
-                    State;
-                Other ->
-                    log:info("other: ~p~n", [Other]),
-                    State
-            end;
-
+                            log:info("unexpeced port message: ~999p~n", [Msg]),
+                            State
+                    end
+                end;
+                
         %% Rsync a tree.  The SrcPath is on the local node.
         {Pid, {rsync, SrcPath, DstPath}=Info} ->
             Opts = [use_stdio, exit_status, binary],
             Cmd = cmd(State,{rsync,SrcPath,DstPath}),
-            log:info("Cmd=~s",[Cmd]),
+            %% log:info("Cmd=~s",[Cmd]),
+            Port = open_port({spawn, Cmd}, Opts),
+            maps:put({cmd,Port}, {Pid, Info}, State);
+
+        %% Ensure a remote directory exists.  This should be part of
+        %% rsync, but I can't immediately see how to cover all cases.
+        {Pid, {mkdirp, Dir}=Info} ->
+            Opts = [use_stdio, exit_status, binary],
+            Cmd = cmd(State,{mkdirp,Dir}),
+            %% log:info("Cmd=~s",[Cmd]),
             Port = open_port({spawn, Cmd}, Opts),
             maps:put({cmd,Port}, {Pid, Info}, State);
 
@@ -114,8 +106,34 @@ handle(Msg, State = #{host := Host}) ->
             obj:handle(Msg, State);
 
         _ ->
-            log:info("WARNING: ~p~n", [Msg])
+            log:info("WARNING: ~p~n", [Msg]),
+            State
     end.
+
+handle_log_reply(Msg={Port, PMsg}, State = #{host := Host}) ->
+    %% Parse log message.
+    case PMsg of
+        {data, {eol, Line}} -> 
+            %% log:info("log: ~999p~n", [Line]),
+            case gdbstub_hub:parse_syslog_ttyACM(Line) of
+                {ok, {USB, ACM}} -> 
+                    SpawnSpec = #{
+                      proxy => self(),
+                      host => Host %% only for logging
+                     },
+                    Notify = maps:get(notify, State, fun(_)->ok end),
+                    Notify({tty,SpawnSpec,USB,ACM});
+                _ ->
+                    ok
+            end,
+            State;
+        {exit_status,_} ->
+            log:info("~p~n",[Msg]),
+            self() ! connect,
+            maps:remove(log, State)
+    end.
+
+
 
 %% Command formatter
 cmd(#{host := Host}, {ssh, Cmd}) ->
@@ -129,6 +147,11 @@ cmd(#{host := Host}, {rsync, SrcPath, DstPath}) ->
             "--rsh=ssh "
             "~s ~s:~s",
             [q(SrcPath), Host, q(DstPath)]),
+    Cmd;
+cmd(#{host := Host}, {mkdirp, Dir}) ->
+    Cmd = tools:format(
+            "ssh ~s mkdir -p ~s",
+            [Host, q(Dir)]),
     Cmd;
 cmd(Env, Spec) ->
     throw({?MODULE,cmd,Env,Spec}).

@@ -8,7 +8,9 @@
          read_file/2, write_file/3, is_regular/2,
          from_filename/1, to_filename/1, to_directory/1, to_includes/1,
          path_find/4,
-         update_using/2, update_file/1, update_value/3, update_pure/3, update_const/2,
+         update_using/2, update_file/1,
+         update_value/3, update_pure/3, update_const/2,
+         update_case/3,
          need/2, changed/2,
          stamp/3, stamp_hash/2,
          run/2, run/3,
@@ -627,6 +629,7 @@ need_val(Eval, Tag) ->
         _ -> get_val(Eval, Tag)
     end.
 put_val(Eval, Tag, Val) ->
+    %% log:info("put_val ~p=~p~n", [Tag, Val]),
     obj:call(Eval, {put_val,Tag,Val}).
 
 
@@ -684,6 +687,17 @@ update_pure(Target, Deps, PureBody) ->
 
 update_const(Target, Val) ->
     update_pure(Target, [], fun([]) -> Val end).
+
+
+%% Dispatch contained in a map, to allow for proper rebuild.
+update_case(Target, Config, DefaultUpdate) ->
+    fun(Eval) ->
+            Cases = redo:need_val(Eval, Config),
+            log:info("Cases=~p~n",[Cases]),
+            Update = maps:get(Target, Cases, DefaultUpdate),
+            (Update(Target))(Eval)
+    end.
+
                                     
 
 %% How to support anonymous targets?  Suppose we do not have a list of
