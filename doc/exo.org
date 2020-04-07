@@ -243,6 +243,25 @@ algebraic data structures such that the functionality implemented over
 them is factored properly.  The interplay is between code and data.
 
 
+** Differences of the redo implementation vs. filesystem redo
+
+1. It allows Erlang data structures to be used as names.  This is
+   convenient for pattern matching.
+
+2. Focusing on structured names makes name translation funcitons a
+   valuable abstraction mechanism.
+
+3. Separating names and abstract storage is very convenient.  A
+   filesystem interface doesn't capture everything, unfortunately.
+
+4. Piggy backing on Erlang multi-processing is straightforward.
+   Erlang can be used as process monitor for opaque state services.
+
+
+To do this with files, you would have to use name mangling, and some
+alternative files system <-> opaque state
+
+
 ** Names create the network
 
 TODO: This is not explained well. Document the final idea -- global
@@ -276,9 +295,19 @@ The topology we want is a network, not a tree.  Each node can still
 have a local tree view, e.g. where an arbitrary node is picked as
 root.
 
+** Service architecture
+
+What Erlang does right is to make basic inter-process communication
+simple, and to provide a design template for managing (partial)
+failures of distributed systems.  These two problems pop up in every
+distributed system, and dealing with them is usually where most of the
+development time is spent.
+
 ** Link to DevOps systems
 
-TODO
+There are many parallells with DevOps / deployment systems.  Some
+inspiration comes from the ideas behind systems like Puppet, Chef,
+Nix.
 
 
 * Exo, Seen as a Build System
@@ -323,4 +352,8 @@ to be built specifies the desired end state of the opaquely named
 cells.  Generalizing from files to any kind of state is tremendously
 powerful.
 
+
+** Why does "redo" work so well?
+
+Most computer systems are mutable, so fit right into the paradigm.
 
