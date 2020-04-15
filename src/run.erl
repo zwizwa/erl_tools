@@ -192,9 +192,12 @@ bash(Dir, Cmds, Log) ->
     Log({line,Cmds}),
     run:fold_script(
       tools:format("bash -c 'cd ~s ; ~s'", [Dir, Cmds]), 
-      fun({data,{eol,Line}}, Lines) ->
+      fun({data,{eol,Line}}, Output) ->
               Log({line,Line}),
-              {cont, [Line ++ "\n"|Lines]};
+              {cont, [Line ++ "\n"|Output]};
+         ({data,{noeol,Chunk}}, Output) ->
+              Log({line,Chunk}),  %% FIXME!!!
+              {cont, [Chunk|Output]};
          ({exit_status, ExitCode},Lines) ->
               {done, {ExitCode, lists:flatten(lists:reverse(Lines))}}
       end,

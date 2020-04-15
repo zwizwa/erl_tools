@@ -4,7 +4,7 @@
 -define(TAG_PLUGCTL,       16#FFF8).
 
 -define(TAG_PLUGIO,  16#FFFA).
--define(TAG_UART,    16#FFFB).
+-define(TAG_STREAM,  16#FFFB).
 -define(TAG_PING,    16#FFFC).
 -define(TAG_GDB,     16#FFFD).
 -define(TAG_INFO,    16#FFFE).

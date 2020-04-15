@@ -37,8 +37,10 @@ handle(<<?TAG_STATUS:16,_Status/binary>>, State) ->
 
 
 %% These tags are bridged via ecat.
-handle(<<?TAG_UART:16, _/binary>>=Msg, State) ->
-    handle_to_port(uart_port, {pty,"/tmp/uart"}, Msg, State);
+handle(<<?TAG_STREAM:16, StreamId:16, _/binary>>=Msg, State) ->
+    case StreamId of
+        0 -> handle_to_port(uart_port, {pty,"/tmp/uart"}, Msg, State)
+    end;
 
 handle(<<?TAG_PLUGIO:16, _/binary>>=Msg, State) ->
     %% log:info("TAG_PLUGIO: ~p~n", [Msg]),
