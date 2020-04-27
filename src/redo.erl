@@ -750,9 +750,10 @@ from_filename(IOList) ->
 to_directory(Dirs) ->
     tools:format("~s",[[[Dir,"/"] || Dir <- lists:reverse(Dirs)]]).
 to_filename({Type,BaseName,Dirs}) ->
-    Tags = case is_tuple(Type) of
-               true -> lists:reverse(tuple_to_list(Type));
-               false -> [Type]
+    Tags = case {Type,is_tuple(Type)} of
+               {'',_} -> [];
+               {_,true} -> lists:reverse(tuple_to_list(Type));
+               {_,false} -> [Type]
            end,
     Path = to_directory(Dirs),
     Ext  = [[".",type:encode({pterm,Tag})] || Tag <- Tags],
@@ -806,13 +807,25 @@ from_list_dir(Eval, PathList) ->
       Eval, RelDir, 
       fun(AbsDir) ->
               {ok, Files} = file:list_dir(AbsDir),
-              lists:map(
-                fun(FileName) ->
-                        {Ext,Bn,[]} = from_filename(FileName),
-                        {Ext,Bn,PathList}
-                end,
-                Files)
+              lists:append(
+                  lists:map(
+                    fun(FileName) ->
+                            try
+                                {Ext,Bn,[]} = from_filename(FileName),
+                                [{Ext,Bn,PathList}]
+                            catch
+                                C:E ->
+                                    %% Not all extensions are pterms,
+                                    %% so just don't collect those,
+                                    %% but print a warning.
+                                    log:info("WARNING: redo:from_list_dir:~999p:~n~999p~n", [PathList, {C, E}]),
+                                    []
+                            end
+                    end,
+                    Files))
       end).
+
+    
 
 %% I would like to keep the "changed" predicate as abstract as
 %% possible.  I currently see two ways to do this: filesystem

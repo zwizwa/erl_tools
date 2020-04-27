@@ -56,9 +56,12 @@ start_link(Config) ->
 %% identify the device, based on the physical USB port location.  It
 %% is assumed the device is still in gdbstub mode (app not running).
 hub_handle({add_tty,Host,TTYDev,DevPath}, State) ->
-    hub_handle({add_tty,Host,TTYDev,DevPath,false}, State);
+    hub_handle({add_tty,Host,TTYDev,DevPath,
+                false,                 %% App is not running
+                fun(_Pid) -> ok end},  %% No notification
+               State);
 
-hub_handle({add_tty,HostSpec,TTYDev,DevPath,AppRunning}=_Msg, State)
+hub_handle({add_tty,HostSpec,TTYDev,DevPath,AppRunning,RegisterPid}=_Msg, State)
   when is_binary(TTYDev) and
        is_binary(DevPath) ->
 
@@ -74,6 +77,7 @@ hub_handle({add_tty,HostSpec,TTYDev,DevPath,AppRunning}=_Msg, State)
             #{ host := _ } ->
                 HostSpec
         end,
+    log:info("SpawnSpec = ~999p~n", [SpawnSpec]),
 
     Hub = self(),
     <<Offset:14,_:2,_/binary>> = 
@@ -93,6 +97,9 @@ hub_handle({add_tty,HostSpec,TTYDev,DevPath,AppRunning}=_Msg, State)
                 tcp_port => TcpPort,
                 app => AppRunning,
                 line_buf => <<>>}),
+    %% This is mainly for syncrhonous starts (e.g. bluepill:need/1)
+    %% where caller wants to handle failed starts properly.
+    RegisterPid(Pid),
     _Ref = erlang:monitor(process, Pid),
     maps:put({dev,Pid}, true, State);
 
@@ -167,6 +174,7 @@ dev_start(#{ tty        := Dev,
                Pid = self(),
                spawn_link(
                  fun() ->
+                         log:set_info_name({get_meta_info,{Host,Dev}}),
                          log:info("getting meta info~n"),
                          %% This needs to be a separate process
                          %% because it interacts with the device's

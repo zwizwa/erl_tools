@@ -38,7 +38,10 @@ handle(Msg, State = #{host := Host}) ->
         %% Connect log port
         connect ->
             log:info("connecting~n"),
-            Cmd = cmd(#{host => Host}, {ssh, "exec tail -n0 -f /tmp/messages"}),
+            %% Note: This will NOT close when stdin closes!
+            %% CmdLine = "exec tail -n0 -f /tmp/messages",
+            CmdLine = "exec socat - EXEC:'tail -n0 -f /tmp/messages'",
+            Cmd = cmd(#{host => Host}, {ssh, CmdLine}),
             %% log:info("Cmd = ~s~n", [Cmd]),
             Opts = [use_stdio, exit_status, binary, {line, 1024}],
             Port = open_port({spawn, Cmd}, Opts),
