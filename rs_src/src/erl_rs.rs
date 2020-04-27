@@ -108,7 +108,7 @@ pub fn as_u8_slice(arg: &Term) -> Option<&[u8]> {
 }
 
 /* Dispatcher for {atom(),_} commands */
-pub fn apply_etf(f: &mut FnMut(&Term) -> Option<Term>, in_bin: &[u8]) -> Vec<u8>
+pub fn apply_etf(f: &mut dyn FnMut(&Term) -> Option<Term>, in_bin: &[u8]) -> Vec<u8>
 {
     /* Decode and dispatch */
     let in_term = Term::decode(Cursor::new(in_bin)).unwrap();
@@ -126,7 +126,7 @@ pub fn apply_etf(f: &mut FnMut(&Term) -> Option<Term>, in_bin: &[u8]) -> Vec<u8>
 // stdio needs 2, while sockets need 1.
 
 pub fn loop_apply_etf_2<In: Read, Out: Write>(
-    f: &mut FnMut(&Term) -> Option<Term>,
+    f: &mut dyn FnMut(&Term) -> Option<Term>,
     i: &mut In,
     o: &mut Out
 ) -> Result<()>
@@ -139,7 +139,7 @@ pub fn loop_apply_etf_2<In: Read, Out: Write>(
 }
 
 pub fn loop_apply_etf_1<IO: Read+Write> (
-    f: &mut FnMut(&Term) -> Option<Term>,
+    f: &mut dyn FnMut(&Term) -> Option<Term>,
     io: &mut IO, 
 ) -> Result<()>
 {
@@ -151,7 +151,7 @@ pub fn loop_apply_etf_1<IO: Read+Write> (
 }
 
 pub fn loop_event_etf<O: Write> ( 
-    f: &Fn() -> Option<Term>,
+    f: & dyn Fn() -> Option<Term>,
     o: &mut O, 
 ) -> Result<()>
 {
