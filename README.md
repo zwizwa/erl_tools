@@ -3,72 +3,98 @@ erl_tools
 
 Misc Erlang Tools
 
-* fold:       sequences represented as folds
-* sink:       sequences represented as data consumer callbacks
+Sequences / Iteratores:
+
+* fold:       folds
+* pfold:      partial folds
+* sink:       push-style data consumer callbacks
+* igen:       impure generators
+* iseq:       infinite sequences implemented as thunks
+* source:     pure, idempotent sequences
+
+
+Core abstractions and algorihtms
+
 * obj:        processes with Map state
-* serv:       simple server tools
-* serv_tcp:   simple tcp server with connection list
-* tools:      grab bag of functions
- 
-* gdb:        gdb MI access
-* gdbstub:    gdb stub in Erlang (wip)
-* rsp:        GDB RSP protocol
-
-* type:       extended types + serialization to text
-
-* ws:         erl<->js comm protocol based on WebSockets 
-* ws_widget:  actor based web widgets
+* type_base:  serializable data types
+* tools:      grab bag of function
+* diff:       compute datastructure diffs
+* run:        running scripts
 
 
-A note on the WebSocket toolkit
+Distributed systems:
 
-One thing that the proliferation of web frameworks tells me, is that
-there is no proper way to approach the problem.  The ws code in this
-repository was grown to support embedded software applications.  The
-code consists of what I consider to be bare essentials for distrubuted
-application development: some way for a collecting of things on one
-side, to talk to a collection of things on the other.  The
-implementation consists of:
-
-1) an object + communication model that matches both sides well.  For
-Erlang this is processes + messages.  For the Javascript side this is
-implemented using an object model based on mixins: an object is a DOM
-node carrying a references to a list of mixins that determine its
-behavior.
-
-2) a hierarchy model that can be used to create single page
-applications out of a collection of smaller, encapsulated widgets.
-This is implemented as a dispatch mechanism over the WebSocket, that
-allows processes on the Erlang side to talk directly to specific DOM
-nodes augmented with mixin behavior.
-
-3) a serialization/deserialization protocol based on Erlang terms
-extended with some types corresponding to typical HTML input elements.
-JSON is still supported, but a transition is being made to use binary
-erlang terms at the lowest levels.
-
-4) the glue code necessary to start up this structure as a 2-phase
-mechanism. Phase 1 being initial layout rendering and phase 2 being
-message communication between Erlang processes and JavaScript code.
-
-Anything else is left up to the user.  Especially the rendering of
-XHTML is not abstracted beyond some ad-hoc Erlang functions that
-factor out common patterns, and the use of Erlang terms to represent
-XHTML.
-
-Note that this all is very ad-hoc, and has a backwards compatibility
-constraint w.r.t. the applications written on top of it.  However, a
-structure seems to be emerging that would allow for a simpler "version
-2" to be written with a more deliberate design.  For now this is not a
-priority.
+* epid:       multi-hop pids for fine grained objects / processes
+* throttle:   data throttling
 
 
-A note on the obj toolkit
+TCP
 
-Essentially, this is a stripped-down version of gen_serv, and I
-apologize for reinventing the wheel.  There is also serv:bc, which is
-a stripped down version of gen_event.  The difference essentially
-boils down to a preference for using functions over modules, i.e. I do
-not want to create a module for each server object or event hub.
-Maybe that is a mistake?  I'm not sure.
+* serv:         simple server tools
+* serv_tcp:     simple tcp server with connection list
+* http:         gen_tcp wrappers
+* cowboy_wrap:  wrappers for cowboy web server
+
+Networking tools
+
+* reverse_tunnel: e.g. for reverse SSH (not what you think)
+* socks_proxy:    socks5 proxy server
+* bert_rpc:       BERT RPC support
+* ssh_leaf:       interacti with ssh machine (commands, rsync, log events)
+
+Web
+
+* ws:         erl<->js comm protocol based on WebSockets on top of cowboy
+* ws_widget:  actor based web widgets on top of ws
+* ws_layout:  layout functions for ws_widget style web widgets.
+* exml:       misc exml functions
+* serv_ws:    stand-alone websocket server
+* stack_ws:   forth-based websocket protocol for serv_ws
+
+Database
+
+* sqlite:          SQLite wrappers
+* kvstore:         generic key value store interface
+* sqlite_kvstore:  kvstore on top of sqlite wrapper
+* sqlite3_ckeys:   composite key store on top of sqlite
+
+
+Microcontroller development, See also uc_tools/gdb
+
+* rsp:         GDB RSP protocol
+* gdbstub:     gdb stub in Erlang (wip)
+* gdbstub_hub: server for gdbstubs
+* gdb:         gdb MI access
+* lab_board:   driver for uc_tools/gdb based lab control boards
+
+
+Logging
+
+* recorder:   log file recording (also used for a/v recording)
+* player:     log file player (also for a/v playback)
+
+Development support
+
+* expect:      Use Erlang parser to create "expect tests"
+* hs:          Haskell bindings
+* redo:        implementation of Redo build system in Erlang
+* reflection:  Code handling Erlang and other language compilation
+* ghcid/ghci:  interact with GHCId and GHCI
+* emacs:       emacs interfacing
+
+Linux interfacing
+
+Low level drivers
+
+* gpio_poll:      map gpio events to Erlang events (erl/C)
+* v4l:            Video For Linux (erl/C)
+* ftdi/ftdi_hub:  manage multiple FTDI connections (e.g. uC dev boards)
+* rigol:          interface with Rigol oscilloscope
+* linux:          misc linux system interfacing
+
+
+
+
+And some doodles that are not worth mentioning.
+
 
