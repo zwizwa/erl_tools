@@ -82,8 +82,6 @@ Development support
 * ghcid/ghci:  interact with GHCId and GHCI
 * emacs:       emacs interfacing
 
-Linux interfacing
-
 Low level drivers
 
 * gpio_poll:      map gpio events to Erlang events (erl/C)
