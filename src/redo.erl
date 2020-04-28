@@ -814,11 +814,9 @@ from_list_dir(Eval, PathList) ->
                                 {Ext,Bn,[]} = from_filename(FileName),
                                 [{Ext,Bn,PathList}]
                             catch
-                                C:E ->
-                                    %% Not all extensions are pterms,
-                                    %% so just don't collect those,
-                                    %% but print a warning.
-                                    log:info("WARNING: redo:from_list_dir:~999p:~n~999p~n", [PathList, {C, E}]),
+                                _C:_E ->
+                                    %% Just ignore extensions that are not pterms.
+                                    %% log:info("WARNING: redo:from_list_dir:~999p:~n~999p~n", [PathList, {_C, _E}]),
                                     []
                             end
                     end,
