@@ -1,6 +1,23 @@
 A small writeup about Exo.
 
+
 * Introduction
+
+Exo aims to facilitate incremental development with a fast
+edit-to-test cycle for systems where integration testing cannot easily
+be performed without real world external I/O.  For such cases, a
+testing and scaffolding system is usually designed together with the
+system under test.
+
+Exo is a tool library and a set of design principles that took shape
+over time as a result of taking incremental development and deployment
+serious in situations where bad tooling is typically just tolerated.
+
+Exo is built primarily on two principles: a declarative incremental
+build system, the base of many systems with a fast edit-to-test cycle,
+and a set of tools that generalize this approach into a problem space
+where management of distristributed state becomes an essential
+problem.
 
 Exo takes the distributed, always-on system ideas of Erlang and pushes
 them further, applied to polyglot, heterogeneous systems with a much
@@ -10,17 +27,17 @@ The end game is to completely remove the ideas of compilation and
 deployment, and make the code reflect the running system at all times,
 keeping the downtime to a minimum.
 
-In practice this turns out to be tremendously difficult to do,
-especially when some of the "services" in the network run on
-bare-bones microcontrollers.
+In practice this turns out to be tremendously difficult to do in the
+heterogeneous setting, especially when some of the "services" in the
+network run on bare-bones microcontrollers.
 
-The main goal of the Exo project as a software repository is to make
-this work for a collection of use cases, and fork off libraries and
-design documentation about how to create systems with this in mind.
+The main goal of the Exo project as a software repository is to fork
+off libraries and design documentation about how to create systems
+with this in mind.
 
 The main technical issues seem to concentrate around:
 
-   - distribution: communication processes distributed across vast
+   - distribution: communication processes distributed across
      networks.
 
    - code change and propagation: development is incremental. managing
