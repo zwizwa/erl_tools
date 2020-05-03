@@ -1,5 +1,5 @@
-#![feature(conservative_impl_trait)]
-#![feature(slice_patterns,advanced_slice_patterns)]
+//#![feature(conservative_impl_trait)]
+//#![feature(slice_patterns,advanced_slice_patterns)]
 
 extern crate erl_rs;
 extern crate eetf;

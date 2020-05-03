@@ -1,7 +1,6 @@
 /* Misc support code and specialization for eetf */
 
 /* A simple Erlang port in Rust. */
-extern crate eetf;
 use std::vec::Vec;
 use std::option::Option;
 use std::io::{Read, Write, Cursor, Result};

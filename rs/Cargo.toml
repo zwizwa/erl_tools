@@ -1,5 +1,5 @@
 [package]
-name = "erl_tools_rs"
+name = "erl_tools"
 version = "0.0.0"
 authors = [
 	"Tom Schouten <tom@zwizwa.be>",
@@ -10,13 +10,11 @@ homepage = "https://github.com/zwizwa/erl_tools"
 repository = "https://github.com/zwizwa/erl_tools"
 license = "BSD3"
 
-[lib]
-name = "erl_rs"
-path = "src/erl_rs.rs"
-
-[[bin]]
-name = "erl_rs_example"
-path = "src/example.rs"
-
 [dependencies]
+libc = "0.2"
 eetf = "0.3"
+
+[lib]
+name = "erl_tools"
+path = "src/lib.rs"
+
