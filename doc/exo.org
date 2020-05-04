@@ -5,23 +5,24 @@ A small writeup about Exo.
 
 Exo aims to facilitate incremental development with a fast
 edit-to-test cycle for systems where integration testing cannot easily
-be performed without real world external I/O.  For such cases, a
-testing and scaffolding system is usually designed together with the
-system under test.
+be performed without real world external I/O.
 
-Exo is a tool library and a set of design principles that took shape
-over time as a result of taking incremental development and deployment
-serious in situations where bad tooling is typically just tolerated.
+For such cases, a testing and scaffolding system is usually designed
+together with the system under test.  Exo is a tool library and a set
+of design principles that took shape over time designing such
+scaffolding systems, while taking incremental development and
+deployment serious in situations where bad tooling is typically just
+tolerated.
 
-Exo is built primarily on two principles: a declarative incremental
-build system, the base of many systems with a fast edit-to-test cycle,
-and a set of tools that generalize this approach into a problem space
-where management of distristributed state becomes an essential
-problem.
+Exo is built primarily on two principles: a declarative build system
+with incremental change propagation, and a set of tools that
+generalize this approach from just dealing with software binaries,
+into a problem space where management of distristributed state becomes
+an essential problem.
 
-Exo takes the distributed, always-on system ideas of Erlang and pushes
-them further, applied to polyglot, heterogeneous systems with a much
-finer granularity.
+Exo takes the distributed, always-on system ideas of Erlang and
+generalizes them to polyglot, heterogeneous systems, and to support a
+much finer granularity when upgrading code.
 
 The end game is to completely remove the ideas of compilation and
 deployment, and make the code reflect the running system at all times,
@@ -435,3 +436,51 @@ There are many parallells with DevOps / deployment systems.  Some
 inspiration comes from the ideas behind systems like Puppet, Chef,
 Nix.  Apart from some experience with Nix I am not very familiar with
 the structure and problems of these systems.
+
+
+** Creating a place
+
+One thing I've noticed once I started focusing consciously on
+incremental code development is that it helps to give code a
+"place". There's a tension between the need to create abstract library
+code (a recipe), and its instantiation as something that resembles a
+physical thing.
+
+I like the messy desk analogy. The eventual product does not include
+the messy desk, but the desk (incubator, scaffolding code, Exo) is an
+essential element to make the code real. Things started to improve
+dramatically for me once I started treating the messy desk with
+respect.
+
+This might be biased strongly to my own experience, but I've seen
+similar ideas expressed by others.  There is something about human
+cognition that makes it easier to manipulate concepts that have a
+physical analogy as opposed to ideas.  It's as if more of the
+hard-wired part of the brain can be used if you can translate a
+problem into something that has a special / mechanical analogy.
+
+I was reminded of this once I started reassembling my analog music
+studio, taking a long break from a very long period of just doing
+programming work at the keyboard.  Thinking about signal routing
+became so obvious once it was became tangible.
+
+Manipulating objects in an abstract space seems is seems to somehow
+still be mediated through a spacial / mechanical view of the universe.
+The typical example is manipulation of code or algebraic expressions
+through the proxy of seeing them as a physical object with degrees of
+freedom.
+
+
+
+** Why is scaffolding code so thick?
+
+It bridges the simple, platonic ideal in one's head, without which
+nobody would do any software development, with the actual reality of
+dotted i's and crossed t's.
+
+Glue code and boiler plate is a necessity because real world systems
+are complex, and handle many more use cases than just your simplified
+view of the world.
+
+It's good to have that layer as an explicit adapter such that the
+world on the inside can be kept simple and malleable.

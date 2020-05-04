@@ -136,6 +136,9 @@ handle_log_reply(Msg={Port, PMsg}, State = #{host := Host}) ->
             maps:remove(log, State)
     end.
 
+%% FIXME: This needs to handle logrotate.
+
+
 
 
 %% Command formatter

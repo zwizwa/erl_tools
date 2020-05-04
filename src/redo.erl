@@ -19,7 +19,24 @@
          need_val/2, find_val/2, put_val/3,
          no_update/1,
          default_script_log/1,
+         save_state/2,
+         dump_state/2,
          test/1, u1/1, u2/1]).
+
+%% TL;DR
+%%
+%% It is customary to apologize for writing yet another build system.
+%% I've tried many existing approaches, and I've come to the
+%% conclusion that for my case it was necessary.
+%%
+%% 1. Most build systems operates on files.  This is not abstract
+%%    enough for me.  I need this generalized to updating abstract
+%%    caches in a distributed heterogeneous network managed through
+%%    Erlang proxy processes.
+%%
+%% 2. File names are not a good abstraction for quantification,
+%%    i.e. to express generic build rules.  Erlang's pattern matching
+%%    is a much better fit for this.
 
 
 %% This is an Erlang implementation of a variant of djb's redo.
@@ -140,6 +157,28 @@ start_link(Spec0) when is_map(Spec0)  ->
                     #{ eval => start_eval(Spec) } 
             end,
             fun ?MODULE:handle_outer/2})}.
+
+%% Dump state necessary for resume.
+save_state(Redo, File) ->
+    MinimalState =
+        maps:filter(
+          fun(K,_V) ->
+                  case K of
+                      {stamp,_} -> true;
+                      {val,_}   -> true;
+                      _         -> false
+                  end
+          end,
+          obj:call(Redo, state)),
+    file:write_file(File, type:encode({pterm,MinimalState})).
+
+%% Dump entire state of the redo object to a file, for debug.  This
+%% also dumps non-pterms.
+dump_state(Redo, File) ->
+    State = obj:call(Redo, state),
+    IOL =  io_lib:format("~p~n",[State]),
+    file:write_file(File, IOL).
+
 
 
 handle_outer(Msg, State = #{eval := Eval}) ->
@@ -896,10 +935,13 @@ stamp_hash(Eval, Product) ->
 
 %% Generic build command dispatch.
 
-%% This is for running external commands.  It builds a trace log
-%% useful for debugging and generating executable build traces.
+
+%% run/2 will run external commands.  The reason to abstract it is to
+%% be able to reconstruct build scripts from trace logs.
+
 %% FIXME: Also add throttling here, e.g. to limit parallellism.
 
+%% Provide a console logging mechanism if there is none.
 run(Eval, Thing) ->
     Log =
         case obj:call(Eval, script_log) of
@@ -908,15 +950,25 @@ run(Eval, Thing) ->
         end,
     run(Eval, Thing, Log).
 
-default_script_log({line,Line}) -> log:info("~s~n", [Line]);
-default_script_log(_) -> ok.
+%% This step records the specification of the external command to the
+%% trace log, before interpreting the command specification.
+run(Eval, CommandSpec, Log) ->
+    Eval ! {log_append, CommandSpec},
+    run_(Eval, CommandSpec, Log).
 
-run(Eval, {mfa, MFA={M,F,A}}, Log) ->
-    Eval ! {log_append, MFA},
-    run(Eval, apply(M,F,A), Log);
 
-%% Raw bash command
-run(Eval, {bash, Cmds}, Log) ->
+%% Implementation.
+%% 1. Some erlang command that generates a new spec.
+run_(Eval, {mfa, {M,F,A}}, Log) ->
+    run_(Eval, apply(M,F,A), Log);
+
+%% 2. Bash command with environment.
+run_(Eval, {bash_with_vars, EnvMap, Cmds}, Log) ->
+    log:info("EnvMap=~n~p~n", [EnvMap]),
+    run_(Eval, {bash, run:with_vars(EnvMap, Cmds)}, Log);
+
+%% 3. Raw bash command
+run_(Eval, {bash, Cmds}, Log) ->
     {ok, Dir} = obj:call(Eval, {find_file, ""}),
     run:bash(Dir, Cmds, Log);
 
@@ -926,11 +978,13 @@ run(Eval, {bash, Cmds}, Log) ->
 
 %% FIXME: Make sure Log stays local.
 
-run(Eval, {remote_bash, Var, Cmds}, Log) ->
+run_(Eval, {remote_bash, Var, Cmds}, Log) ->
     case rpc:call(Var, ?MODULE, run, [Eval, {bash, Cmds}, Log]) of
         Rv -> Rv
     end.
              
+default_script_log({line,Line}) -> log:info("~s~n", [Line]);
+default_script_log(_) -> ok.
 
 
 
