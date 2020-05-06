@@ -484,3 +484,14 @@ view of the world.
 
 It's good to have that layer as an explicit adapter such that the
 world on the inside can be kept simple and malleable.
+
+
+** Erlang as a backbone
+
+Why does this work so well?  Erlang is at a sweet spot.  Its data
+structures are fixed, yet powerful enough to embed almost any
+protocol.  The data structure are a base line that enable hot code
+reload, straightforward serialization and distribution, and structured
+routing based on pattern matching, both for message dispatch (epids)
+and for e.g. build rule dispatch as used in the redo abstraction that
+takes center stage in Exo.
