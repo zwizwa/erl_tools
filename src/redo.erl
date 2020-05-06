@@ -19,8 +19,9 @@
          need_val/2, find_val/2, put_val/3,
          no_update/1,
          default_script_log/1,
-         save_state/2,
+         save_state/2, merge_state/2, filter_state/2,
          dump_state/2,
+         export_deps/2, export_makefile/2,
          test/1, u1/1, u2/1]).
 
 %% TL;DR
@@ -158,19 +159,151 @@ start_link(Spec0) when is_map(Spec0)  ->
             end,
             fun ?MODULE:handle_outer/2})}.
 
+%% Redo internal state is path-indexed with a tag such as {log,_} or
+%% {deps, _}.  This creates a projection for a limited set of tags.
+filter_state(Redo, Tags) ->
+    maps:filter(
+      fun(K,_V) ->
+              case K of
+                  {Tag,_} -> lists:member(Tag, Tags);
+                  _       -> false
+              end
+      end,
+      obj:call(Redo, state)).
+
+
+%% Export rules to e.g. Makefile.
+%%
+%% The build rules for the binaries are a subset of the redo.erl build
+%% rules, because we can't export abstract build operations.  Note
+%% that this is ok as it covers two completely different use cases:
+%%
+%% 1. Simple Makefile that builds the library without any dependencies
+%%    on redo.erl
+%%
+%% 2. Extended incremental HIL testing based on redo.erl
+%%
+%% To make this work, all concrete rules should be based on
+%% redo:run/2, which creates a trace log of CommandSpec.  That log is
+%% used here to reconstruct the build commands together with
+%% dependencies from the redo graph.
+
+
+
+export_deps(Redo,Targets) ->
+    Rules = filter_state(Redo, [log, deps]),
+    fold_commands(Rules,#{},Targets).
+
+fold_commands(Rules,State,Targets) ->
+    lists:foldl(
+      fun(Target,S) ->
+              %% Don't print anything in the non-pruned branch!
+              case maps:find(Target, S) of
+                  {ok,_} -> 
+                      %% PRUNE: Rule is already compiled, so we can
+                      %% cut off the traversal here.
+                      S;
+                  error ->
+                      %% PROJECT: Only keep targets that have external
+                      %% build scripts.
+                      Log = maps:get({log,Target}, Rules, []),
+                      TargetDeps = maps:get({deps, Target}, Rules, []),
+
+                      S1 = case [C || {run, C} <- Log] of
+                               [] ->
+                                   S;
+                               CmdSpecs ->
+                                   %% FIXME: Also filter deps that are not files?
+                                   Rule = #{ cmd_specs => CmdSpecs, deps => TargetDeps },
+                                   maps:put(Target, Rule, S)
+                           end,
+                      %% RECURSE: Traverse the tree recursively.
+                      fold_commands(Rules, S1, TargetDeps)
+              end
+      end,
+      State,
+      Targets).
+
+%% redo:export_deps(redo, [{c8,testsuite}]).
+
+
+%% To make export practical, some more things need to happen: remove
+%% all dependencies on system files.  This can be done heuristically
+%% by removing all absolute paths.  Then also unexpand some rules to
+%% use variables.
+export_makefile(Redo, Targets, {sink, Sink}) ->
+    Fmt = fun(F,A) -> Sink({data,io_lib:format(F,A)}) end,
+
+    %% Deps :: #{ target() => #{ cmds => cmds(), deps => [target()] } }
+    Deps = export_deps(Redo, Targets),
+    lists:foreach(
+      fun({Target,
+           #{ cmd_specs := CmdSpecs,
+              deps := Deps }}) ->
+              Fmt("\n~s:", [to_filename(Target)]),
+              lists:foreach(
+                fun(Dep={_,BN,Path}) when is_binary(BN) and is_list(Path) ->
+                        case lists:reverse(Path) of
+                            [<<>>|_] ->
+                                %% Strip absolute pathnames
+                                ok;
+                            _ ->
+                                Fmt(" ~s",[to_filename(Dep)])
+                        end;
+                   (_) ->
+                        ok
+                end,
+                Deps),
+              Fmt(":\n",[]),
+              lists:foreach(
+                fun({bash_with_vars, Env, Cmd}) ->
+                        Cmd1 = run:with_vars(Env, Cmd),
+                        Fmt("\t~s\n", [makefile_quote(Cmd1)])
+                end,
+                CmdSpecs)
+      end,
+      maps:to_list(Deps)),
+    Sink(eof).
+
+export_makefile(Redo, Targets) ->
+    export_makefile(
+      Redo, Targets,
+      {sink,
+       fun({data,D}) -> io:format("~s",[D]);
+          (eof)      -> ok
+       end}).
+
+makefile_quote(IOL) ->
+    makefile_quote_(binary_to_list(iolist_to_binary(IOL))).
+makefile_quote_([])     -> [];
+makefile_quote_([$$|T]) -> [$$,$$|makefile_quote_(T)];
+makefile_quote_([H|T])  -> [H|makefile_quote_(T)].
+    
+
 %% Dump state necessary for resume.
 save_state(Redo, File) ->
-    MinimalState =
-        maps:filter(
-          fun(K,_V) ->
-                  case K of
-                      {stamp,_} -> true;
-                      {val,_}   -> true;
-                      _         -> false
-                  end
-          end,
-          obj:call(Redo, state)),
-    file:write_file(File, type:encode({pterm,MinimalState})).
+    MinimalState = filter_state(Redo, [stamp,val,log,deps]),
+    %% encode performs some checks, but the format is more readable.
+    _ = type:encode({pterm,MinimalState}),
+    Bin = io_lib:format("~p~n",[MinimalState]),
+    file:write_file(File, Bin).
+
+%% Merge current state with state from save file.
+
+merge_state(Redo, Map) when is_map(Map) ->
+    _ = obj:call(Redo, {merge_state, Map}),
+    ok;
+
+merge_state(Redo, File) ->
+    try
+        {ok, Bin} = file:read_file(File),
+        Map = type:decode({pterm, Bin}),
+        true = is_map(Map),
+        merge_state(Redo, Map)
+    catch _:_ ->
+            error
+    end.
+
 
 %% Dump entire state of the redo object to a file, for debug.  This
 %% also dumps non-pterms.
@@ -186,6 +319,9 @@ handle_outer(Msg, State = #{eval := Eval}) ->
     case Msg of
         {Pid, state} ->
             obj:reply(Pid, obj:dump(Eval)),
+            State;
+        {Pid, {merge_state, Map}} when is_map(Map) ->
+            obj:reply(Pid, obj:merge(Eval, Map)), 
             State;
         {_, dump} -> 
             obj:handle(Msg, State);
@@ -332,6 +468,7 @@ handle({Pid, worker_deps}, State) ->
             maps:remove({need, Pid}, State)
     end;
 
+
 %% Insert update computed by worker and notify waiters.
 handle({worker_done, Product, PhaseUpdate}=Msg, State0) ->
     debug("worker_done: ~p~n", [{Product,PhaseUpdate}]),
@@ -354,6 +491,32 @@ handle({worker_done, Product, PhaseUpdate}=Msg, State0) ->
         OtherPhase ->
             throw({worker_done_phase_error, Msg, OtherPhase})
     end;
+
+
+
+%% Similarly, other metadata can be attached.
+
+%% Per-target logging during rule exuction phase.  We index it pid,
+%% then re-index it under target name once run is complete.
+
+handle({Pid, {log, Key, Val}}, State) ->
+    obj:reply(Pid, ok),
+    OldLog = maps:get({log, Pid}, State, []),
+    NewLog = [{Key,Val}|OldLog],
+    maps:put({log, Pid}, NewLog, State);
+handle({Pid, {rename_log, Target}}, State) ->
+    {Log1, State1} =
+        case maps:find({log, Pid}, State) of
+            error -> 
+                {error, State};
+            {ok, Log} ->
+                {{ok, Log},
+                 maps:put({log, Target}, Log,
+                          maps:remove({log,Pid}, State))}
+        end,
+    obj:reply(Pid, {ok, Log1}),
+    State1;
+
 
 %% Time stamp, hashes, ...
 handle({Pid,{set_stamp,Tag,New}}, State) ->
@@ -392,7 +555,9 @@ handle({Pid, start_pull}, State) ->
     obj:reply(Pid, ok),
     maps:filter(
       fun({phase, _}, _) -> false;
-         (log, _) -> false;
+         ({need, _}, _) -> false;
+         %% Don't erase per-target logs.  These are used for rule export.
+         %% ({log, _}, _) -> false;  
          (_,_) -> true end,
       State);
 
@@ -478,8 +643,9 @@ handle({Pid, script_log}, State) ->
     State;
 
 %% Allow some read only access for internal use.
-handle({_,{find,_}}=Msg, State) -> obj:handle(Msg, State);
-handle({_,dump}=Msg, State)     -> obj:handle(Msg, State);
+handle({_,{find,_}}=Msg, State)  -> obj:handle(Msg, State);
+handle({_,dump}=Msg, State)      -> obj:handle(Msg, State);
+handle({_,{merge,_}}=Msg, State) -> obj:handle(Msg, State);
 
 %% Reload do file
 handle({Pid, reload}, State) -> 
@@ -588,6 +754,13 @@ worker(Eval, Product, Update, OldDeps) ->
                                      [{C,E},ST]),
                             {error,[]}
                     end,
+
+                %% Save the pid-indexed log under a symbolic name.
+                {ok, _Log} = obj:call(Eval, {rename_log, Product}),
+
+                %% FIXME gather {log,Pid} and translate it to {log,Target}
+                
+
                 %% Special-case the happy path.  Keeping track of dep
                 %% graph changes allows caching the inverted dep graph
                 %% for "push" operation and allows to prune a need/2
@@ -951,26 +1124,33 @@ run(Eval, Thing) ->
     run(Eval, Thing, Log).
 
 %% This step records the specification of the external command to the
-%% trace log, before interpreting the command specification.
-run(Eval, CommandSpec, Log) ->
-    Eval ! {log_append, CommandSpec},
-    run_(Eval, CommandSpec, Log).
+%% trace log, before interpreting the command specification.  Note
+%% that the trace log is different from the console log, which records
+%% command output.
+run(Eval, CommandSpec, ConsoleLog) ->
+    obj:call(Eval, {log, run, CommandSpec}),
+    run_(Eval, CommandSpec, ConsoleLog).
 
 
 %% Implementation.
 %% 1. Some erlang command that generates a new spec.
-run_(Eval, {mfa, {M,F,A}}, Log) ->
-    run_(Eval, apply(M,F,A), Log);
+run_(Eval, {mfa, {M,F,A}}, ConsoleLog) ->
+    run_(Eval, apply(M,F,A), ConsoleLog);
 
 %% 2. Bash command with environment.
-run_(Eval, {bash_with_vars, EnvMap, Cmds}, Log) ->
-    log:info("EnvMap=~n~p~n", [EnvMap]),
-    run_(Eval, {bash, run:with_vars(EnvMap, Cmds)}, Log);
+run_(Eval, {bash_with_vars, EnvMap, Cmds}, ConsoleLog) ->
+    %% case maps:find('OUT', EnvMap) of
+    %%     error -> ok;
+    %%     {ok,Out} -> log:info("OUT=~s~n",[Out])
+    %% end,
+
+    %% log:info("EnvMap=~n~p~n", [EnvMap]),
+    run_(Eval, {bash, run:with_vars(EnvMap, Cmds)}, ConsoleLog);
 
 %% 3. Raw bash command
-run_(Eval, {bash, Cmds}, Log) ->
+run_(Eval, {bash, Cmds}, ConsoleLog) ->
     {ok, Dir} = obj:call(Eval, {find_file, ""}),
-    run:bash(Dir, Cmds, Log);
+    run:bash(Dir, Cmds, ConsoleLog);
 
 %% Via rpc.  Note that this does the rpc call here, so we can (later)
 %% still do logging on this host, but run the command remotely via
