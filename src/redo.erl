@@ -7,6 +7,7 @@
          from_list_dir/2,
          read_file/2, write_file/3, is_regular/2,
          from_filename/1, to_filename/1, to_directory/1, to_includes/1,
+         compile_env/2, compile_path/2,
          path_find/4,
          root/1,
          update_using/2, update_file/1,
@@ -257,13 +258,11 @@ export_makefile(Redo, Targets, {sink, Sink}) ->
               Fmt("\t:\n",[]),
               lists:foreach(
                 fun({bash_with_vars, Env0, Cmd}) ->
-                        %% FIXME: This should lift out the paths
-                        Compile = #{
-                          root => "/i/exo", %% FIXME! not: root(Eval),
-                          to_filename  => fun to_filename/1,
-                          to_directory => fun to_directory/1 },
-                        Env = compile_env(Compile, Env0),
-                        Cmd1 = run:with_vars(Env, Cmd," \\\n\t"),
+                        %% Abstract some paths that will go into env.sh
+                        AbstractPaths = #{'UC_TOOLS' => [<<"uc_tools">>]},
+                        Env = compile_env_make(Env0, AbstractPaths),
+                        Cmd1 = [". ./env.sh \\\n\t",
+                                run:with_vars(Env, Cmd," \\\n\t")],
                         Fmt("\t~s\n", [makefile_quote(Cmd1)])
                 end,
                 CmdSpecs)
@@ -271,20 +270,58 @@ export_makefile(Redo, Targets, {sink, Sink}) ->
       maps:to_list(export_deps(Redo, Targets))),
     Sink(eof).
 
+%% Generate a Makefile, but extract path names such that they can
+%% easily be reconfigured.  It's been a bit of trial and error to find
+%% a simple way to do this.  Basic ideas:
+%%
+%% - Don't use make variables.  Stick to shell environment variables
+%%   as the lowest common denominator for composition.
+%%
+%% - Convert any mention of a path to a shell variable, remove the
+%%   definition of those variables from the build rule, and dump them
+%%   all in an env.sh file that is sourced as first command of the
+%%   build rule.
+
+compile_env_make(Env0, AbstractPaths) ->
+    %% Remove all variables that we want to abstract into env.sh
+    Env =
+        maps:filter(
+          fun(K,_) ->
+                  case maps:find(K, AbstractPaths) of
+                      {ok, _} -> false;
+                      error -> true
+                  end
+          end,
+         Env0),
+    
+    Compile = #{
+      root => "/i/exo", %% FIXME! not: root(Eval),
+      to_filename =>
+          fun(FN) ->
+                  log:info("to_filename: ~999p~n", [FN]),
+                  to_filename(FN)
+          end,
+      to_directory =>
+          fun(D) ->
+                  log:info("to_directory: ~999p~n", [D]),
+                  case tools:head_and_tails([<<"uc_tools">>], D) of
+                      %% FIXME: Shell quoting and Makefile quoting get inverted
+                      {[<<"uc_tools">>],[],Rel} ->
+                          ["$UC_TOOLS", to_directory(Rel)];
+                      {_,_,_} ->
+                          to_directory(D)
+                  end
+          end
+     },
+    compile_env(Compile, Env).
+
+    
+
 %% redo:export_makefile(redo, [{c8,testsuite}]).
 
-%% TODO:
-%% - save to file and test as-is
-%% - create path substitutor or move to standard path layout
-%% - separate 'env.sh' file with vars?
-
 export_makefile(Redo, Targets) ->
-    export_makefile(
-      Redo, Targets,
-      {sink,
-       fun({data,D}) -> io:format("~s",[D]);
-          (eof)      -> ok
-       end}).
+    sink:gen_to_list(
+      fun(Sink) -> export_makefile(Redo, Targets, {sink, Sink}) end).
 
 makefile_quote(IOL) ->
     makefile_quote_(binary_to_list(iolist_to_binary(IOL))).
@@ -1197,12 +1234,15 @@ default_script_log(_) -> ok.
 compile_path(Compile = #{
                root := Root,
                to_filename := ToFilename,
-               to_directory := _ToDirectory },
-             ConvSpec) ->
-    case ConvSpec of
+               to_directory := ToDirectory },
+             Spec) ->
+    case Spec of
         {to_filename,Path}      -> ToFilename(Path);
-        {to_filename_abs, Path} -> [Root, ToFilename(Path)];
+        {to_directory,Dir}      -> ToDirectory(Dir);
+        {to_filename_abs,Path}  -> [Root, ToFilename(Path)];
+        {to_directory_abs,Dir}  -> [Root, ToDirectory(Dir)];
         {to_filenames,Paths}    -> [[" ", ToFilename(P)] || P <- Paths]; %% FIXME: quote
+        %% Convenience.  This could be abstracted behind a formatter.
         {to_includes,EPaths}    -> to_includes(Compile, EPaths)
     end.
         
@@ -1210,7 +1250,7 @@ compile_path(Compile = #{
 %% environment.
 compile_env(Compile, Env) ->
     maps:map(
-      fun(_,F) when is_function(F) -> F(fun(P) -> compile_path(Compile, P) end);
+      fun(_,Format) when is_function(Format) -> Format(fun(Spec) -> compile_path(Compile, Spec) end);
          (_,ConvSpec={Type,_}) when is_atom(Type) -> compile_path(Compile, ConvSpec);
          (_,Other) -> Other end,
       Env).

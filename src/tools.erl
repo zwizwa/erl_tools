@@ -61,7 +61,8 @@
          intersperse/2,
          node_to_host/1,
          tmpdir/2,
-         race/3
+         race/3,
+         head_and_tails/2
         ]).
 
 -ifdef(EUINIT).
@@ -1029,6 +1030,18 @@ race_wait(WaitRef, Nodes, TimeOut) ->
         after TimeOut ->
                 log:info("WARNING: race_nodes_wait: timeout~n"),
                 error
+    end.
+
+
+head_and_tails(As,Bs) ->
+    {H1,As1,Bs1} = htt([], As,Bs),
+    {lists:reverse(H1),As1,Bs1}.
+htt(H,[],Bs) -> {H,[],Bs};
+htt(H,As,[]) -> {H,As,[]};
+htt(H,[A|_]=As,[B|_]=Bs) ->
+    case A == B of
+        true  -> htt([A|H],tl(As),tl(Bs));
+        false -> {H,As,Bs}
     end.
 
 
