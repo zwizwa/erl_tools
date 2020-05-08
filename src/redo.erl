@@ -8,6 +8,7 @@
          read_file/2, write_file/3, is_regular/2,
          from_filename/1, to_filename/1, to_directory/1, to_includes/1,
          path_find/4,
+         root/1,
          update_using/2, update_file/1,
          update_value/3, update_pure/3, update_const/2,
          update_case/3,
@@ -235,12 +236,11 @@ export_makefile(Redo, Targets, {sink, Sink}) ->
     Fmt = fun(F,A) -> Sink({data,io_lib:format(F,A)}) end,
 
     %% Deps :: #{ target() => #{ cmds => cmds(), deps => [target()] } }
-    Deps = export_deps(Redo, Targets),
     lists:foreach(
       fun({Target,
            #{ cmd_specs := CmdSpecs,
               deps := Deps }}) ->
-              Fmt("\n~s:", [to_filename(Target)]),
+              Fmt("\n~s: \\\n", [to_filename(Target)]),
               lists:foreach(
                 fun(Dep={_,BN,Path}) when is_binary(BN) and is_list(Path) ->
                         case lists:reverse(Path) of
@@ -248,22 +248,35 @@ export_makefile(Redo, Targets, {sink, Sink}) ->
                                 %% Strip absolute pathnames
                                 ok;
                             _ ->
-                                Fmt(" ~s",[to_filename(Dep)])
+                                Fmt("\t~s \\\n",[to_filename(Dep)])
                         end;
                    (_) ->
                         ok
                 end,
                 Deps),
-              Fmt(":\n",[]),
+              Fmt("\t:\n",[]),
               lists:foreach(
-                fun({bash_with_vars, Env, Cmd}) ->
-                        Cmd1 = run:with_vars(Env, Cmd),
+                fun({bash_with_vars, Env0, Cmd}) ->
+                        %% FIXME: This should lift out the paths
+                        Compile = #{
+                          root => "/i/exo", %% FIXME! not: root(Eval),
+                          to_filename  => fun to_filename/1,
+                          to_directory => fun to_directory/1 },
+                        Env = compile_env(Compile, Env0),
+                        Cmd1 = run:with_vars(Env, Cmd," \\\n\t"),
                         Fmt("\t~s\n", [makefile_quote(Cmd1)])
                 end,
                 CmdSpecs)
       end,
-      maps:to_list(Deps)),
+      maps:to_list(export_deps(Redo, Targets))),
     Sink(eof).
+
+%% redo:export_makefile(redo, [{c8,testsuite}]).
+
+%% TODO:
+%% - save to file and test as-is
+%% - create path substitutor or move to standard path layout
+%% - separate 'env.sh' file with vars?
 
 export_makefile(Redo, Targets) ->
     export_makefile(
@@ -971,8 +984,11 @@ to_filename({Type,BaseName,Dirs}) ->
     Ext  = [[".",type:encode({pterm,Tag})] || Tag <- Tags],
     tools:format("~s",[[Path,BaseName,Ext]]).
 
+
 to_includes(Paths) ->
-    [[" -I",to_directory(P)] || P <- Paths].
+    to_includes(fun to_directory/1, Paths).
+to_includes(_Compile = #{ to_directory := ToDirectory}, Paths) ->
+    [[" -I",ToDirectory(P)] || P <- Paths].
 
 %% FIXME: This probably doesn't work with spaces in names.  Actually
 %% think about this and clean it up.
@@ -994,6 +1010,9 @@ need_gcc_deps(Eval, {_Type,_BaseName,_Path}=D) ->
     need(Eval,Deps).
 
 
+root(Eval) ->
+    {ok, AbsPath} = obj:call(Eval, {find_file, ""}),
+    AbsPath.
 
 with_abs_path(Eval, RelPath, Fun) ->
     {ok, AbsPath} = obj:call(Eval, {find_file, RelPath}),
@@ -1138,11 +1157,13 @@ run_(Eval, {mfa, {M,F,A}}, ConsoleLog) ->
     run_(Eval, apply(M,F,A), ConsoleLog);
 
 %% 2. Bash command with environment.
-run_(Eval, {bash_with_vars, EnvMap, Cmds}, ConsoleLog) ->
-    %% case maps:find('OUT', EnvMap) of
-    %%     error -> ok;
-    %%     {ok,Out} -> log:info("OUT=~s~n",[Out])
-    %% end,
+run_(Eval, {bash_with_vars, EnvMap0, Cmds}, ConsoleLog) ->
+
+    Compile = #{
+      root => root(Eval),
+      to_filename  => fun to_filename/1,
+      to_directory => fun to_directory/1 },
+    EnvMap = compile_env(Compile, EnvMap0),
 
     %% log:info("EnvMap=~n~p~n", [EnvMap]),
     run_(Eval, {bash, run:with_vars(EnvMap, Cmds)}, ConsoleLog);
@@ -1166,6 +1187,34 @@ run_(Eval, {remote_bash, Var, Cmds}, Log) ->
 default_script_log({line,Line}) -> log:info("~s~n", [Line]);
 default_script_log(_) -> ok.
 
+
+%% In order to safely project redo.erl rules to Makefiles, we need to
+%% delay the path name flattening operation such that it can later be
+%% filtered to e.g. produce makefiles with configurable path names.
+%% This is done by replacing direct function calls by tagged pairs
+%% interpreted by compile_path/2.
+
+compile_path(Compile = #{
+               root := Root,
+               to_filename := ToFilename,
+               to_directory := _ToDirectory },
+             ConvSpec) ->
+    case ConvSpec of
+        {to_filename,Path}      -> ToFilename(Path);
+        {to_filename_abs, Path} -> [Root, ToFilename(Path)];
+        {to_filenames,Paths}    -> [[" ", ToFilename(P)] || P <- Paths]; %% FIXME: quote
+        {to_includes,EPaths}    -> to_includes(Compile, EPaths)
+    end.
+        
+%% That function is then used to flatten all variables in the shell
+%% environment.
+compile_env(Compile, Env) ->
+    maps:map(
+      fun(_,F) when is_function(F) -> F(fun(P) -> compile_path(Compile, P) end);
+         (_,ConvSpec={Type,_}) when is_atom(Type) -> compile_path(Compile, ConvSpec);
+         (_,Other) -> Other end,
+      Env).
+              
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

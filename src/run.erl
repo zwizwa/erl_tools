@@ -16,7 +16,7 @@
          bash/3,
          shell_quote/1,
          shell_command/2,
-         with_vars/2,
+         with_vars/2, with_vars/3,
 
          %% runner
          runner_start/1,
@@ -163,10 +163,14 @@ shell_command(Cmd,ArgList) ->
 
 %% Convert Erlang map to a sequence of variable assignments separated with ';'
 with_vars(Map, Cmd) when is_map(Map) ->
-    with_vars(maps:to_list(Map), Cmd);
-with_vars(AList,Cmd) ->
+    Sep = " ; ",
+    with_vars(Map, Cmd, Sep).
+
+with_vars(Map, Cmd, Sep) when is_map(Map) ->
+    with_vars(maps:to_list(Map), Cmd, Sep);
+with_vars(AList, Cmd, Sep) ->
     [lists:map(
-       fun({K,V}) -> ["export ",s(K),"=", shell_quote(V)," ; "] end,
+       fun({K,V}) -> ["export ",s(K),"=", shell_quote(V), Sep] end,
        AList),
      Cmd].
 
