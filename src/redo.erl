@@ -23,7 +23,7 @@
          default_script_log/1,
          save_state/2, merge_state/2, filter_state/2,
          dump_state/2,
-         export_deps/2, export_makefile/2,
+         export_deps/2, export_makefile/3,
          test/1, u1/1, u2/1]).
 
 %% TL;DR
@@ -174,23 +174,24 @@ filter_state(Redo, Tags) ->
       obj:call(Redo, state)).
 
 
-%% Export rules to e.g. Makefile.
+%% Export build rules.
 %%
-%% The build rules for the binaries are a subset of the redo.erl build
-%% rules, because we can't export abstract build operations.  Note
-%% that this is ok as it covers two completely different use cases:
+%% The build rules for the binaries are necessarily a subset of the
+%% redo.erl build rules, because we can't export abstract build
+%% operations.  Note that this is ok as it covers two completely
+%% different use cases:
 %%
-%% 1. Simple Makefile that builds the library without any dependencies
-%%    on redo.erl
+%% 1. Fully integrated build based on redo.erl managing abstract
+%%    state, deployment, ...
 %%
-%% 2. Extended incremental HIL testing based on redo.erl
+%% 2. Stand-alone Makefile for code distribution, without any
+%%    dependencies on the scaffolding system
 %%
-%% To make this work, all concrete rules should be based on
-%% redo:run/2, which creates a trace log of CommandSpec.  That log is
-%% used here to reconstruct the build commands together with
-%% dependencies from the redo graph.
+%% This is interpreted as a "projection" of the build rules onto a
+%% limited set of operations.  Only rules that are based on redo:run/2
+%% and thus provide a log of build commands will be exported.
 
-
+%% redo:export_deps(redo, [{c8,testsuite}]).
 
 export_deps(Redo,Targets) ->
     Rules = filter_state(Redo, [log, deps]),
@@ -226,14 +227,27 @@ fold_commands(Rules,State,Targets) ->
       State,
       Targets).
 
-%% redo:export_deps(redo, [{c8,testsuite}]).
 
+%% Generate a Makefile.  A previous attempt extracted variable names,
+%% which quickly became too complicated due to both having to work
+%% with Makefile variable syntax and shell environment variable syntax
+%% and associated quoting.  Instead, we rely on symlinks and relative
+%% paths in the Makefile, and implement any rebasing by substituting
+%% relative paths.
 
 %% To make export practical, some more things need to happen: remove
 %% all dependencies on system files.  This can be done heuristically
 %% by removing all absolute paths.  Then also unexpand some rules to
 %% use variables.
-export_makefile(Redo, Targets, {sink, Sink}) ->
+
+%% redo:export_makefile(redo, [{c8,testsuite}]).
+
+
+export_makefile(Redo, Targets, Rebase) ->
+    sink:gen_to_list(
+      fun(Sink) -> export_makefile(Redo, Targets, Rebase, {sink, Sink}) end).
+
+export_makefile(Redo, Targets, Rebase, {sink, Sink}) ->
     Fmt = fun(F,A) -> Sink({data,io_lib:format(F,A)}) end,
 
     %% Deps :: #{ target() => #{ cmds => cmds(), deps => [target()] } }
@@ -241,14 +255,18 @@ export_makefile(Redo, Targets, {sink, Sink}) ->
       fun({Target,
            #{ cmd_specs := CmdSpecs,
               deps := Deps }}) ->
-              Fmt("\n~s: \\\n", [to_filename(Target)]),
+              Fmt("\n~s: \\\n", [to_filename(rebase_file(Rebase, Target))]),
               lists:foreach(
-                fun(Dep={_,BN,Path}) when is_binary(BN) and is_list(Path) ->
-                        case lists:reverse(Path) of
+                fun({Typ,BN,Dir0}) when is_binary(BN) and is_list(Dir0) ->
+                        case lists:reverse(Dir0) of
                             [<<>>|_] ->
-                                %% Strip absolute pathnames
+                                %% Just remove all absolute pathnames.
+                                %% FIXME: Is this correct?
                                 ok;
                             _ ->
+                                %% Rebase the rest.
+                                Dir = rebase_dir(Rebase, Dir0),
+                                Dep = {Typ,BN,Dir},
                                 Fmt("\t~s \\\n",[to_filename(Dep)])
                         end;
                    (_) ->
@@ -258,11 +276,9 @@ export_makefile(Redo, Targets, {sink, Sink}) ->
               Fmt("\t:\n",[]),
               lists:foreach(
                 fun({bash_with_vars, Env0, Cmd}) ->
-                        %% Abstract some paths that will go into env.sh
-                        AbstractPaths = #{'UC_TOOLS' => [<<"uc_tools">>]},
-                        Env = compile_env_make(Env0, AbstractPaths),
-                        Cmd1 = [". ./env.sh \\\n\t",
-                                run:with_vars(Env, Cmd," \\\n\t")],
+                        Env = compile_env_make(Env0, Rebase),
+                        Cmd1 = ["[ -f env.sh ] && . ./env.sh ; \\\n\t", %% Allow extra config
+                                run:with_vars(Env, Cmd," ; \\\n\t")],
                         Fmt("\t~s\n", [makefile_quote(Cmd1)])
                 end,
                 CmdSpecs)
@@ -270,58 +286,38 @@ export_makefile(Redo, Targets, {sink, Sink}) ->
       maps:to_list(export_deps(Redo, Targets))),
     Sink(eof).
 
-%% Generate a Makefile, but extract path names such that they can
-%% easily be reconfigured.  It's been a bit of trial and error to find
-%% a simple way to do this.  Basic ideas:
-%%
-%% - Don't use make variables.  Stick to shell environment variables
-%%   as the lowest common denominator for composition.
-%%
-%% - Convert any mention of a path to a shell variable, remove the
-%%   definition of those variables from the build rule, and dump them
-%%   all in an env.sh file that is sourced as first command of the
-%%   build rule.
 
-compile_env_make(Env0, AbstractPaths) ->
-    %% Remove all variables that we want to abstract into env.sh
-    Env =
-        maps:filter(
-          fun(K,_) ->
-                  case maps:find(K, AbstractPaths) of
-                      {ok, _} -> false;
-                      error -> true
-                  end
-          end,
-         Env0),
-    
+
+compile_env_make(Env, Rebase) ->
     Compile = #{
       root => "/i/exo", %% FIXME! not: root(Eval),
       to_filename =>
-          fun(FN) ->
-                  log:info("to_filename: ~999p~n", [FN]),
-                  to_filename(FN)
+          fun(File) ->
+                  to_filename(rebase_file(Rebase, File))
           end,
       to_directory =>
-          fun(D) ->
-                  log:info("to_directory: ~999p~n", [D]),
-                  case tools:head_and_tails([<<"uc_tools">>], D) of
-                      %% FIXME: Shell quoting and Makefile quoting get inverted
-                      {[<<"uc_tools">>],[],Rel} ->
-                          ["$UC_TOOLS", to_directory(Rel)];
-                      {_,_,_} ->
-                          to_directory(D)
-                  end
+          fun(Dir) ->
+                  to_directory(rebase_dir(Rebase, Dir))
           end
      },
     compile_env(Compile, Env).
 
+%% Go from most specific to least specific until there is a match,
+%% otherwise keep old.
+rebase_file(Rebase, {Type,BN,Dir}) ->
+    {Type,BN,rebase_dir(Rebase, Dir)}.
+rebase_dir(_Rebase, []) -> [];
+rebase_dir(Rebase, Dir) ->
+    case maps:find(Dir, Rebase) of
+        {ok, NewDir} ->
+            log:info("rebase: ~999p -> ~999p~n", [Dir, NewDir]),
+            NewDir;
+        error ->
+            %% log:info("no rebase: ~p~n", [Dir]),
+            [hd(Dir) | rebase_dir(Rebase, tl(Dir))]
+    end.
     
 
-%% redo:export_makefile(redo, [{c8,testsuite}]).
-
-export_makefile(Redo, Targets) ->
-    sink:gen_to_list(
-      fun(Sink) -> export_makefile(Redo, Targets, {sink, Sink}) end).
 
 makefile_quote(IOL) ->
     makefile_quote_(binary_to_list(iolist_to_binary(IOL))).
@@ -1225,11 +1221,15 @@ default_script_log({line,Line}) -> log:info("~s~n", [Line]);
 default_script_log(_) -> ok.
 
 
-%% In order to safely project redo.erl rules to Makefiles, we need to
-%% delay the path name flattening operation such that it can later be
-%% filtered to e.g. produce makefiles with configurable path names.
-%% This is done by replacing direct function calls by tagged pairs
-%% interpreted by compile_path/2.
+%% In order export redo.erl rules to e.g. Makefiles, we attempt to
+%% keep the build commands abstract.  I.e. we do not flatten any paths
+%% that go into environment variables.  This is to allow some
+%% post-processing during export.
+%%
+%% Note however that for the current implementation of Makefile
+%% export, we do not rely on variable names, but on symlinks, as those
+%% do not need two levels of variable abstract (Makefile variables and
+%% shell variables).
 
 compile_path(Compile = #{
                root := Root,
