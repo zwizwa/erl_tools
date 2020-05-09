@@ -1,24 +1,26 @@
-A small writeup about Exo.
-
-
 * Introduction
 
 Exo aims to facilitate incremental development with a fast
 edit-to-test cycle for systems where integration testing cannot easily
-be performed without real world external I/O.
+be performed without real world external I/O.  And just to be clear,
+since everyone does web servers these days... I'm not talking about
+I/O in terms of web requests.  The original context for this world is
+embedded systems that interact more directly with the physical world.
+Many of the ideas carry over, but there is the added problem of
+managing heterogeneity.
 
-For such cases, a testing and scaffolding system is usually designed
-together with the system under test.  Exo is a tool library and a set
-of design principles that took shape over time designing such
-scaffolding systems, while taking incremental development and
-deployment serious in situations where bad tooling is typically just
-tolerated.
+In this problem domain, a testing and scaffolding system is usually
+designed together with the system under test.  Exo is a tool library
+and a set of design principles that took shape over time while
+designing such scaffolding systems, and also taking incremental
+development and deployment serious in situations where bad tooling is
+typically just tolerated.
 
 Exo is built primarily on two principles: a declarative build system
 with incremental change propagation, and a set of tools that
 generalize this approach from just dealing with software binaries,
 into a problem space where management of distristributed state becomes
-an essential problem.
+a problem that derves some respect.
 
 Exo takes the distributed, always-on system ideas of Erlang and
 generalizes them to polyglot, heterogeneous systems, and to support a
