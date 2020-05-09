@@ -4,10 +4,10 @@ Exo aims to facilitate incremental development with a fast
 edit-to-test cycle for systems where integration testing cannot easily
 be performed without real world external I/O.  And just to be clear,
 since everyone does web servers these days... I'm not talking about
-I/O in terms of web requests.  The original context for this world is
-embedded systems that interact more directly with the physical world.
-Many of the ideas carry over, but there is the added problem of
-managing heterogeneity.
+I/O in terms of web requests.  The original context for this project
+development of embedded systems that interact more directly with the
+physical world.  This is usually paired with inacessibility and
+heterogeneity of platforms.
 
 In this problem domain, a testing and scaffolding system is usually
 designed together with the system under test.  Exo is a tool library
