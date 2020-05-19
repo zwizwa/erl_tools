@@ -199,11 +199,11 @@ dev_start(#{ tty        := Dev,
                  #{ gdb => Gdb,
                     port => Port })
        end,
-       fun gdbstub_hub:dev_handle/2}).
+       fun ?MODULE:dev_handle/2}).
 
 dev_handle(Msg,State) ->
     %% Tap point
-    log:info("~p~",[{Msg,State}]),
+    %% log:info("~p~n",[{Msg,State}]),
     dev_handle_(Msg,State).
 dev_handle_(Msg={_,dump},State) ->
     obj:handle(Msg, State);
@@ -290,6 +290,12 @@ dev_handle_({send_packet, Packet},
 
 dev_handle_({send_packet, IOList}, State) ->
     dev_handle_({send_packet, iolist_to_binary(IOList)}, State);
+
+dev_handle_({send_u32, U32List}, State) ->
+    %% TAG_U32 format
+    N = length(U32List),
+    IOList = [<<16#FFF5:16, N:16>> | [<<W:32>> || W<-U32List]],
+    dev_handle({send_packet, IOList}, State);
 
 dev_handle_({send_term, Term},
             #{ port := Port } = State) ->
@@ -498,7 +504,7 @@ gdb_loop(State = #{ sock := Sock, log := Log }) ->
     gdb_loop(State).
 
 gdb_dispatch(#{ pid := Pid}, Request) ->
-    obj:call(Pid, {rsp_call, Request}, 6002).
+    obj:call(Pid, {rsp_call, Request}, 16002).
 
 
 %% It might be convenient. But maybe best not expose a naked Erlang

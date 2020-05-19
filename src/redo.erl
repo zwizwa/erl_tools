@@ -40,6 +40,10 @@
 %% 2. File names are not a good abstraction for quantification,
 %%    i.e. to express generic build rules.  Erlang's pattern matching
 %%    is a much better fit for this.
+%%
+%% 3. The system is built as an overlay, where a subset of the rules
+%%    that operate only on files can be exported as Makefiles or
+%%    (TODO) any other build system.
 
 
 %% This is an Erlang implementation of a variant of djb's redo.
@@ -210,7 +214,20 @@ fold_commands(Rules,State,Targets) ->
                       %% PROJECT: Only keep targets that have external
                       %% build scripts.
                       Log = maps:get({log,Target}, Rules, []),
-                      TargetDeps = maps:get({deps, Target}, Rules, []),
+                      TargetDeps0 = maps:get({deps, Target}, Rules, []),
+
+                      %% Remove all absolute paths.  E.g. dependencies
+                      %% discovered by GCC.
+                      TargetDeps =
+                          lists:filter(
+                            fun({_,_,Dir}) ->
+                                    case lists:reverse(Dir) of
+                                        [<<>>|_] -> false;
+                                        _ -> true
+                                    end;
+                               (_) -> true
+                            end,
+                            TargetDeps0),
 
                       S1 = case [C || {run, C} <- Log] of
                                [] ->
@@ -231,14 +248,12 @@ fold_commands(Rules,State,Targets) ->
 %% Generate a Makefile.  A previous attempt extracted variable names,
 %% which quickly became too complicated due to both having to work
 %% with Makefile variable syntax and shell environment variable syntax
-%% and associated quoting.  Instead, we rely on symlinks and relative
-%% paths in the Makefile, and implement any rebasing by substituting
-%% relative paths.
-
+%% and associated quoting.  Instead, we rely only on path substitution
+%% (rebasing), which allows upstream config e.g. through symlinks.
+%%
 %% To make export practical, some more things need to happen: remove
 %% all dependencies on system files.  This can be done heuristically
-%% by removing all absolute paths.  Then also unexpand some rules to
-%% use variables.
+%% by removing all absolute paths.
 
 %% redo:export_makefile(redo, [{c8,testsuite}]).
 
@@ -250,47 +265,54 @@ export_makefile(Redo, Targets, Rebase) ->
 export_makefile(Redo, Targets, Rebase, {sink, Sink}) ->
     Fmt = fun(F,A) -> Sink({data,io_lib:format(F,A)}) end,
 
+    ExportedDeps = maps:to_list(export_deps(Redo, Targets)),
+
     %% Deps :: #{ target() => #{ cmds => cmds(), deps => [target()] } }
     lists:foreach(
       fun({Target,
            #{ cmd_specs := CmdSpecs,
               deps := Deps }}) ->
-              Fmt("\n~s: \\\n", [to_filename(rebase_file(Rebase, Target))]),
+              TargetFile = to_filename(rebase_file(Rebase, Target)),
+              Fmt("\n~s: \\\n", [TargetFile]),
               lists:foreach(
                 fun({Typ,BN,Dir0}) when is_binary(BN) and is_list(Dir0) ->
-                        case lists:reverse(Dir0) of
-                            [<<>>|_] ->
-                                %% Just remove all absolute pathnames.
-                                %% FIXME: Is this correct?
-                                ok;
-                            _ ->
-                                %% Rebase the rest.
-                                Dir = rebase_dir(Rebase, Dir0),
-                                Dep = {Typ,BN,Dir},
-                                Fmt("\t~s \\\n",[to_filename(Dep)])
-                        end;
+                        Dir = rebase_dir(Rebase, Dir0),
+                        Dep = {Typ,BN,Dir},
+                        Fmt("\t~s \\\n",[to_filename(Dep)]);
                    (_) ->
                         ok
                 end,
                 Deps),
-              Fmt("\t:\n",[]),
+              Fmt("\n",[]),
               lists:foreach(
                 fun({bash_with_vars, Env0, Cmd}) ->
                         Env = compile_env_make(Env0, Rebase),
-                        Cmd1 = ["[ -f env.sh ] && . ./env.sh ; \\\n\t", %% Allow extra config
+                        Cmd1 = ["@echo ", TargetFile,                             
+                                " ; if [ -f env.sh ] ; then . ./env.sh ; fi ; \\\n\t", %% Allow extra config
                                 run:with_vars(Env, Cmd," ; \\\n\t")],
                         Fmt("\t~s\n", [makefile_quote(Cmd1)])
                 end,
                 CmdSpecs)
       end,
-      maps:to_list(export_deps(Redo, Targets))),
-    Sink(eof).
+      ExportedDeps),
 
+    Fmt("\n"
+        ".PHONY: clean\n"
+        "clean:\n"
+        "\trm -f",
+        []),
+    lists:foreach(
+      fun({Target, _}) ->
+              Fmt(" \\\n\t\t~s", [to_filename(rebase_file(Rebase, Target))])
+      end,
+      ExportedDeps),
+    Fmt("\n",[]),
+    Sink(eof).
 
 
 compile_env_make(Env, Rebase) ->
     Compile = #{
-      root => "/i/exo", %% FIXME! not: root(Eval),
+      root => "/i/exo/", %% FIXME! not: root(Eval),
       to_filename =>
           fun(File) ->
                   to_filename(rebase_file(Rebase, File))
@@ -310,7 +332,7 @@ rebase_dir(_Rebase, []) -> [];
 rebase_dir(Rebase, Dir) ->
     case maps:find(Dir, Rebase) of
         {ok, NewDir} ->
-            log:info("rebase: ~999p -> ~999p~n", [Dir, NewDir]),
+            %% log:info("rebase: ~999p -> ~999p~n", [Dir, NewDir]),
             NewDir;
         error ->
             %% log:info("no rebase: ~p~n", [Dir]),
@@ -936,6 +958,8 @@ update_value(Target, Deps, Body) ->
             end
     end.
 
+
+
 %% Similar, inputs are also variables.  This brings pure Erlang
 %% functions into the mix.
 update_pure(Target, Deps, PureBody) ->
@@ -1216,8 +1240,17 @@ run_(Eval, {remote_bash, Var, Cmds}, Log) ->
     case rpc:call(Var, ?MODULE, run, [Eval, {bash, Cmds}, Log]) of
         Rv -> Rv
     end.
-             
-default_script_log({line,Line}) -> log:info("~s~n", [Line]);
+   
+
+%% FIXME: This is not a good idea.  The build output can be very
+%% verbose when a cascade error happens, to the point of making the
+%% emacs erlang shell buffer unusable.  So the default is set to not
+%% printing anything.
+
+%% default_script_log({line,Line}) -> log:info("~s~n", [Line]);
+%% default_script_log(_) -> ok.
+
+default_script_log({line,_Line}) -> ok;
 default_script_log(_) -> ok.
 
 
