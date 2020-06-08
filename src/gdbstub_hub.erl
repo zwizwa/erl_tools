@@ -311,7 +311,9 @@ dev_handle_({Pid, {call, Packet}}, State) ->
     {Wait, State1} = wait(Pid, State),
     %% log:info("wait: ~p~n",[{Wait,Pid}]),
     Ack = term_to_binary(Wait),
-    dev_handle_({send_packet, [Packet,size(Ack),Ack]}, State1);
+    Packet1 = [Packet,size(Ack),Ack],
+    %% log:info("Packet1 = ~p~n",[Packet1]),
+    dev_handle_({send_packet, Packet1}, State1);
 
 
 %% For GDB RSP, all {data,_} messages should arrive in the
@@ -408,6 +410,7 @@ default_handle_packet(<<?TAG_INFO:16, Msg/binary>>, State) ->
 
 %% See {call,_} case in dev_handle_/2
 default_handle_packet(<<?TAG_REPLY:16,L,Ack/binary>>=Msg, State) ->
+    %% log:info("TAG_REPLY: ~p~n", [Msg]),
     %% log:info("ack: ~p~n",[Ack]),
     try
         Wait = binary_to_term(Ack, [safe]),
@@ -652,7 +655,12 @@ slip_decode([192|Rest],    Stack) ->
     {ok, list_to_binary(lists:reverse(Stack)), list_to_binary(Rest)};
 slip_decode([219,220|Rest],Stack) -> slip_decode(Rest, [192|Stack]);
 slip_decode([219,221|Rest],Stack) -> slip_decode(Rest, [219|Stack]);
-slip_decode([219,_|_],_)          -> error(slip_decode);
+
+slip_decode([219,_|_]=Msg, Stack) ->
+    %% This seems to happen from time to time: 219,192,...  Buffer overflow?
+    log:info("WARNING: ~p~n", [{slip_decode,Msg}]),
+    slip_decode(tl(Msg), Stack);
+
 slip_decode([219],         _)     -> {more, undefined};
 slip_decode([],            _)     -> {more, undefined};
 slip_decode([Char|Rest],   Stack) -> slip_decode(Rest, [Char|Stack]).

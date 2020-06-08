@@ -42,7 +42,7 @@ handle(Msg, State = #{host := Host}) ->
             %% CmdLine = "exec tail -n0 -f /tmp/messages",
             CmdLine = "exec socat - EXEC:'tail -n0 -f /tmp/messages'",
             Cmd = cmd(#{host => Host}, {ssh, CmdLine}),
-            %% log:info("Cmd = ~s~n", [Cmd]),
+            log:info("Cmd = ~s~n", [Cmd]),
             Opts = [use_stdio, exit_status, binary, {line, 1024}],
             Port = open_port({spawn, Cmd}, Opts),
             maps:put({log,Port}, #{handle => fun ?MODULE:handle_log_reply/2}, State);
@@ -56,10 +56,14 @@ handle(Msg, State = #{host := Host}) ->
                 %% Ack from one-shot commands
                 error ->
                     case {PMsg, maps:find({cmd, Port}, State)} of
-                        {{exit_status, _}, {ok, {Pid, Info}}} ->
+                        {{exit_status, Status}, {ok, {Pid, Info}}} ->
                             %% log:info("done: ~p~n", [{PMsg,Info}]),
                             log:info("done: ~999p~n", [Info]),
-                            obj:reply(Pid, ok),
+                            Rv = case Status of
+                                     0 -> ok;
+                                     _ -> {error, {status, Status}}
+                                 end,
+                            obj:reply(Pid, Rv),
                             State;
                         _ ->
                             log:info("unexpeced port message: ~999p~n", [Msg]),
@@ -68,6 +72,10 @@ handle(Msg, State = #{host := Host}) ->
                 end;
                 
         %% Rsync a tree.  The SrcPath is on the local node.
+
+        %% FIXME: Increase banner timeout?  Or find a way to retry?
+        %% Having trouble on trans-atlantic vpn link...  Now catching
+        %% the error so it doesn't fail silently.
         {Pid, {rsync, SrcPath, DstPath}=Info} ->
             Opts = [use_stdio, exit_status, binary],
             Cmd = cmd(State,{rsync,SrcPath,DstPath}),

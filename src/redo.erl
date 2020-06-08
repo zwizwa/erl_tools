@@ -22,7 +22,7 @@
          no_update/1,
          default_script_log/1,
          save_state/2, merge_state/2, filter_state/2,
-         dump_state/2,
+         dump_state/2, dump_state/1,
          export_deps/2, export_makefile/3,
          test/1, u1/1, u2/1]).
 
@@ -110,7 +110,8 @@ debug(_F,_As) ->
 %% -------- CORE
 
 %% Main entry point.  See test(ex1) below.
-pull(Redo, Products) ->
+pull(Redo, Products0) ->
+    Products = lists:map(fun rename_product/1, Products0),
     with_eval(
       Redo,
       fun(Eval) ->
@@ -127,6 +128,13 @@ pull(Redo, Products) ->
               Log({line,tools:format("pull: ~p",[Rv])}),
               Rv
       end).
+
+%% Interpret strings as filenames and map them to the canonical tuple
+%% representation.
+rename_product(L) when is_list(L) -> from_filename(L);
+rename_product(P) -> P.
+    
+
 
 %% Trigger update of dependent products from external change notification
 push(Redo, Changed, NotChanged) ->
@@ -375,6 +383,8 @@ merge_state(Redo, File) ->
 
 %% Dump entire state of the redo object to a file, for debug.  This
 %% also dumps non-pterms.
+dump_state(Redo) ->
+    obj:call(Redo, state).
 dump_state(Redo, File) ->
     State = obj:call(Redo, state),
     IOL =  io_lib:format("~p~n",[State]),

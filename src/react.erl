@@ -1,3 +1,6 @@
+%% FIXME: This needs review.  The basic idea is ok, but it still
+%% doesn't handle structural changes.
+
 %% Incremental UI rendering ala react can be implemented on top of the
 %% memoizing evaluator by introducing a side effect and modifying the
 %% meaning of change propagation.

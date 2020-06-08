@@ -25,6 +25,11 @@ init(Pid, _PacketProto) ->
     %%log:info("lab_board: ~p~n",[Info]),
     ok.
 
+handle(<<4:4, _:4, _/binary>>=Msg, State) ->
+    _ = Msg,
+    %% log:info("ipv4: ~p bytes~n", [size(Msg)]),
+    State;
+
 handle(<<?TAG_STATUS:16,_Status/binary>>, State) ->
     %% log:info("lab_board: status: ~p~n", [_Status]),
     NbStatus = maps:get(nb_status, State, 0),
@@ -67,8 +72,23 @@ handle({epid_send,Sink,Msg}, State) ->
     end,
     State;
 
+%% Temperature and humidity data
+handle(<<16#FFF30000:32, OK:8, RH:16, T:16, _/binary>>=_Msg, State = #{name := Name}) ->
+    %% log:info("Msg=~p~n",[_Msg]),
+    Parsed = {_Type, _RH1,_T1} = 
+        if RH > 1000 -> {dht11, RH/256,T/256};
+           true      -> {dht22, RH/10,T/10}
+        end,
+    %% log:info("OK=~p, RH=~p, T=~p~n",[OK,_RH1,_T1]),
+    %% Use thermostat log
+    lists:foreach(
+      fun(Pid) -> Pid ! {notify_external, {dht11,Name,{OK,RH,T},Parsed}} end,
+      exo:pids(thermostat)),
+    State;
+
+
 handle(Msg, State) ->
-    log:info("lab_board: passing on: ~p~n",[Msg]),
+    %% log:info("lab_board: passing on: ~p~n",[Msg]),
     gdbstub_hub:default_handle_packet(Msg, State).
 
 
