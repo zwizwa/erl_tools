@@ -192,6 +192,7 @@ var s_op = {
     delete()    { var el = s.pop(); el.parentNode.removeChild(el); },
     render()    { s_app1(render); },
     words()     { var ws = []; for(var w in s_op) { ws.push(w); }; s.push(ws); },
+    pathd()     { var path = s.pop(); path.setAttribute('d',s.pop()); },
     exec()      { exec(s.pop()); },
     tag()       { var t = s.pop(); var val = s.pop(); s.push([t, val]); },
     def()       { var d = s.pop(); s_op[d[0]] = function() { exec(d[1]); }; },
