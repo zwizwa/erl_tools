@@ -23,7 +23,7 @@
          retain/2,
 
          %% Private, needed for reloading.
-         bc_handle/2,
+         bc_init/0, bc_handle/2,
          receive_loop/2,
          periodic_loop/3
 
@@ -115,12 +115,13 @@ pids_send(Msg, Pids) ->
 
 
 %% Broadcaster. FIXME: use gen_event?
+bc_init() ->
+    process_flag(trap_exit, true),
+    #{pids => pids_new()}.
+    
 bc_spawner() ->
     {handler,
-     fun() -> 
-             process_flag(trap_exit, true),
-             #{pids => pids_new()}
-     end,
+     fun serv:bc_init/0,
      fun serv:bc_handle/2}.
 bc_start()  -> start(bc_spawner()).
 bc_up(Name) -> up(Name, bc_spawner()).
@@ -380,12 +381,12 @@ retain_get(DataPid) ->
              
                  
 
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--include("../test/serv.expect").
-expect_test() ->
-    expect:run_form(
-      filename:dirname(?FILE)++"/../test/serv.expect",
-      fun serv_expect/0).
--endif.
+%% -ifdef(TEST).
+%% -include_lib("eunit/include/eunit.hrl").
+%% -include("../test/serv.expect").
+%% expect_test() ->
+%%     expect:run_form(
+%%       filename:dirname(?FILE)++"/../test/serv.expect",
+%%       fun serv_expect/0).
+%% -endif.
 

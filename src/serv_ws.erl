@@ -149,10 +149,9 @@ handle({_,dump} = Msg, State) ->
     obj:handle(Msg, State);
 
 handle(Msg, _State) ->
-    E = {bad_request, Msg},
+    E = {serv_ws_bad_request, Msg},
     log:info("~p~n", [E]),
     exit(E).
-
 
 
 %% Several variants: FIXME: not complete
@@ -219,4 +218,3 @@ xorkey(_,_,[]) -> [];
 xorkey(Mask,N,[B|Bs]) ->
     M = binary:at(Mask, N rem 4),
     [B bxor M | xorkey(Mask, N+1, Bs)].
-    

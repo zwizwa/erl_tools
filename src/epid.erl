@@ -182,7 +182,10 @@ transfer(Src, Dst) ->
 %% The datastructure is optimzed for dispatch.
 dispatch(EventId, Msg, State) ->
     lists:foreach(
-      fun(Epid) -> send(Epid, Msg) end,
+      fun(Epid) ->
+              log:info("epid:dispatch ~p~n", [{Epid,Msg}]),
+              send(Epid, Msg)
+      end,
       subscribers(EventId, State)).
 
 subscribers(EventId, State) ->

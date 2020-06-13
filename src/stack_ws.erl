@@ -98,6 +98,14 @@ handle_({def, Name, Program}, State) ->
     JSON = jsone:encode(Compiled1),
     serv_ws:handle({send, JSON}, State);
 
+%% Note that we have a lot of protocols arriving at the same handler.
+%% It seems unwise to add another catch-all delegate in serv_ws.erl,
+%% so we require the routing to happen before we delegate to serv_ws.
+%% For now this is only used for epids, which is easy to tap.
+handle_({epid_send,_,_}=Msg, State) ->
+    EpidHandle = maps:get(epid_handle, State),
+    EpidHandle(Msg, State);
+
 handle_(Msg, State) ->
     %% log:info("serv_ws:handle: ~p~n", [Msg]),
     serv_ws:handle(Msg,State).
