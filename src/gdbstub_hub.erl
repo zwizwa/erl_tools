@@ -7,6 +7,7 @@
          ping/1,
          call/3,
          parse_syslog_ttyACM/1,
+         tag_u32/1,
 
          %% Internal, for reloads
          ignore/2, print_etf/2,
@@ -293,9 +294,8 @@ dev_handle_({send_packet, IOList}, State) ->
 
 dev_handle_({send_u32, U32List}, State) ->
     %% TAG_U32 format
-    N = length(U32List),
-    IOList = [<<16#FFF5:16, N:16>> | [<<W:32>> || W<-U32List]],
-    dev_handle({send_packet, IOList}, State);
+    dev_handle({send_packet, tag_u32(U32List)}, State);
+
 
 dev_handle_({send_term, Term},
             #{ port := Port } = State) ->
@@ -306,14 +306,21 @@ dev_handle_({send_term, Term},
     State;
 
 
-%% Generic RPC call.   See ?TAG_REPLY case below.
+%% Generic RPC call.   See also ?TAG_REPLY case below.
+%%
+%% This encodes a continuation (here represented by just the pid for
+%% now) and appends it to the message.  The other end expects the
+%% encoded continuation and will echo it back in a TAG_REPLY message.
+%% Then default_handle_packet/2 will handle the generic TAG_REPLY, and
+%% send the response via obj:reply to the Pid.
+
 dev_handle_({Pid, {call, Packet}}, State) ->
-    {Wait, State1} = wait(Pid, State),
-    %% log:info("wait: ~p~n",[{Wait,Pid}]),
-    Ack = term_to_binary(Wait),
-    Packet1 = [Packet,size(Ack),Ack],
-    %% log:info("Packet1 = ~p~n",[Packet1]),
-    dev_handle_({send_packet, Packet1}, State1);
+    {Continuation, State1} = pid_to_continuation(Pid, State),
+    dev_handle_({send_packet, [Packet, Continuation]}, State1);
+
+dev_handle_({Pid, {call_u32, U32List}}, State) ->
+    {Continuation, State1} = pid_to_continuation(Pid, State),
+    dev_handle_({send_packet, [tag_u32(U32List), Continuation]}, State1);
 
 
 %% For GDB RSP, all {data,_} messages should arrive in the
@@ -347,6 +354,16 @@ dev_handle_(Msg, #{ forward := Forward } = State) ->
 
 ignore(_Msg, State) ->
     State.
+
+%% This is stateful.  See also ?TAG_REPLY where the registered pid is
+%% removed from State.
+pid_to_continuation(Pid, State) ->
+    {Wait, State1} = wait(Pid, State),
+    %% log:info("wait: ~p~n",[{Wait,Pid}]),
+    Ack = term_to_binary(Wait),
+    %% log:info("Packet1 = ~p~n",[Packet1]),
+    {[size(Ack),Ack], State1}.
+
 
 %% Because port is in raw mode, we don't have proper segmentation.  Do
 %% that here.  DecodePacket use the API of erlang:decode_packet/3.
@@ -463,6 +480,16 @@ decode_info(Msg, State = #{ line_buf := Buf }) ->
         {more, _} ->
             maps:put(line_buf, Msg1, State)
     end.
+
+
+%% One of the ad-hoc protocols that is easy to decode on the uc for
+%% low level code.
+%%tag_u32({U32List,BinaryTail}) ->
+%%    [tag_u32(U32List), BinaryTail];
+tag_u32(U32List) ->
+    N = length(U32List),
+    [<<16#FFF5:16, N:16>> | [<<W:32>> || W<-U32List]].
+
     
 
 
