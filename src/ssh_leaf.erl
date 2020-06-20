@@ -40,7 +40,12 @@ handle(Msg, State = #{host := Host}) ->
             log:info("connecting~n"),
             %% Note: This will NOT close when stdin closes!
             %% CmdLine = "exec tail -n0 -f /tmp/messages",
-            CmdLine = "exec socat - EXEC:'tail -n0 -f /tmp/messages'",
+
+            %% FIXME: tail is not a good solution due to log parsing.
+            %% Use the klog tool from uc_tools
+            %% CmdLine = "exec socat - EXEC:'tail -n0 -f /tmp/messages'",
+            %% FIXME: wrap this in a script. it also needs "killall klogd"
+            CmdLine = "exec socat - EXEC:/i/exo/constell8/src/tools/klog.dynamic.klstr.elf",
             Cmd = cmd(#{host => Host}, {ssh, CmdLine}),
             log:info("Cmd = ~s~n", [Cmd]),
             Opts = [use_stdio, exit_status, binary, {line, 1024}],
