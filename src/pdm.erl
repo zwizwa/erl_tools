@@ -1,15 +1,58 @@
 -module(pdm).
--export([init/2, handle/2, measure/2, measure_range/4, find_freq/2]).
+-export([init/2, handle/2, measure/2, measure_range/4, find_freq/2, octaves/3, note/1, test/1]).
 
 %% Driver for uc_tools/gdb/pdm.c
 init(Pid, _PacketProto) ->
     log:info("pdm:init/2~n"),
     Pid ! {set_forward, fun ?MODULE:handle/2},
+    Pid ! {set_table,
+           [{32.993691763118974,0.519800711025074},
+            {44.99687329722091,0.5035198183532176},
+            {56.99146889926967,0.4866359404918295},
+            {69.00104275427175,0.46926520840512365},
+            {81.0276414746553,0.4517417130595159},
+            {92.99664004886864,0.43381246872559903},
+            {105.03970518303649,0.4151599177154455},
+            {116.99352651532479,0.39536910814332427}]},
     ok.
 
 %% Be careful for cycles here.
 super(Msg,State) ->
     gdbstub_hub:dev_handle(Msg, State).
+
+handle({set_table, Table}, State) ->
+    maps:put(table, Table, State);
+
+handle({note, Note}, State = #{ table := Table }) ->
+    %% log:info("note ~p~n", [Note]),
+    Setpoint = interpolate(Note, Table),
+    handle({setpoint, 0, Setpoint}, State);
+
+handle(stop, State) ->
+    maps:remove(loop, State);
+
+handle(start, State) ->
+    case maps:find(loop, State) of
+        error ->
+            State;
+        {ok, 
+         #{ sequence := [First|Rest],
+            base := Base,
+            time := Time} = Loop} ->
+            self() ! {note, Base + First},
+            timer:send_after(Time, start),
+            maps:put(loop,
+                     maps:put(sequence,
+                              Rest ++ [First],
+                              Loop),
+                     State)
+    end;
+handle({loop, Base, Sequence, Time}, State) ->
+    maps:put(loop,
+             #{ sequence => Sequence,
+                base => Base,
+                time => Time },
+             State);
 
 handle(info, State) ->
     super({send_u32,[103]}, State);
@@ -83,7 +126,9 @@ measure(Pid,LogMax) ->
     Div = 72000000.0 * (1 bsl FracBits),
     
     case obj:call(Pid, {measure,LogMax}, 3000) of
-        <<Period:32,_Count:32>> -> Div / Period
+        <<Period:32,_Count:32>> ->
+            Rv = Div / Period,
+            Rv
     end.
 
 
@@ -103,13 +148,19 @@ measure_range(Pid, Start, Inc, N) ->
       end,
       lists:seq(0,N-1)).
 
+%% It doesn't matter much which logarithm we use for the root finder,
+%% so use fractional midi notes, since that is necessary anyway.  That
+%% maps A4, Note=69 to 440Hz, with 12 steps per octave.
+note(X) ->
+    69.0 + 12.0 * math:log(X / 440.0) / math:log(2).
+
+
 
 %% Find the set point that gives a particular frequency using
 %% successive linear approximation of the setpoint -> log(freq) curve.
 %%
 %% pdm:find_freq(pdm, 110, 2).
 
-ln(X) -> math:log(X).
 
 
 %% Two or three iterations seems to be enough for most frequencies.
@@ -130,13 +181,15 @@ find_freq(Pid, Hz, LogMax, Inits, N) ->
                 %% Throw away transition
                 _ = measure(Pid, LogMax),
                 M = measure(Pid, LogMax),
-                {Frac, ln(M), M}
+                Rv = {Frac, note(M), M},
+                log:info("~p~n", [Rv]),
+                Rv
         end,
     [XYA,XYB] = lists:map(Measure, Inits),
-    Approx = find_freq_it(Pid, Measure, ln(Hz), XYA, XYB, N),
+    Approx = find_freq_it(Pid, Measure, note(Hz), XYA, XYB, N),
     {XE,YE,EYE} = lists:last(Approx),
     #{setpoint => XE, 
-      log_hz => YE,
+      note => YE,
       hz => EYE, 
       approx => Approx}.
     
@@ -148,5 +201,65 @@ find_freq_it(Pid, Measure, YT, {XA,YA,_}=XYA, {XB,YB,_}=XYB, N) ->
     [XYA | find_freq_it(Pid, Measure, YT, XYB, XYC, N-1)].
     
     
+octaves(_, _, 0) -> [];
+octaves(Pid, Hz, N) ->
+    #{setpoint := Setpoint, note := Note} = find_freq(Pid, Hz),
+    [{Note, Setpoint} | octaves(Pid, Hz*2, N-1)].
 
-    
+interpolate(Note, {NA,SA}, {NB,SB}) ->
+    Setpoint = SA + (Note-NA) * ((SB-SA)/(NB-NA)),
+    Setpoint.
+
+interpolate(Note, [A,{NB,_}=B|Rest]) ->
+    case {(Note < NB),Rest} of
+        {true,_} ->
+            interpolate(Note, A, B);
+        {false,[]} ->
+            interpolate(Note, A, B);
+        {false,_} ->
+            interpolate(Note, [B|Rest])
+    end.
+                    
+                    
+            
+            
+
+
+test(table_init) ->
+    octaves(pdm, 55, 8);
+test(table) ->
+    %% output of test(table_init).
+    %% Maps midi notes to setpoints.
+    [{32.993691763118974,0.519800711025074},
+     {44.99687329722091,0.5035198183532176},
+     {56.99146889926967,0.4866359404918295},
+     {69.00104275427175,0.46926520840512365},
+     {81.0276414746553,0.4517417130595159},
+     {92.99664004886864,0.43381246872559903},
+     {105.03970518303649,0.4151599177154455},
+     {116.99352651532479,0.39536910814332427}];
+
+test({note_setpoint,Note}) ->
+    interpolate(Note, test(table));
+
+test({note,Note}) ->
+    pdm ! {setpoint, 0, test({note_setpoint,Note})};
+test({seq,Base,Seq,Ms}) ->
+    lists:foreach(
+      fun(N) ->
+              test({note, Base+N}),
+              timer:sleep(Ms)
+      end,
+      Seq);
+
+test({loop,Base,Seq,Ms,N}) ->
+    lists:foreach(
+      fun(_I) ->
+         test({seq,Base,Seq,Ms})
+      end,
+      lists:seq(1,N));
+
+%% FIXME: Put a sequencer in the object with start/stop.
+test(loop) ->
+    test({loop, 37, [0,7,5,11,12,1,7,9], 200, 8}).
+
