@@ -21,6 +21,7 @@
          need_val/2, find_val/2, put_val/3,
          no_update/1,
          default_script_log/1,
+         default_log_error/1,
          save_state/2, merge_state/2, filter_state/2,
          dump_state/2, dump_state/1,
          export_deps/2, export_makefile/3,
@@ -458,6 +459,10 @@ start_eval(Spec) when is_map(Spec) ->
 %% true    object has been rebuilt, output propagation needed
 %% false   no change, no propagation needed
 handle({CallPid, {eval, Product}}, State) ->
+    %% Error logging is parameterized.  Reason is that error messages
+    %% from parallell builds can be very confusing, so it helps to
+    %% isolate them.
+
     case maps:find({phase, Product}, State) of
         {ok, {changed, Changed}} ->
             %% Already evaluated as change/nochange in this evaluation
@@ -513,8 +518,8 @@ handle({CallPid, {eval, Product}}, State) ->
                     %% Don't bring down redo when the update function
                     %% crashes.  Print a warning instead.  Solve this
                     %% properly later.
-                    log:info("WARNING: UpdateFun failed:~n~p:~n~p~n~p~n", 
-                             [Product, {C,E}, erlang:get_stacktrace()]),
+                    ST = erlang:get_stacktrace(),
+                    log_error(State, {error, Product, eval, {C, E, ST}}),
                     maps:put({phase, Product}, {changed, error}, State),
                     obj:reply(CallPid, error),
                     State
@@ -571,6 +576,10 @@ handle({worker_done, Product, PhaseUpdate}=Msg, State0) ->
     end;
 
 
+%% Error message coming from worker
+handle({log_error, ErrorInfo}, State) ->
+    log_error(State, ErrorInfo),
+    State;
 
 %% Similarly, other metadata can be attached.
 
@@ -828,8 +837,10 @@ worker(Eval, Product, Update, OldDeps) ->
                         {Ch, obj:call(Eval, worker_deps)}
                     catch C:E ->
                             ST = erlang:get_stacktrace(),
-                            log:info("WARNING: update failed:~n~p~n~p~n", 
-                                     [{C,E},ST]),
+                            %% We're not running in the handler, so
+                            %% this is sent onward to be handled
+                            %% elsewhere.
+                            Eval ! {log_error, {error, Product, worker, {C, E, ST}}},
                             {error,[]}
                     end,
 
@@ -1262,6 +1273,22 @@ run_(Eval, {remote_bash, Var, Cmds}, Log) ->
 
 default_script_log({line,_Line}) -> ok;
 default_script_log(_) -> ok.
+
+
+default_log_error({error, Product, Site, {_C,_E,_ST}=Report}) ->
+    log:info("ERROR_LOG: ~p:~p:~n~p",
+             [Product, Site, Report]).
+
+%% Note there are currently two sites that can generate an error, the worker, and the
+
+log_error(State, Error) ->
+    LogError =
+        maps:get(
+          log_error,
+          State,
+          fun ?MODULE:default_log_error/1),
+    LogError(Error).
+
 
 
 %% In order export redo.erl rules to e.g. Makefiles, we attempt to

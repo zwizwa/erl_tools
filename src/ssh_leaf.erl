@@ -93,7 +93,7 @@ handle(Msg, State = #{host := Host}) ->
         {Pid, {mkdirp, Dir}=Info} ->
             Opts = [use_stdio, exit_status, binary],
             Cmd = cmd(State,{mkdirp,Dir}),
-            %% log:info("Cmd=~s",[Cmd]),
+            log:info("Cmd=~s~n",[Cmd]),
             Port = open_port({spawn, Cmd}, Opts),
             maps:put({cmd,Port}, {Pid, Info}, State);
 
@@ -152,7 +152,9 @@ handle_log_reply(Msg={Port, PMsg}, State = #{host := Host}) ->
 %% FIXME: This needs to handle logrotate.
 
 
-
+%% Note: launching a number of parallel connections to a small Linux
+%% host is usually not a great idea.  Increase the connection timeout
+%% in .ssh/config
 
 %% Command formatter
 cmd(#{host := Host}, {ssh, Cmd}) ->
