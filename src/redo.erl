@@ -558,7 +558,6 @@ handle({Pid, worker_deps}, State) ->
 %% Insert update computed by worker and notify waiters.
 handle({worker_done, Product, PhaseUpdate}=Msg, State0) ->
     debug("worker_done: ~p~n", [{Product,PhaseUpdate}]),
-
     %% Update reverse table if deps changed.
     State = 
         update_reverse_deps(
@@ -815,15 +814,25 @@ worker(Eval, Product, Update, OldDeps) ->
     %% need/2 will cause parallel eval of the dependencies.
     Affected =
         case OldDeps of
-            [] -> true; %% First run or polling
-            _  -> need(Eval, OldDeps)
+            [] ->
+                true; %% First run or polling
+            _  ->
+                need_or_error(Eval, OldDeps)
         end,
 
     debug("~p: need update: ~p~n", [Product, Affected]),
     %% It's simplest to compute the state update here.
     PhaseUpdate =
         case Affected of
-            true ->
+            false ->
+                %% Only skip if we are sure that no rebuild is
+                %% necessary.
+                #{ {phase, Product} => {changed, Affected} };
+            _ ->
+                %% When changed we need to re-run the rule.  On error
+                %% we do the same, in case the dependencies that
+                %% errored out is no longer needed.
+                %%
                 %% Dont crash the daemon in the common case that a
                 %% build rule has a runtime or type error.  Propagate
                 %% 'error' instead.
@@ -831,13 +840,22 @@ worker(Eval, Product, Update, OldDeps) ->
                     try
                         %% app/2 allows for "reloadable closures".
                         Ch = app(Update,[Eval]),
+                        Wd = obj:call(Eval, worker_deps),
                         case Ch of
-                            false -> ok;
-                            true  -> log:info("changed~n");
-                            error -> log:info("error~n");
-                            _ -> throw({bad_update_rv, Update, Ch})
-                        end,
-                        {Ch, obj:call(Eval, worker_deps)}
+                            false ->
+                                {false, Wd};
+                            true  -> 
+                                log:info("changed~n"),
+                                {true, Wd};
+                            error ->
+                                log:info("error~n"),
+                                %% Erase deps on failure.  We don't
+                                %% know what went wrong, so make sure
+                                %% it re-runs next time.
+                                {error, []};  
+                            _ ->
+                                throw({bad_update_retval, Update, Ch})
+                        end
                     catch C:E ->
                             ST = erlang:get_stacktrace(),
                             %% We're not running in the handler, so
@@ -871,11 +889,7 @@ worker(Eval, Product, Update, OldDeps) ->
                         %% _ = need(Eval, NewDeps), %% FIXME: This is no longer necessary
                         #{{phase, Product} => {changed, Changed},
                           {deps,  Product} => NewDeps}
-                end;
-            %% false, error
-            _ -> 
-                #{ {phase, Product} => {changed, Affected} }
-                
+                end
                 
         end,
     Eval ! {worker_done, Product, PhaseUpdate},
@@ -893,11 +907,24 @@ any_changed(ChangeList) ->
     end.
 
 %% Also called "ifchange".
+
+%% Two behaviors are necessary.  need/2 is called from inside rules,
+%% and will have to abort the rule when one of the deps error out.
 need(Eval, Deps) ->
+    case need_or_error(Eval, Deps) of
+        error -> throw(need_fail);
+        Other -> Other
+    end.
+%% This variant is for internal rule only, and will skip building
+%% altogether if one of the previous deps produced an error.
+need_or_error(Eval, Deps) ->
     Prod2Changed = changed(Eval, Deps),
     Changed = any_changed(maps:values(Prod2Changed)),
     debug("need: ~p~n",[{Changed,Prod2Changed}]),
     Changed.
+
+             
+            
 
 %% Same as need, but give more detailed information.  Can be used for
 %% smart update functions.

@@ -109,7 +109,7 @@ hub_handle({up, Pid}, State) when is_pid(Pid) ->
     State;
 
 hub_handle({'DOWN',_,_,Pid,_}=_Msg, State) ->
-    log:info("~p~n", [_Msg]),
+    log:info("~999p~n", [_Msg]),
     hub_remove_pid(Pid, State);
 
 hub_handle({'EXIT',_Pid,__Reason}=_Msg,State) ->
