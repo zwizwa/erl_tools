@@ -122,6 +122,13 @@ hub_handle({'EXIT',_Pid,__Reason}=_Msg,State) ->
 hub_handle({Pid, {dev_pid, ID}}, State) ->
     obj:reply(Pid, maps:find(ID, State)),
     State;
+
+%% Delegate to the task_queue mixin.
+hub_handle(Msg={_Pid,{task, _}}, State) -> task_queue:handle(Msg, State);
+hub_handle(Msg=task_next,        State) -> task_queue:handle(Msg, State);
+hub_handle(Msg={task_done,_Rv},  State) -> task_queue:handle(Msg, State);
+
+
                           
 hub_handle(Msg, State) ->
     obj:handle(Msg, State).

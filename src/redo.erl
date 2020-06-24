@@ -1,5 +1,5 @@
 -module(redo).
--export([pull/2, get/2, with_eval/2,
+-export([pull/1, pull/2, get/2, with_eval/2,
          make_var/1, make_var/2, make_var/3,
          push/3, push/2,
          start_link/1, handle_outer/2, handle/2,
@@ -111,6 +111,9 @@ debug(_F,_As) ->
 %% -------- CORE
 
 %% Main entry point.  See test(ex1) below.
+pull(Products) ->
+    pull(redo, Products).
+
 pull(Redo, Products0) ->
     Products = lists:map(fun rename_product/1, Products0),
     with_eval(
@@ -840,7 +843,7 @@ worker(Eval, Product, Update, OldDeps) ->
                             %% We're not running in the handler, so
                             %% this is sent onward to be handled
                             %% elsewhere.
-                            Eval ! {log_error, {error, Product, worker, {C, E, ST}}},
+                            Eval ! {log_error, {error, Product, {worker,self()}, {C, E, ST}}},
                             {error,[]}
                     end,
 

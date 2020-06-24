@@ -23,6 +23,20 @@ super(Msg,State) ->
 handle({set_table, Table}, State) ->
     maps:put(table, Table, State);
 
+%% resistor
+handle(calibrate1, State) ->
+    handle({calibrate, [0.49, 0.51], 55, 8}, State);
+
+%% diode
+handle(calibrate2, State) ->
+    handle({calibrate, [0.4, 0.42], 55, 8}, State);
+
+handle({calibrate, Init, Hz, N}, State) ->
+    Self = self(),
+    spawn_link(
+      fun() -> Self ! {set_table, octaves(Self, Init, Hz, N)} end),
+    State;
+
 handle({note, Note}, State = #{ table := Table }) ->
     %% log:info("note ~p~n", [Note]),
     Setpoint = interpolate(Note, Table),
@@ -53,6 +67,9 @@ handle({loop, Base, Sequence, Time}, State) ->
                 base => Base,
                 time => Time },
              State);
+
+handle(loop, State) ->
+    handle({loop, 37, [0,7,5,11,12,1,7,9], 200}, State);
 
 handle(info, State) ->
     super({send_u32,[103]}, State);
@@ -169,8 +186,10 @@ note(X) ->
 %% time out.  Pick them very close to the mid range of the converter.
 
 find_freq(Pid, Hz) ->
+    find_freq(Pid, Hz, [0.49, 0.51]).
+
+find_freq(Pid, Hz, Inits) ->
     N = 4,
-    Inits = [0.49, 0.51],
     LogMax = 24, %% 0.25 sec
     find_freq(Pid, Hz, LogMax, Inits, N).
 
@@ -200,11 +219,14 @@ find_freq_it(Pid, Measure, YT, {XA,YA,_}=XYA, {XB,YB,_}=XYB, N) ->
     XYC = Measure(XC),
     [XYA | find_freq_it(Pid, Measure, YT, XYB, XYC, N-1)].
     
-    
-octaves(_, _, 0) -> [];
+
 octaves(Pid, Hz, N) ->
-    #{setpoint := Setpoint, note := Note} = find_freq(Pid, Hz),
-    [{Note, Setpoint} | octaves(Pid, Hz*2, N-1)].
+    octaves(Pid, [0.49,0.51], Hz, N).
+    
+octaves(_, _, _, 0) -> [];
+octaves(Pid, Init, Hz, N) ->
+    #{setpoint := Setpoint, note := Note} = find_freq(Pid, Hz, Init),
+    [{Note, Setpoint} | octaves(Pid, Init, Hz*2, N-1)].
 
 interpolate(Note, {NA,SA}, {NB,SB}) ->
     Setpoint = SA + (Note-NA) * ((SB-SA)/(NB-NA)),
