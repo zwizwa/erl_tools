@@ -18,7 +18,7 @@
          run/2, run/3,
          gcc_deps/1, need_gcc_deps/2,
          import/1,
-         need_val/2, find_val/2, put_val/3,
+         need_val/2, need_vals/2, find_val/2, put_val/3,
          no_update/1,
          default_script_log/1,
          default_log_error/1,
@@ -114,7 +114,7 @@ debug(_F,_As) ->
 pull(Products) ->
     pull(redo, Products).
 
-pull(Redo, Products0) ->
+pull(Redo, Products0) when is_list(Products0) ->
     Products = lists:map(fun rename_product/1, Products0),
     with_eval(
       Redo,
@@ -908,15 +908,16 @@ any_changed(ChangeList) ->
 
 %% Also called "ifchange".
 
-%% Two behaviors are necessary.  need/2 is called from inside rules,
-%% and will have to abort the rule when one of the deps error out.
+%% Two behaviors are necessary.  need/2 is called from inside user
+%% rules, and will have to abort the rule when one of the deps error
+%% out.
 need(Eval, Deps) ->
     case need_or_error(Eval, Deps) of
         error -> throw(need_fail);
         Other -> Other
     end.
-%% This variant is for internal rule only, and will skip building
-%% altogether if one of the previous deps produced an error.
+%% This variant is for internal rule only, executed before evaluating
+%% an update rule.
 need_or_error(Eval, Deps) ->
     Prod2Changed = changed(Eval, Deps),
     Changed = any_changed(maps:values(Prod2Changed)),
@@ -959,6 +960,12 @@ need_val(Eval, Tag) ->
         error -> throw({need_val_error, Tag});
         _ -> get_val(Eval, Tag)
     end.
+need_vals(Eval, Tags) ->
+    case need(Eval, Tags) of
+        error -> throw({need_val_error, Tags});
+        _ -> [get_val(Eval, Tag) || Tag <- Tags]
+    end.
+
 put_val(Eval, Tag, Val) ->
     %% log:info("put_val ~p=~p~n", [Tag, Val]),
     obj:call(Eval, {put_val,Tag,Val}).
