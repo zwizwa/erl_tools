@@ -69,7 +69,7 @@ handle({loop, Base, Sequence, Time}, State) ->
              State);
 
 handle(loop, State) ->
-    handle({loop, 37, [0,7,5,11,12,1,7,9], 200}, State);
+    handle({loop, 37, [1,3,1,11,9,1,3,3-11], 200}, State);
 
 handle(info, State) ->
     super({send_u32,[103]}, State);
@@ -82,7 +82,18 @@ handle({setpoint, Channel, FloatVal}, State) ->
             IntVal < 0 -> 0;
             true  -> IntVal
         end,
-    super({send_u32,[101,Channel,Clipped]}, State);
+    Reduced = Clipped band 16#FFFFFFFF,
+    State1 = maps:put({setpoint, Channel}, FloatVal, State),
+
+    log:info("~8.16.0B~n",[Reduced]),
+
+    super({send_u32,[101,Channel,Reduced]}, State1);
+
+handle({setpoint_rel, Channel, RelVal}, State) ->
+    AbsVal = RelVal + maps:get({setpoint,Channel}, State, 0.5),
+    State1 = maps:put({setpoint,Channel}, AbsVal, State),
+    super({setpoint, Channel, AbsVal}, State1);
+    
 
 handle({epid_send,Dst,Data}=Msg, State) ->
     case Dst of
@@ -118,12 +129,17 @@ handle(Msg, State) ->
 
 
 midi_cc(P,V,State) ->
-    log:info("~p~n",[{P,V}]),
     case P of
         22 ->
             Frac = 0.5 - 0.0019 * (V - 64.0),
+            log:info("0: ~p~n",[{P,V,Frac}]),
             handle({setpoint, 0, Frac}, State);
+        21 ->
+            Frac = 0.43 - 0.0005 * (V - 64.0),
+            log:info("1: ~p~n",[{P,V,Frac}]),
+            handle({setpoint, 1, Frac}, State);
         _ ->
+            log:info("~p~n",[{P,V}]),
             ok
     end,
     State.
