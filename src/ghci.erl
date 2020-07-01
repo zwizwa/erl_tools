@@ -73,6 +73,10 @@ start_link(#{ ghci_cmd := Cmd, module := Module } = Config) ->
         end,
         fun ?MODULE:handle/2})}.
 
+handle(clear, State) ->
+    LogBuf = maps:get(log_buf, State, fun log_buf/1),
+    LogBuf(clear),  %% FIXME: this seems to have no effect with exo config
+    State;
 
 handle({cmds, Cmds}, #{ port := Port } = State) ->
     port_command(Port, [[Cmd, "\n"] || Cmd <- Cmds]),
@@ -99,7 +103,7 @@ handle({run,Module,Function,Arg,SyncString}, State0 = #{module := CurrentModule}
         end,
     log:info("run: ~p~n", [{Module,Function}]),
     LogBuf = maps:get(log_buf, State, fun log_buf/1),
-    LogBuf(clear),
+    LogBuf(clear),  %% FIXME: this seems to have no effect with exo config
     handle(
       {cmds,
        [":reload",

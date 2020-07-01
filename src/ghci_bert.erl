@@ -1,5 +1,6 @@
-%% Wrappers for running a BERT server inside ghci, with restarts.
-%% The BERT server responds to control:stop() to fall back into the ghci prompt.
+%% Wrappers for running a BERT server inside ghci, with code reload
+%% and server restart.  The BERT server responds to control:stop() to
+%% fall back into the ghci prompt.
 
 %% FIXME: Remove hardcoded bits.
 
@@ -9,17 +10,20 @@
 
 %% Pid is a ghci wrapper process from ghci.erl
 reload(Pid) ->
-    Host = "localhost",
-    Port = 7890, 
+    #{ tcp_host := Host,
+       tcp_port := Port } = obj:dump(Pid),
     Call =
         fun(M,F,A) ->
                 bert_rpc:call(Host,Port,M,F,A,1000)
         end,
-    %% Enqueue before stopping.
+    %% Explicit clear.  Only the rpc mechanism performs implicit
+    %% clear, and we're not using that beacause "start" will block.
+    Pid ! clear,
+    %% Enqueue before stopping.  If reload fails, start will be undefined.
     Pid ! {cmds, [":reload","start"]},
     Call(control,stop,[]),
     %% Make sure it is up.
-    case wait_bert_up(300, Call) of
+    case wait_bert_up(20, Call) of
         ok -> {ok,{Host,Port}};
         E -> E
     end.
