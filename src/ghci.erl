@@ -1,3 +1,13 @@
+%% FIXME:
+
+%% Special case ExoBERT. Later bootstrap todo:
+%%
+%% - start ghci
+%% - start loop
+%% - use bert rpc to get pid
+%% - save pid for later control
+
+
 %% Wrapper for ghci.
 %% See also ghcid.erl
 
@@ -33,6 +43,13 @@ start_link(#{ ghci_cmd := Cmd, module := Module } = Config) ->
      serv:start(
        {handler,
         fun() ->
+                %% After initial load, send an optional initialization
+                %% message, e.g. to start a service inside ghci.
+                case maps:find(init_msg, Config) of
+                    error -> ok;
+                    {ok, Msg} -> self() ! Msg
+                end,
+
                 %% It is assumed a test module is loaded at all times.
                 %% The test itself doesn't need to run at startup.
                 handle(
@@ -55,9 +72,14 @@ handle({load, Module}, State) ->
 
 %% This is very ad-hoc, but we do our best to:
 %% - Ensure the correct module is loaded
-%% - Ensure an ack that the caller can use to sync or timeout on.
+%% - Ensure an ack that the caller can use to sync on
 %% This way it is still possible to have multiple calls in flight.
-handle({run,Module,Function,Arg,AckString}, State0 = #{module := CurrentModule}) ->
+%%
+%% Note that the sync is just an empty event.  To determine success
+%% programmatically, a side effect needs to be used, e.g. the
+%% existence of a file.
+
+handle({run,Module,Function,Arg,SyncString}, State0 = #{module := CurrentModule}) ->
     State =
         case Module == CurrentModule of
             true  -> State0;
@@ -70,14 +92,17 @@ handle({run,Module,Function,Arg,AckString}, State0 = #{module := CurrentModule})
       {cmds,
        [":reload",
         tools:format(
-          "do ~s.~s ~s; Prelude.putStrLn \"\\n~s\"",
-          [Module, Function, Arg, AckString])]},
+          "~s.~s ~s",
+          [Module, Function, Arg]),
+        tools:format(
+          "Prelude.putStrLn \"\\n~s\"",
+          [SyncString])]},
       State);
 
 %% Run with Erlang continuation encoded in the ack string.
 handle({run_cont,Module,Function,Arg,Cont}, State) ->
-    AckString = [$#, tools:hex(erlang:term_to_binary(Cont))],
-    handle({run,Module,Function,Arg,AckString}, State);
+    SyncString = [$#, tools:hex(erlang:term_to_binary(Cont))],
+    handle({run,Module,Function,Arg,SyncString}, State);
 
 %% Data coming from ghci gets chopped into lines and passed to a
 %% log_buf.  Mostly modeled after emacs buffer: supports append lines
@@ -151,3 +176,23 @@ call(Ghci, Module, Function, Arg, TimeOut) ->
     Ref = erlang:make_ref(),
     Ghci ! {run_cont, Module, Function, Arg, fun() -> Pid ! Ref end},
     receive Ref -> ok after TimeOut -> {error, timeout} end.
+
+
+
+
+
+
+
+%% Reload daemon
+%%
+%% Use this to bootstrap a service architecture with a proper
+%% protocol.  I had something like that set up before, based on BERT.
+%% But it did not mesh well with ghcid.  Basically, this does not want
+%% to stop, and spawns threads etc...:
+%%
+%% https://hackage.haskell.org/package/bert-1.2.2.5/docs/Network-BERT-Server.html
+%%
+%% I actually feel rather stuck with that.  What I want is something
+%% that is just listening on stdio.
+
+
