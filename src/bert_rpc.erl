@@ -1,5 +1,5 @@
 -module(bert_rpc).
--export([start_link/1, handle/2, call/5]).
+-export([start_link/1, handle/2, call/5, call/6]).
 
 %% Ad-hoc tools for interacting with BERT RPC servers.
 %% Notes:
@@ -78,27 +78,22 @@ connect(State=#{spec := {Host,Port}}, Tries) ->
 
 
 %% Perform just a call
-call(Host,Port,M,F,Args) when is_atom(M) and is_atom(F) ->
-    try
-        {ok, Sock} = 
-            gen_tcp:connect(
-              Host, Port,
-              [binary, {packet, 4}, {active, false}]),
-        ok = gen_tcp:send(
-               Sock, 
-               term_to_binary(
-                 {call,
-                  M,
-                  F,
-                  lists:map(
-                    fun erlang:list_to_binary/1,
-                    Args)})),
-        Resp = gen_tcp:recv(Sock, 0, 3000),
-        %% Close before parsing.
-        ok = gen_tcp:close(Sock),
-        {ok, Bin} = Resp,
-        {reply, Rv} = binary_to_term(Bin),
-        {ok, Rv}
-    catch C:E ->
-            {error,{C,E}}
+call(Host,Port,M,F,A) ->
+    call(Host,Port,M,F,A,3000).
+call(Host,Port,M,F,A,Timeout) when is_atom(M) and is_atom(F) ->
+    case 
+        gen_tcp:connect(
+          Host, Port,
+          [binary, {packet, 4}, {active, false}]) of
+        {ok, Sock} -> 
+            ok = gen_tcp:send(
+                   Sock, term_to_binary({call,M,F,A})),
+            Resp = gen_tcp:recv(Sock, 0, Timeout),
+            %% Close before parsing.
+            ok = gen_tcp:close(Sock),
+            {ok, Bin} = Resp,
+            {reply, Rv} = binary_to_term(Bin),
+            {ok, Rv};
+        {error, _}=E ->
+            E
     end.

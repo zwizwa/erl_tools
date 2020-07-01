@@ -7,6 +7,18 @@
 %% - use bert rpc to get pid
 %% - save pid for later control
 
+%% - proper restart even if loop is running:
+%%   exo:restart(ghci_bert).
+%%
+%% - start loop:
+%%   exo:need(ghci_bert) ! {cmds,[":reload","start"]}.
+%%
+%% - stop loop:
+%%   bert_rpc:call("localhost",7890,control,stop,[]).
+%%
+%% - alternatively, get pid via this, then send SIGINT
+%%   bert_rpc:call("localhost",7890,control,pid,[]).
+
 
 %% Wrapper for ghci.
 %% See also ghcid.erl
@@ -124,7 +136,7 @@ handle(Msg, State) ->
     log:info("unknown: ~p~n", Msg),
     throw({?MODULE,unknown_msg,Msg}),
     State.
-    
+
 
 log_buf({line, Line}) -> log:info("~s~n",[Line]);
 log_buf(_) -> ok.
@@ -181,18 +193,5 @@ call(Ghci, Module, Function, Arg, TimeOut) ->
 
 
 
-
-
-%% Reload daemon
-%%
-%% Use this to bootstrap a service architecture with a proper
-%% protocol.  I had something like that set up before, based on BERT.
-%% But it did not mesh well with ghcid.  Basically, this does not want
-%% to stop, and spawns threads etc...:
-%%
-%% https://hackage.haskell.org/package/bert-1.2.2.5/docs/Network-BERT-Server.html
-%%
-%% I actually feel rather stuck with that.  What I want is something
-%% that is just listening on stdio.
 
 
