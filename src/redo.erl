@@ -18,7 +18,7 @@
          run/2, run/3,
          gcc_deps/1, need_gcc_deps/2,
          import/1,
-         need_val/2, need_vals/2, find_val/2, put_val/3,
+         need_val/2, need_vals/2, find_val/2, put_val/3, put_val_changed/3,
          no_update/1,
          default_script_log/1,
          default_log_error/1,
@@ -1007,13 +1007,15 @@ update_value(Target, Deps, Body) ->
     fun(Eval) ->
             need(Eval, Deps),
             NewVal = Body(Eval),
-            case find_val(Eval, Target) of
-                {ok, NewVal} ->
-                    false;
-                _ ->
-                    put_val(Eval, Target, NewVal),
-                    true
-            end
+            put_val_changed(Eval, Target, NewVal)
+    end.
+put_val_changed(Eval, Target, NewVal) ->
+    case find_val(Eval, Target) of
+        {ok, NewVal} ->
+            false;
+        _ ->
+            put_val(Eval, Target, NewVal),
+            true
     end.
 
 
