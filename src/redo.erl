@@ -6,7 +6,8 @@
          file_changed/3,
          from_list_dir/2,
          read_file/2, write_file/3, is_regular/2,
-         from_filename/1, to_filename/1, to_directory/1, to_includes/1,
+         from_filename/1, to_filename/1, to_filename_binary/1, 
+         to_directory/1, to_includes/1,
          compile_env/2, compile_path/2,
          path_find/4,
          root/1,
@@ -1100,6 +1101,8 @@ to_filename({Type,BaseName,Dirs}) ->
     Path = to_directory(Dirs),
     Ext  = [[".",type:encode({pterm,Tag})] || Tag <- Tags],
     tools:format("~s",[[Path,BaseName,Ext]]).
+to_filename_binary(F) ->
+    iolist_to_binary(to_filename(F)).
 
 
 to_includes(Paths) ->

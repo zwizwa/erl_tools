@@ -1,0 +1,28 @@
+* Introduction
+
+The redo system has rapidly become central to my software development
+activities, serving as the backbone of a larger system (exo) that is
+described elsewhere.
+
+The version of redo I'm using is a reimplementation in Erlang of a
+system originally described by djb, and popularized by apenwarr.  The
+version that I describe here is a generalization that can manage all
+kinds of abstract state in addition to files in a file system, and is
+written in Erlang, a language/runtime that is better suited for
+integrating collections of services.
+
+In summary, the basic ideas are:
+
+- Files are too concrete.  There are many more kinds of abstract state
+  for which one would like to manage the updates in a data-flow
+  approach.
+
+- Many "compilers" have significant startup time, and are thus better
+  run as services with internal cache, as opposed to batch processing
+  programs.
+
+- Managing services is what Erlang is designed for.
+
+
+
+

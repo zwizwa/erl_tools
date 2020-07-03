@@ -83,6 +83,7 @@ handle({setpoint, Channel, FloatVal}, State) ->
             true  -> IntVal
         end,
     Reduced = Clipped band 16#FFFFFFFF,
+    %% Reduced = Clipped band 16#FF000000,
     State1 = maps:put({setpoint, Channel}, FloatVal, State),
 
     log:info("~8.16.0B~n",[Reduced]),
