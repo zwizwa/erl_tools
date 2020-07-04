@@ -51,6 +51,7 @@ port_open(DbFile) ->
                 end;
             Dir -> Dir
         end,
+    %% log:info("DbFile = ~p~n", [DbFile]),
     Cmd = tools:format("~s/sqlite3.elf ~s", [Priv,DbFile]),
     %% log:info("Cmd = ~p~n", [Cmd]),
     Port = open_port({spawn, Cmd}, [use_stdio, {packet,4}, exit_status, binary]),

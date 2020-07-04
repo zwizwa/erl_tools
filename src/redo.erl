@@ -4,7 +4,7 @@
          push/3, push/2,
          start_link/1, handle_outer/2, handle/2,
          file_changed/3,
-         from_list_dir/2,
+         from_list_dir/2, files_from_filename/2,
          read_file/2, write_file/3, is_regular/2,
          from_filename/1, to_filename/1, to_filename_binary/1, 
          to_directory/1, to_includes/1,
@@ -1158,23 +1158,24 @@ from_list_dir(Eval, PathList) ->
       Eval, RelDir, 
       fun(AbsDir) ->
               {ok, Files} = file:list_dir(AbsDir),
-              lists:append(
-                  lists:map(
-                    fun(FileName) ->
-                            try
-                                {Ext,Bn,[]} = from_filename(FileName),
-                                [{Ext,Bn,PathList}]
-                            catch
-                                _C:_E ->
-                                    %% Just ignore extensions that are not pterms.
-                                    %% log:info("WARNING: redo:from_list_dir:~999p:~n~999p~n", [PathList, {_C, _E}]),
-                                    []
-                            end
-                    end,
-                    Files))
+              files_from_filename(Files, PathList)
       end).
+files_from_filename(Files, PathList) ->
+    lists:append(
+      lists:map(
+        fun(FileName) ->
+                try
+                    {Ext,Bn,[]} = from_filename(FileName),
+                    [{Ext,Bn,PathList}]
+                catch
+                    _C:_E ->
+                        %% Just ignore extensions that are not pterms.
+                        %% log:info("WARNING: redo:from_list_dir:~999p:~n~999p~n", [PathList, {_C, _E}]),
+                        []
+                end
+        end,
+        Files)).
 
-    
 
 %% I would like to keep the "changed" predicate as abstract as
 %% possible.  I currently see two ways to do this: filesystem
