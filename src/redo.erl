@@ -15,7 +15,7 @@
          update_value/3, update_pure/3, update_const/2,
          update_case/3,
          need/2, changed/2,
-         stamp/3, stamp_hash/2,
+         stamp/3, stamp_hash/2, stamp_hash/3,
          run/2, run/3,
          gcc_deps/1, need_gcc_deps/2,
          import/1,
@@ -546,13 +546,16 @@ handle({Pid, {worker_needs, Deps}}, State) ->
             debug("worker_needs: not a worker ~p~n", [Pid]),
             State
     end;
-handle({Pid, worker_deps}, State) ->
+handle({Pid, collect_worker_deps}, State) ->
     case maps:find({need,Pid}, State) of
         {ok, DepMap} ->
             obj:reply(
               Pid,
               lists:sort(maps:keys(DepMap))),
-            maps:remove({need, Pid}, State)
+            maps:remove({need, Pid}, State);
+        error ->
+            obj:reply(Pid, []),
+            State
     end;
 
 
@@ -818,7 +821,11 @@ worker(Eval, Product, Update, OldDeps) ->
             [] ->
                 true; %% First run or polling
             _  ->
-                need_or_error(Eval, OldDeps)
+                A = need_or_error(Eval, OldDeps),
+                %% Ensure worker_deps are cleared in case we run
+                %% update below.
+                _ = obj:call(Eval, collect_worker_deps),
+                A
         end,
 
     debug("~p: need update: ~p~n", [Product, Affected]),
@@ -830,9 +837,8 @@ worker(Eval, Product, Update, OldDeps) ->
                 %% necessary.
                 #{ {phase, Product} => {changed, Affected} };
             _ ->
-                %% When changed we need to re-run the rule.  On error
-                %% we do the same, in case the dependencies that
-                %% errored out is no longer needed.
+                %% When changed, or one of the old dependencies
+                %% returned an error, we need to re-run the rule.
                 %%
                 %% Dont crash the daemon in the common case that a
                 %% build rule has a runtime or type error.  Propagate
@@ -841,7 +847,7 @@ worker(Eval, Product, Update, OldDeps) ->
                     try
                         %% app/2 allows for "reloadable closures".
                         Ch = app(Update,[Eval]),
-                        Wd = obj:call(Eval, worker_deps),
+                        Wd = obj:call(Eval, collect_worker_deps),
                         case Ch of
                             false ->
                                 {false, Wd};
@@ -881,6 +887,13 @@ worker(Eval, Product, Update, OldDeps) ->
                 %% (open) inverted dependencies accordingly when the
                 %% dependencies change, but don't compute the
                 %% transitive closure.  Do that on "push".
+
+                %% case Product of 
+                %%     {{o,f103},<<"synth">>,[<<"gdb">>,<<"uc_tools">>]} ->
+                %%         log:info("NewDeps:~n~p~n",[NewDeps]);
+                %%     _ ->
+                %%         ok
+                %% end,
 
                 case NewDeps == OldDeps of
                     true ->
@@ -1194,8 +1207,9 @@ file_changed(Eval, Product, RelPath) ->
             %% debug("file_changed ~p~n", [{Product, RelPath, Changed, New, MaybeOld}]),
             Changed;
         Error ->
-            log:info("~p~n",[{redo_file_changed, Product, RelPath, Error}]),
-            error
+            Msg = {redo_file_changed, Product, RelPath, Error},
+            throw(Msg)
+            %% log:info("~p~n",[Msg]), error
     end.
 
 
@@ -1243,7 +1257,10 @@ stamp(Eval, Product, NewStamp) ->
     Changed.
 
 stamp_hash(Eval, Product) ->
-    {ok, Bin} = read_file(Eval, to_filename(Product)),
+    stamp_hash(Eval, Product, to_filename(Product)).
+
+stamp_hash(Eval, Product, Filename) ->
+    {ok, Bin} = read_file(Eval, Filename),
     stamp(Eval, Product, crypto:hash(md5, Bin)).
 
 %% Generic build command dispatch.

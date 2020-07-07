@@ -86,7 +86,7 @@ handle({setpoint, Channel, FloatVal}, State) ->
     %% Reduced = Clipped band 16#FF000000,
     State1 = maps:put({setpoint, Channel}, FloatVal, State),
 
-    log:info("~8.16.0B~n",[Reduced]),
+    %% log:info("~8.16.0B~n",[Reduced]),
 
     super({send_u32,[101,Channel,Reduced]}, State1);
 
@@ -136,7 +136,7 @@ midi_cc(P,V,State) ->
             log:info("0: ~p~n",[{P,V,Frac}]),
             handle({setpoint, 0, Frac}, State);
         21 ->
-            Frac = 0.43 - 0.0005 * (V - 64.0),
+            Frac = 0.435 - 0.0015 * (V - 64.0),
             log:info("1: ~p~n",[{P,V,Frac}]),
             handle({setpoint, 1, Frac}, State);
         _ ->
