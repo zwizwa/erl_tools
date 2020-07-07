@@ -48,10 +48,6 @@
 #include "system.h"
 #include "port.h"
 
-/* See default.elf.do
-ELF_LDLIBS=-lftdi
-*/
-
 struct ftdi_context ftdic;
 
 void send_byte(uint8_t data) {

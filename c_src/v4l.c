@@ -9,10 +9,6 @@
 
 #include "jpeglib.h"
 
-/* For default.elf.do
-ELF_LDLIBS="-ljpeg -lm"
-*/
-
 #define WRITE write
 #define READ  read
 #include "system.h"
