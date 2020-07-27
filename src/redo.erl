@@ -4,7 +4,7 @@
          push/3, push/2,
          start_link/1, handle_outer/2, handle/2,
          file_changed/3,
-         from_list_dir/2, files_from_filename/2,
+         from_list_dir/2, from_list_dir_type/3, files_from_filename/2,
          read_file/2, write_file/3, is_regular/2,
          from_filename/1, to_filename/1, to_filename_binary/1, 
          to_directory/1, to_includes/1,
@@ -1173,6 +1173,13 @@ from_list_dir(Eval, PathList) ->
               {ok, Files} = file:list_dir(AbsDir),
               files_from_filename(Files, PathList)
       end).
+from_list_dir_type(Eval, Dir, Type) ->
+    lists:filter(
+      fun({Type1,_,_}) -> Type1 == Type;
+         (_)           -> false
+      end,
+      from_list_dir(Eval, Dir)).
+
 files_from_filename(Files, PathList) ->
     lists:append(
       lists:map(

@@ -33,7 +33,7 @@ ssize_t raw_write(int fd, const void *buf, size_t count);
             __typeof__(a) _a = (a); \
             __typeof__(b) _b = (b); \
             if(_a != _b) { \
-                ERROR("ASSERT FAIL: " #a "(%d) == " #b "(%d)\n", _a, _b); \
+                ERROR("ASSERT FAIL: " #a "(%d) == " #b "(%d)\n", (int)_a, (int)_b); \
             } })
 #define ASSERT_GT(a,b) ({ \
             __typeof__(a) _a = (a); \

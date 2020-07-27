@@ -10,6 +10,7 @@
 #include <errno.h>
 #include <string.h>
 #include "system.h"
+//#include "macros.h"
 
 /* Erlang port I/O, suitable for malloc-less operation to run on
    bare-bones microcontroller.  Errors are handled through the ASSERT
@@ -22,12 +23,14 @@
 
 /* RAW READ / ASSERT */
 
-static inline int assert_read(int fd, uint8_t *buf, uint32_t nb) {
+// FIXME: this is also defined in uc_tools/macros.h
+static inline ssize_t assert_read(int fd, void *vbuf, size_t nb) {
+    unsigned char *buf = vbuf;
     //LOG("assert_read(%d,%p,%d)\n", fd, buf, nb);
     if (nb == 0) return 0;
-    int rv;
+    ssize_t rv;
     do {
-        rv = READ(fd, buf, nb);
+        rv = read(fd, buf, nb);
     } while(rv == -1 && errno == EINTR); // Haskell uses signals
 
     if (rv > 0) {
@@ -46,16 +49,18 @@ static inline int assert_read(int fd, uint8_t *buf, uint32_t nb) {
     ASSERT(rv > 0);
     return rv;
 }
-static inline int assert_read_fixed(int fd, uint8_t *buf, uint32_t nb) {
-    int got = 0;
+static inline ssize_t assert_read_fixed(int fd, void *vbuf, size_t nb) {
+    unsigned char *buf = vbuf;
+    size_t got = 0;
     while (got < nb) {
-        int rv = assert_read(fd, buf+got, nb-got);
+        ssize_t rv = assert_read(fd, buf+got, nb-got);
         ASSERT(rv > 0);
         got += rv;
     }
     ASSERT_EQ(got, nb);
     return got;
 }
+
 
 // FIXME: compat
 #define assert_read_port8 assert_read_packet1

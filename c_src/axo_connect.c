@@ -30,11 +30,12 @@ static void *reader_main(void *ctx) {
         // LOG("received %d bytes\n", n);
         assert_write_port32(1, buf, n);
     }
+    return NULL;
 }
 
 #define TO_AXO(var) to_axo(&(var),sizeof(var))
 static void to_axo(const void *buf, int len) {
-    int n = transfer(ep_out, buf, len);
+    int n = transfer(ep_out, (void*)buf, len);
     LOG("sent %d bytes\n", n);
 }
 
@@ -58,7 +59,7 @@ void open_usb(void) {
             int rv;
             if (0 == (rv = libusb_open(dev, &handle))) {
                 LOG(" ok\n");
-                return handle;
+                return;
             }
             else {
                 ERROR(" error = %d (%s)\n", rv, libusb_strerror(rv));

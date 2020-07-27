@@ -1,8 +1,18 @@
 -module(axo_hub).
 -export([start_link/1, handle/2, pids/1]).
 
-%% Derived from ftdi_hub.erl / ftdi.erl
+
+%% Start here:
+%%
+%% - plug in core board in zoe
+%% - @29: exo:need(axo_hub) ! {add_dev,<<"zoe">>}.
+%% - @12: verify that log messages pass by (up asks version)
+%%
+%% Code is derived from ftdi_hub.erl / ftdi.erl
 %% See comments in that file.
+
+%% Partial implementation of axo protocol in axo.erl
+
 
 start_link(#{ spawn_port := _ }=Config) ->
     {ok,
@@ -21,7 +31,12 @@ handle({add_dev,BHost,UsbDev,DevPath}, State = #{spawn_port := SpawnPort}) ->
               user => tom,
               dir  => "/i/exo/bin",
               host => localhost }]),
-    unlink(Pid),
+    %% Why did this unlink before?
+    %% unlink(Pid),
+
+    %% When starting through rpc:call, there is no link, so make sure
+    %% the proxy and port get killed when we die.
+    link(Pid),
     Hub = self(),
     spawn(
       fun() ->
@@ -51,8 +66,9 @@ handle(Msg, State) ->
 
 
 up(_Hub, Pid) ->
-    log:info("~p~n",[Pid]),
+    log:info("axo_hub:up: ~p~n",[Pid]),
     Pid ! {send, <<16#566f7841:32/little>>},
+    %%Pid ! {send, <<"AxoV">>},
     ok.
 
 devpath_usb_port(Bin) ->
@@ -68,4 +84,16 @@ devpath_usb_port(Bin) ->
     end.
 
 pids(Pid) ->
-    maps:keys(obj:dump(Pid)).
+    lists:filter(
+      fun erlang:is_pid/1,
+      maps:keys(obj:dump(Pid))).
+
+
+
+%% Convenience.  These are bound to default hub and assume only one
+%% device.
+
+
+load(_Elf) ->
+    %% allocate(),
+    ok.

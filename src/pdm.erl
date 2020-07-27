@@ -1,5 +1,5 @@
 -module(pdm).
--export([init/2, handle/2, measure/2, measure_range/4, find_freq/2, octaves/3, note/1, test/1]).
+-export([init/2, handle/2, measure/2, measure_range/4, note/1, test/1]).
 
 %% Driver for uc_tools/gdb/pdm.c
 init(Pid, _PacketProto) ->
@@ -132,13 +132,17 @@ handle(Msg, State) ->
 midi_cc(P,V,State) ->
     case P of
         22 ->
-            Frac = 0.5 - 0.0019 * (V - 64.0),
-            log:info("0: ~p~n",[{P,V,Frac}]),
+            Frac = 0.45 - 0.0015 * (V - 64.0),
+            %%log:info("0: ~p~n",[{P,V,Frac}]),
             handle({setpoint, 0, Frac}, State);
         21 ->
-            Frac = 0.435 - 0.0015 * (V - 64.0),
-            log:info("1: ~p~n",[{P,V,Frac}]),
+            Frac = 0.4 - 0.0015 * (V - 64.0),
+            %%log:info("1: ~p~n",[{P,V,Frac}]),
             handle({setpoint, 1, Frac}, State);
+        20 ->
+            Frac = 0.435 - 0.0045 * (V - 64.0),
+            %%log:info("1: ~p~n",[{P,V,Frac}]),
+            handle({setpoint, 2, Frac}, State);
         _ ->
             log:info("~p~n",[{P,V}]),
             ok
@@ -202,48 +206,61 @@ note(X) ->
 %% are very important: too low and the frequency measurement might
 %% time out.  Pick them very close to the mid range of the converter.
 
-find_freq(Pid, Hz) ->
-    find_freq(Pid, Hz, [0.49, 0.51]).
 
-find_freq(Pid, Hz, Inits) ->
-    N = 4,
+%% Measure, but drop transition
+measure_drop(Pid, LogMax, Frac) ->
+    Pid ! {setpoint, 0, Frac},
+    %% Throw away transition
+    _ = measure(Pid, LogMax),
+    M = measure(Pid, LogMax),
+    Rv = {Frac, note(M), M},
+    log:info("~p~n", [Rv]),
+    Rv.
+
+
+    
+
+
+octaves(Pid, XInits, Hz, NbOctaves) ->
     LogMax = 24, %% 0.25 sec
-    find_freq(Pid, Hz, LogMax, Inits, N).
+    NbIter = 4,
+    Measure = fun(Frac) -> measure_drop(Pid, LogMax, Frac) end,
+    %% Initial points are meausred once and reused to start each octave scan.
+    [XYA, XYB] = lists:map(Measure, XInits),
+    map_octaves(Pid, Measure, Hz, XYA, XYB, NbIter, NbOctaves).
 
-find_freq(Pid, Hz, LogMax, Inits, N) ->
-    Measure =
-        fun(Frac) ->
-                Pid ! {setpoint, 0, Frac},
-                %% Throw away transition
-                _ = measure(Pid, LogMax),
-                M = measure(Pid, LogMax),
-                Rv = {Frac, note(M), M},
-                log:info("~p~n", [Rv]),
-                Rv
-        end,
-    [XYA,XYB] = lists:map(Measure, Inits),
-    Approx = find_freq_it(Pid, Measure, note(Hz), XYA, XYB, N),
+%% Iterate over Octaves
+map_octaves(_, _, _, _, _, _, 0) -> [];
+map_octaves(Pid, Measure, Hz, XYA, XYB, NbIter, NbOctaves) ->
+    #{setpoint := Setpoint, note := Note} = find_freq(Pid, Measure, Hz, XYA, XYB, NbIter),
+    [{Note, Setpoint} | map_octaves(Pid, Measure, Hz*2, XYA, XYB, NbIter, NbOctaves-1)].
+
+find_freq(Pid, Measure, Hz, XYA, XYB, NbIter) ->
+    Approx = find_freq_it(Pid, Measure, note(Hz), XYA, XYB, NbIter),
     {XE,YE,EYE} = lists:last(Approx),
     #{setpoint => XE, 
       note => YE,
       hz => EYE, 
       approx => Approx}.
-    
 
+%% Iterate rootfinding.
 find_freq_it(_, _, _, XYA, XYB, 0) -> [XYA, XYB];              
-find_freq_it(Pid, Measure, YT, {XA,YA,_}=XYA, {XB,YB,_}=XYB, N) ->
+find_freq_it(Pid, Measure, YT, {XA,YA,_}=XYA, {XB,YB,_}=XYB, NbIter) ->
     XC = XA + (YT-YA) * ((XB-XA) / (YB-YA)),
     XYC = Measure(XC),
-    [XYA | find_freq_it(Pid, Measure, YT, XYB, XYC, N-1)].
-    
+    [XYA | find_freq_it(Pid, Measure, YT, XYB, XYC, NbIter-1)].
 
-octaves(Pid, Hz, N) ->
-    octaves(Pid, [0.49,0.51], Hz, N).
-    
-octaves(_, _, _, 0) -> [];
-octaves(Pid, Init, Hz, N) ->
-    #{setpoint := Setpoint, note := Note} = find_freq(Pid, Hz, Init),
-    [{Note, Setpoint} | octaves(Pid, Init, Hz*2, N-1)].
+
+
+
+
+
+
+
+
+
+
+
 
 interpolate(Note, {NA,SA}, {NB,SB}) ->
     Setpoint = SA + (Note-NA) * ((SB-SA)/(NB-NA)),
@@ -264,8 +281,6 @@ interpolate(Note, [A,{NB,_}=B|Rest]) ->
             
 
 
-test(table_init) ->
-    octaves(pdm, 55, 8);
 test(table) ->
     %% output of test(table_init).
     %% Maps midi notes to setpoints.
