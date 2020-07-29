@@ -23,20 +23,40 @@ static int transfer(unsigned char ep, void *buf, int len) {
 }
 
 static void *reader_main(void *ctx) {
-    uint8_t buf[4096];
+    uint32_t total;
+    uint8_t buf[1024 * 1024];
     for(;;) {
-        int n = transfer(ep_in, buf, sizeof(buf));
-        // FIXME: handle long packets
-        // LOG("received %d bytes\n", n);
-        assert_write_port32(1, buf, n);
+        ASSERT(64 + total <= sizeof(buf));
+        int chunk = transfer(ep_in, buf+total, 64);
+        total += chunk;
+        if (chunk < 64) {
+            // LOG("received %d bytes total\n", total);
+            assert_write_port32(1, buf, total);
+            total = 0;
+        }
+        else {
+            // LOG("received chunk\n");
+        }
     }
     return NULL;
 }
 
 #define TO_AXO(var) to_axo(&(var),sizeof(var))
-static void to_axo(const void *buf, int len) {
-    int n = transfer(ep_out, (void*)buf, len);
-    LOG("sent %d bytes\n", n);
+static void to_axo(const void *buf0, int len) {
+    // libusb doesn't use const pointers.
+    // trust that it does the right thing....
+    void *buf = (void*)buf0;
+    for(;;) {
+        if (len >= 64) {
+            transfer(ep_out, buf, 64);
+            buf += 64;
+            len -= 64;
+        }
+        else {
+            transfer(ep_out, buf, len);
+            return;
+        }
+    }
 }
 
 void open_usb(void) {

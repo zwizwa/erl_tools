@@ -1,5 +1,6 @@
 -module(axo).
 -export([start_link/1, handle/2, call/1, call/2]).
+-define(MEM_TYPE_HINT_LARGE,(1 bsl 17)).
 
 
 
@@ -66,23 +67,104 @@ call(Cmd) ->
     [Pid|_] = axo_hub:pids(exo:need(axo_hub)),
     call(Pid, Cmd).
 
-call(Pid, {alloc, Size}) ->
-    TypeFlags = 0, Alignment = 4,
+call(Pid, {mem_alloc, Size}) ->
+    call(Pid, {mem_alloc, Size, 0, 4});
+
+
+%% typedef enum {
+%%   mem_type_can_execute   = (1<< 2),
+%%   mem_type_hint_no_dma   = (1<<16),
+%%   mem_type_hint_large    = (1<<17),
+%%   mem_type_hint_tiny_dma = (1<<18),
+%% } mem_type_flags_t;
+call(Pid, {mem_alloc, Size, TypeFlags, Alignment}=_Cmd) ->
+    log:info("~p~n",[_Cmd]),
     {ok, <<Addr:32/little>>} =
         call_u32(Pid, <<"AxoS">>, <<"AxMa">>, [Size, TypeFlags, Alignment]),
     {ok, Addr};
 
-call(Pid, version) ->
+call(Pid, {mem_write, Offset, Data}) ->
+    Size = size(Data),
+    %% Write doesn't reply.  Also it sends two packets: one with
+    %% header, the other with payload.
+    Pid ! {send, [<<"AxMw">>, <<Offset:32/little, Size:32/little>>]},
+    Pid ! {send, Data},
+    %% FIXME: used another call to synchronize.
+    %% call(Pid, {mem_read, Offset, Size});
+    ok;
+
+%% axo:call({mem_read, 537002088, 4}).
+
+call(Pid, {mem_read, OffsetIn, SizeIn}) ->
+    {ok, <<OffsetOut:32/little,
+           SizeOut:32/little,
+           Data/binary>>} =
+        call_u32(Pid, <<"Axor">>, <<"AxMr">>, [OffsetIn, SizeIn]),
+    {ok, #{ offset => OffsetOut, size => SizeOut,
+            data => Data}};
+
+call(Pid, fwid) ->
     {ok, Bin} = call_u32(Pid, <<"AxoV">>, <<"AxoV">>, []),
     <<A,B,C,D,
       Crc:32/little,
       ChunkAddr:32/little>> = Bin,
     {ok, #{ver => {A,B,C,D},
            crc => Crc,
-           chunkaddr => ChunkAddr}}.
+           chunkaddr => ChunkAddr}};
 
-call_u32(Pid, ReplyTag, Tag, Ints) when is_binary(Tag) ->
-    obj:call(Pid, {call, ReplyTag, Tag, [<<I:32/little>> || I<-Ints]}, 1000).
+%% <0.3171.0>: AxoA: <<1,0,0,0,1,0,0,0,0,0,0,0,217,5,163,11,255,255,255,255,0,0,0,
+%%                     0,70,44,12,89,18,39,17,87,0,0,0,0,0,0,0,0,0,0,0,0,240,239,
+%%                     0,0,248,255,0,0,248,191,0,0,248,255,127,0>>
+
+%% <0.3171.0>: AxoT: <<"exception report:\npc=0x8004754\npsr=0x61000000\nlr=0x1000E4F0">>
+%% <0.3171.0>: AxoT: <<"\nr12=0x0\ncfsr=0x8200\nbfar=0xBD10B004\n">>
+
+
+call(Pid, ping) ->
+    call_u32(Pid, <<"AxoA">>, <<"Axop">>, []);
+
+%% Start a patch, see:
+%% axrai/src/main/java/axoloti/connection/USBBulkConnection_v2.java
+%% -> transmitStartLive()
+%% axo:call({transmit_start_live, 
+call(Pid, start_xpatch) ->
+    call(Pid, {transmit_start_live, "/i/exo/axrai/build/xpatch.elf", "xpatch"});
+call(Pid, load_xpatch) ->
+    call(Pid, {load_elf, "/i/exo/axrai/build/xpatch.elf", "xpatch"});
+
+call(Pid, {load_elf, Elf, PatchName}) ->
+    {ok, ElfBin} = file:read_file(Elf),
+    Size = size(ElfBin),
+    {ok, Addr} = call(Pid, {mem_alloc, Size, ?MEM_TYPE_HINT_LARGE, 16}),
+    ok = call(Pid, {mem_write, Addr, ElfBin}),
+    {ok, #{ data := ElfBinVerify}} = call(Pid, {mem_read, Addr, Size}),
+    ElfBin = ElfBinVerify,
+
+    %% threadLoadPatch: name is assumed to be
+    %% eg. "@12345678:patchname" where 0x12345678 is the memory
+    %% address of a memory-mapped file
+    Name = tools:format_binary("@~8.16.0B:~s",[Addr,PatchName]),
+    log:info("Name: ~s\n", [Name]),
+    {ok, Name};
+
+call(Pid, {transmit_start_live, Elf, PatchName}) ->
+    {ok, Name} = call(Pid, {load_elf, Elf, PatchName}),
+    call(Pid, {patch_start, Name});
+
+call(Pid, {patch_start, PatchName}) ->
+    %% Note that is the first character in PatchName is null, then the
+    %% format is different and contains a patch index.
+    %% call_raw(Pid, <<"AxoS">>, [<<"AxPs">>, PatchName]).
+    Pid ! {send, [<<"AxPs">>, PatchName]}.
+
+
+
+call_u32(Pid, ReplyTag, Tag, Ints) when is_binary(ReplyTag) ->
+    log:info("~p~n",[{Pid,ReplyTag,Tag,Ints}]),
+    call_raw(Pid, ReplyTag, [Tag, [<<I:32/little>> || I<-Ints]]).
+
+call_raw(Pid, ReplyTag, RawMsg) when is_binary(ReplyTag) ->
+    obj:call(Pid, {call, ReplyTag, RawMsg}, 1000).
 
 %% We are started by axo_hub.  It will provide the correct config to
 %% start the axo_connect.elf binary driver.
@@ -103,15 +185,13 @@ start_link(Config) ->
         end,
         fun ?MODULE:handle/2})}.
 
-
-
-handle({send, IOL}, #{ port := Port}=State) ->
-    Port ! {self(), {command, IOL}},
+handle({send, RawMsg}, #{ port := Port}=State) ->
+    Port ! {self(), {command, RawMsg}},
     State;
 
-handle({Pid, {call, ReplyTag, Tag, IOL}}, State) ->
+handle({Pid, {call, ReplyTag, RawMsg}}, State) when is_binary(ReplyTag) ->
     State1 = maps:put({waiting, ReplyTag}, Pid, State),
-    handle({send, [Tag | IOL]}, State1);
+    handle({send, RawMsg}, State1);
 
 handle({Port, {data, <<Tag:32/little, Data/binary>>}}, #{ port := Port} = State) ->
     %% All tags are human-readable, so it seems easier to keep them
@@ -124,9 +204,11 @@ handle({Port, {data, <<Tag:32/little, Data/binary>>}}, #{ port := Port} = State)
         _ ->
             {Fmt,Terms} =
                 case {TagBin,Data} of
-                    _ ->
+                    {<<$A,$x,_,_>>,_} ->
                         %% log:info("~8.16.0B: ~p~n",[Tag,Data]),
-                        {"~s: ~p~n", [TagBin,Data]}
+                        {"~s: ~p~n", [TagBin,Data]};
+                    _ ->
+                        {"untagged: ~p bytes\n", [size(Data)]}
                 end,
             log:info(Fmt,Terms),
             State
