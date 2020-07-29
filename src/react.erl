@@ -57,7 +57,7 @@ update(SideChannel, Cons, OutVar, InVars, Eval) ->
         false ->
             %% If they all changed, just re-render.  That also
             %% handles the initial rendering case.
-            InVals = [{V,redo:need_val(Eval, V)} || V <- InVars],
+            InVals = lists:zip(InVars,  redo:need_vals(Eval, InVars)),
             OutVal = Cons(InVals),
             redo:put_val(Eval, OutVar, OutVal),
             true;
@@ -70,7 +70,7 @@ update(SideChannel, Cons, OutVar, InVars, Eval) ->
                       ok;
                  ({Var,true}) ->
                       %% Update the others in place.
-                      Val = redo:need_val(Eval, Var),
+                      [Val] = redo:need_vals(Eval, [Var]),
                       SideChannel({Var,Val})
               end,
               maps:to_list(Map)),

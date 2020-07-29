@@ -1,5 +1,5 @@
 -module(redo).
--export([pull/1, pull/2, get/2, with_eval/2,
+-export([pull/1, pull/2, pull_vals/2, with_eval/2,
          make_var/1, make_var/2, make_var/3,
          push/3, push/2,
          start_link/1, handle_outer/2, handle/2,
@@ -19,7 +19,8 @@
          run/2, run/3,
          gcc_deps/1, need_gcc_deps/2,
          import/1,
-         need_val/2, need_vals/2, find_val/2, put_val/3, put_val_changed/3,
+         need_vals/2, find_vals/2, get_vals/2, %% retrieval is always parallel
+         put_val/3, put_val_changed/3,         %% put is sequential
          no_update/1,
          default_script_log/1,
          default_log_error/1,
@@ -162,8 +163,8 @@ make_var(Redo, Fun, VarTag) ->
     obj:call(Redo, {make_var, Fun, VarTag}).
 
 %% For products that are Erlang values, update and return the value.
-get(Redo, Product) ->
-    with_eval(Redo, fun(Eval) -> need_val(Eval, Product) end).
+pull_vals(Redo, Products) ->
+    with_eval(Redo, fun(Eval) -> need_vals(Eval, Products) end).
 
 
 %% Several calls against the evaluator will be performed during
@@ -620,8 +621,12 @@ handle({Pid,{set_stamp,Tag,New}}, State) ->
 %% Implement a store inside of the evaluator.  Note that we can just
 %% as well use a completely abstract (remote/external) store and
 %% update methods that operate on that store.
-handle({Pid,{find_val,Tag}}, State) ->
-    obj:reply(Pid, maps:find({val, Tag}, State)),
+handle({Pid,{find_vals,Tags}}, State) ->
+    Vals =
+        lists:map(
+          fun(Tag) -> maps:find({val, Tag}, State) end,
+          Tags),
+    obj:reply(Pid, Vals),
     State;
 handle({Pid,{put_val,Tag,Val}}, State) ->
     obj:reply(Pid, ok),
@@ -962,22 +967,21 @@ changed(Eval, Deps) ->
 %% calls 'need', so all variables will have to be dataflow variables.
 %% In practice this is always what you want.
 
-find_val(Eval, Tag) ->
-    obj:call(Eval, {find_val, Tag}).
-get_val(Eval, Tag) ->
-    case find_val(Eval, Tag) of
-        {ok, Val} -> Val;
-        error -> throw({get_val_not_found, Tag})
-    end.
-need_val(Eval, Tag) ->
-    case need(Eval, [Tag]) of
-        error -> throw({need_val_error, Tag});
-        _ -> get_val(Eval, Tag)
-    end.
+find_vals(Eval, Tags) ->
+    obj:call(Eval, {find_vals, Tags}).
+get_vals(Eval, Tags) ->
+    lists:map(
+      fun(MaybeVal) ->
+              case MaybeVal of
+                  error -> throw({get_val_not_found, Tags});
+                  {ok, Val} -> Val
+              end
+      end,
+      find_vals(Eval, Tags)).
 need_vals(Eval, Tags) ->
     case need(Eval, Tags) of
         error -> throw({need_val_error, Tags});
-        _ -> [get_val(Eval, Tag) || Tag <- Tags]
+        _ -> get_vals(Eval, Tags)
     end.
 
 put_val(Eval, Tag, Val) ->
@@ -1024,8 +1028,8 @@ update_value(Target, Deps, Body) ->
             put_val_changed(Eval, Target, NewVal)
     end.
 put_val_changed(Eval, Target, NewVal) ->
-    case find_val(Eval, Target) of
-        {ok, NewVal} ->
+    case find_vals(Eval, [Target]) of
+        [{ok, NewVal}] ->
             false;
         _ ->
             put_val(Eval, Target, NewVal),
@@ -1039,7 +1043,7 @@ put_val_changed(Eval, Target, NewVal) ->
 update_pure(Target, Deps, PureBody) ->
     update_value(
       Target, Deps,
-      fun(Eval) -> PureBody([get_val(Eval, Dep) || Dep <- Deps]) end).
+      fun(Eval) -> PureBody(get_vals(Eval, Deps)) end).
 
 update_const(Target, Val) ->
     update_pure(Target, [], fun([]) -> Val end).
@@ -1048,7 +1052,7 @@ update_const(Target, Val) ->
 %% Dispatch contained in a map, to allow for proper rebuild.
 update_case(Target, Config, DefaultUpdate) ->
     fun(Eval) ->
-            Cases = redo:need_val(Eval, Config),
+            [Cases] = redo:need_vals(Eval, [Config]),
             log:info("Cases=~p~n",[Cases]),
             Update = maps:get(Target, Cases, DefaultUpdate),
             (Update(Target))(Eval)
@@ -1410,7 +1414,7 @@ u2(Eval) ->
     %% straightforward to embed pure functions in this
     %% framework.
     Deps = [ex1],
-    need_val(Eval, Deps),
+    need_vals(Eval, Deps),
     put_val(Eval, ex2, #{}),
     true.
 
