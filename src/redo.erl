@@ -1,5 +1,7 @@
 -module(redo).
--export([pull/1, pull/2, pull_vals/2, with_eval/2,
+-export([pull/1, pull/2,
+         pull_vals/1, pull_vals/2,
+         with_eval/2,
          make_var/1, make_var/2, make_var/3,
          push/3, push/2,
          start_link/1, handle_outer/2, handle/2,
@@ -112,10 +114,11 @@ debug(_F,_As) ->
 
 %% -------- CORE
 
-%% Main entry point.  See test(ex1) below.
-pull(Products) ->
-    pull(redo, Products).
+%% Bound shorthands in case of registered redo singleton setup.
+pull(Products) -> pull(redo, Products).
+pull_vals(Products) -> pull_vals(redo, Products).
 
+%% Main entry point.  See test(ex1) below.
 pull(Redo, Products0) when is_list(Products0) ->
     Products = lists:map(fun rename_product/1, Products0),
     with_eval(
