@@ -11,6 +11,7 @@
         ,msg_get/2      %% Retreive values from status messages (ad-hoc)
         ,msg_proplist/1 %% Hack, gathers all bindings
         ,msg_parse/1    %% Proper parser
+        ,open_mi/1      %% Low level
         ]).
 
          
@@ -18,20 +19,29 @@
 %%
 %% Interact with GDB from erlang.
 
+%% open_port/2 with proper arguments.  Expects script that starts gdb
+%% with -i=mi argument.
+
+open_mi(GdbMi) ->
+    open_port({spawn, GdbMi}, [{line, 1024}, use_stdio]).
 
 open_os_pid(GdbMi, OsPid, Elf, Sink) ->
-    P = open_port({spawn, GdbMi}, [{line, 1024}, use_stdio]),
+    P = open_mi(GdbMi),
     sync(P, Sink),
     cmd_sink(P, tools:format("file ~s", [Elf]), Sink),
     cmd_sink(P, tools:format("attach ~p", [OsPid]), Sink),
     P.
 
 open(GdbMi, TargetHost, TargetPort, Elf, Sink) ->
-    P = open_port({spawn, GdbMi}, [{line, 1024}, use_stdio]),
+    P = open_mi(GdbMi),
     sync(P, Sink),
-    cmd_sink(P, tools:format("file ~s", [Elf]), Sink),
+    cmd_sink_file(P, Elf, Sink),
     cmd_sink(P, tools:format("target remote ~s:~p", [TargetHost, TargetPort]), Sink),
     P.
+
+cmd_sink_file(_, none, _)   -> ok;
+cmd_sink_file(P, Elf, Sink) -> cmd_sink(P, tools:format("file ~s", [Elf]), Sink).
+    
 
 %% Ask connected dev node to push image here.
 %% Assumes host name is set up correctly so dev node can find us, as

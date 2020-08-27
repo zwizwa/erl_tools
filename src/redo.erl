@@ -1222,7 +1222,9 @@ file_changed(Eval, Product, RelPath) ->
             Changed;
         Error ->
             Msg = {redo_file_changed, Product, RelPath, Error},
-            throw(Msg)
+            log:info("WARNING: file_changed: ~p~n", [Msg]),
+            %% throw(Msg)
+            true
             %% log:info("~p~n",[Msg]), error
     end.
 

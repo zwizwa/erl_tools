@@ -100,8 +100,10 @@ call(Pid, {mem_read, OffsetIn, SizeIn}) ->
            SizeOut:32/little,
            Data/binary>>} =
         call_u32(Pid, <<"Axor">>, <<"AxMr">>, [OffsetIn, SizeIn]),
-    {ok, #{ offset => OffsetOut, size => SizeOut,
-            data => Data}};
+    Rv = {ok, #{ offset => OffsetOut, size => SizeOut,
+                 data => Data}},
+    %% log:info("mem_read -> ~p~n", [Rv]),
+    Rv;
 
 call(Pid, fwid) ->
     {ok, Bin} = call_u32(Pid, <<"AxoV">>, <<"AxoV">>, []),
@@ -136,6 +138,7 @@ call(Pid, {load_elf, Elf, PatchName}) ->
     {ok, ElfBin} = file:read_file(Elf),
     Size = size(ElfBin),
     {ok, Addr} = call(Pid, {mem_alloc, Size, ?MEM_TYPE_HINT_LARGE, 16}),
+    log:info("loading ELF at ~8.16.0B~n", [Addr]),
     ok = call(Pid, {mem_write, Addr, ElfBin}),
     {ok, #{ data := ElfBinVerify}} = call(Pid, {mem_read, Addr, Size}),
     ElfBin = ElfBinVerify,
@@ -160,8 +163,10 @@ call(Pid, {patch_start, PatchName}) ->
 
 
 call_u32(Pid, ReplyTag, Tag, Ints) when is_binary(ReplyTag) ->
-    log:info("~p~n",[{Pid,ReplyTag,Tag,Ints}]),
-    call_raw(Pid, ReplyTag, [Tag, [<<I:32/little>> || I<-Ints]]).
+    log:info("call_u32:~p~n",[{Pid,ReplyTag,Tag,Ints}]),
+    Rv = call_raw(Pid, ReplyTag, [Tag, [<<I:32/little>> || I<-Ints]]),
+    %% log:info("-> ~p~n",[Rv]),
+    Rv.
 
 call_raw(Pid, ReplyTag, RawMsg) when is_binary(ReplyTag) ->
     obj:call(Pid, {call, ReplyTag, RawMsg}, 1000).
