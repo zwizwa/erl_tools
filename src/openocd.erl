@@ -5,14 +5,16 @@
 %%
 %% This is built on "/etc/net/udev/openocd" infrastructure that is not
 %% included here.  The start/stop of openocd is managed elsewhere.
-%% This process is configured with TCP ports fort the gdbstub (3333)
-%% and telnet (4444) interfaces.
+%% This process is configured with TCP host + port for the gdbstub
+%% (3333) interface.
 
 %% The main purpose of this service is to provide a somewhat high
 %% level plug-and-play interface to gdb / openocd that presents a work
-%% flow similar to that based on uc_tools gdbstub.
+%% flow similar to that based on uc_tools gdbstub written for "blue
+%% pill" stm32f103.
 
-%% Example (zoe)  exo:start({openocd,3310}).  for axo.  needs manual start.
+%% Example on 29: exo:start({openocd,3310}).  for axo.  relies on
+%% manual start for openocd atm.
 
 start_link(Config0) ->
     %% Allow for some more convenient config shortcuts, as we use this
@@ -23,23 +25,23 @@ start_link(Config0) ->
             _ -> Config0
         end,
 
+    Host       = maps:get(host, Config, "zoe.zoo"),
     GdbPort    = maps:get(gdb_port, Config, 3333),
-    TelnetPort = maps:get(telnet_port, Config, 4444),
-    GdbMi      = maps:get(gdb_mi, Config, "arm-eabi-gdb-7.6 -i=mi"), %% FIXME
+    GdbMi      = maps:get(gdb_mi, Config, "/i/exo/gdb/gdb -i=mi"), %% FIXME
     {ok,
      serv:start(
        {handler, 
         fun() ->
                 log:set_info_name({openocd,Config0}),
                 self() ! check,
-                #{ gdb_port    => GdbPort,
-                   telnet_port => TelnetPort,
+                #{ host        => Host,
+                   gdb_port    => GdbPort,
                    gdb_mi      => GdbMi
                  }
         end,
         fun ?MODULE:handle/2})}.
 
-handle(check, State = #{gdb_mi := GdbMi, gdb_port := GdbPort }) ->
+handle(check, State = #{gdb_mi := GdbMi, gdb_port := GdbPort, host := Host }) ->
     %% What do we want to be ok here?  Let's focus on a gdb connection
     %% for now.
     case maps:find(gdb, State) of
@@ -49,7 +51,7 @@ handle(check, State = #{gdb_mi := GdbMi, gdb_port := GdbPort }) ->
         error ->
             %% Gdb = gdb:open_mi(GdbMi),
             Sink = fun(Thing) -> log:info("gdb: ~p~n", [Thing]) end,
-            Gdb = gdb:open(GdbMi, "localhost", GdbPort, none, Sink),
+            Gdb = gdb:open(GdbMi, Host, GdbPort, none, Sink),
             maps:put(gdb, Gdb, State)
     end;
 

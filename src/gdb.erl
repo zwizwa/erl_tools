@@ -27,14 +27,14 @@ open_mi(GdbMi) ->
 
 open_os_pid(GdbMi, OsPid, Elf, Sink) ->
     P = open_mi(GdbMi),
-    sync(P, Sink),
+    ok = sync(P, Sink),
     cmd_sink(P, tools:format("file ~s", [Elf]), Sink),
     cmd_sink(P, tools:format("attach ~p", [OsPid]), Sink),
     P.
 
 open(GdbMi, TargetHost, TargetPort, Elf, Sink) ->
     P = open_mi(GdbMi),
-    sync(P, Sink),
+    ok = sync(P, Sink),
     cmd_sink_file(P, Elf, Sink),
     cmd_sink(P, tools:format("target remote ~s:~p", [TargetHost, TargetPort]), Sink),
     P.
@@ -58,15 +58,19 @@ upload(TargetHost, Gdb, TargetPort, Elf, Sink) ->
     quit(P, Sink),
     Rv.
 
-%% Quit gdb, ensuring it has actually quit.
+%% Quit gdb, ensuring it has actually quit by catching the monitor
+%% message.  Note that 'quit' doesn't send any feedback, so add a
+%% timeout and be loud about failing.
 quit(P, Sink) ->
     Ref = erlang:monitor(port, P),
     ok = send(P, "quit"),
-    sync(P, Sink),
     receive 
         {'DOWN',Ref,port,_,_}=_Msg ->
             %% log:info("~p~n",[_Msg]),
             ok
+    after
+        2000 ->
+            throw(gdb_quit_timeout)
     end,
     ok.
 
@@ -74,29 +78,40 @@ quit(P, Sink) ->
 %% Send command, send results to sink, and wait for (gdb) prompt.
 cmd_sink(Port, Cmd, Sink) ->
     ok = send(Port, Cmd),
-    sync(Port, Sink),
+    ok = sync(Port, Sink),
     ok.
 
 send(Port, Cmd) ->
-    %%tools:info("send: ~s~n", [Cmd]),
+    log:info("gdb: send: ~p~n", [Cmd]),
     Port ! {self(), {command, Cmd++"\n"}}, ok.
 
 sync(Port,Sink) ->
     receive
         {Port, {data, {eol, [$(,$g,$d,$b,$)|_]}}} ->
-            Sink(eof);
+            %% log:info("sync ok~n"),
+            Sink(eof),
+            ok;
         {Port, {data, {eol, Line}}} ->
             Sink({data, untag(Line)}),
             sync(Port,Sink);
-        {Port, Anything} -> 
-            Sink({error, Anything}),
-            Sink(eof)
+        {Port, Anything} ->
+            Error = {error, Anything},
+            Sink(Error),
+            Sink(eof),
+            Error
     after
-        2000 -> {error, timeout}
+        %% This worked ok for gdbstub which seems to be a bit more
+        %% responsive than openocd.  Note sure what to do here.  Just
+        %% up the timeout?
+        %% 2000 
+        10000 ->
+            log:info("gdb:sync timeout\n"),
+            {error, timeout}
     end.
 
 %% https://sourceware.org/gdb/onlinedocs/gdb/GDB_002fMI-Output-Syntax.html#GDB_002fMI-Output-Syntax
 untag(Line) ->
+    %% log:info("untag: ~p~n",[Line]),
     case Line of
         [$^|S] -> {result,S};
         [$+|S] -> {status,S};
