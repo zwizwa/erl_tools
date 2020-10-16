@@ -24,5 +24,12 @@ In summary, the basic ideas are:
 - Managing services is what Erlang is designed for.
 
 
+* Remarks
 
+I'm getting more convinced this is my core problem.  Some issues:
 
+- Types: too easy to break things.
+
+- A rule itself needs to have a change status
+
+- Build should be robust against systems that are off

@@ -31,6 +31,8 @@
          export_deps/2, export_makefile/3,
          test/1, u1/1, u2/1]).
 
+-define(WARN,{warn, 20000}).
+
 %% TL;DR
 %%
 %% It is customary to apologize for writing yet another build system.
@@ -155,7 +157,7 @@ push(Redo, Changed) ->
 
 %% Run evaluations against a network.
 with_eval(Redo, Fun) ->
-    obj:call(Redo, {with_eval, Fun}).
+    obj:call(Redo, {with_eval, Fun}, ?WARN).
 
 %% Similar, but install a new opaque var using a function.
 make_var(Redo) ->
@@ -860,7 +862,10 @@ worker(Eval, Product, Update, OldDeps) ->
                             false ->
                                 {false, Wd};
                             true  -> 
-                                log:info("changed~n"),
+                                %% FIXME: Make this configurable?
+                                %% Logging is too verbose to go to the
+                                %% main log.
+                                %% log:info("changed~n"),
                                 {true, Wd};
                             error ->
                                 log:info("error~n"),
@@ -922,7 +927,8 @@ worker(Eval, Product, Update, OldDeps) ->
 
 
 %% Any error -> error, any change -> true.
-any_changed(ChangeList) ->
+any_changed(Prod2Changed) ->
+    ChangeList = maps:values(Prod2Changed),
     case lists:member(error, ChangeList) of
         true  -> error;
         false -> lists:member(true, ChangeList)
@@ -934,19 +940,24 @@ any_changed(ChangeList) ->
 %% rules, and will have to abort the rule when one of the deps error
 %% out.
 need(Eval, Deps) ->
-    case need_or_error(Eval, Deps) of
-        error -> throw(need_fail);
+    {Changed, P2C} = need_or_error_p2c(Eval, Deps),
+    case Changed of
+        error -> throw({error_need, P2C});
         Other -> Other
     end.
-%% This variant is for internal rule only, executed before evaluating
-%% an update rule.
+%% This variant is for internal usely, executed before evaluating an
+%% update rule.
 need_or_error(Eval, Deps) ->
-    Prod2Changed = changed(Eval, Deps),
-    Changed = any_changed(maps:values(Prod2Changed)),
-    debug("need: ~p~n",[{Changed,Prod2Changed}]),
+    {Changed, _P2C} = need_or_error_p2c(Eval, Deps),
     Changed.
+%% Also returns Prod2Changed, for debugging.
+need_or_error_p2c(Eval, Deps) ->
+    Prod2Changed = changed(Eval, Deps),
+    Changed = any_changed(Prod2Changed),
+    debug("need: ~p~n",[{Changed,Prod2Changed}]),
+    {Changed, Prod2Changed}.
 
-             
+
             
 
 %% Same as need, but give more detailed information.  Can be used for
@@ -959,8 +970,13 @@ need_or_error(Eval, Deps) ->
 %%
 changed(Eval, Deps) ->
     ok = obj:call(Eval, {worker_needs, Deps}),
+    %% Typical dilemma: what is a good level of verbosity?  We can't
+    %% put an actual timeout here.  But it is probably good to add
+    %% some indication that a particular target is taking a long time
+    %% to evaluate.
+    Timeout = ?WARN,
     tools:pmap(
-      fun(P) -> obj:call(Eval, {eval, P}) end,
+      fun(P) -> obj:call(Eval, {eval, P}, Timeout) end,
       Deps).
 
 

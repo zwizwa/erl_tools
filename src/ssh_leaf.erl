@@ -61,9 +61,9 @@ handle(Msg, State = #{host := Host}) ->
                 %% Ack from one-shot commands
                 error ->
                     case {PMsg, maps:find({cmd, Port}, State)} of
-                        {{exit_status, Status}, {ok, {Pid, Info}}} ->
-                            %% log:info("done: ~p~n", [{PMsg,Info}]),
-                            log:info("done: ~999p~n", [Info]),
+                        {{exit_status, Status}, {ok, {Pid, _Info}}} ->
+                            %% log:info("done: ~p~n", [{PMsg,_Info}]),
+                            %% log:info("done: ~999p~n", [_Info]),
                             Rv = case Status of
                                      0 -> ok;
                                      _ -> {error, {status, Status}}
@@ -93,7 +93,7 @@ handle(Msg, State = #{host := Host}) ->
         {Pid, {mkdirp, Dir}=Info} ->
             Opts = [use_stdio, exit_status, binary],
             Cmd = cmd(State,{mkdirp,Dir}),
-            log:info("Cmd=~s~n",[Cmd]),
+            %% log:info("Cmd=~s~n",[Cmd]),
             Port = open_port({spawn, Cmd}, Opts),
             maps:put({cmd,Port}, {Pid, Info}, State);
 

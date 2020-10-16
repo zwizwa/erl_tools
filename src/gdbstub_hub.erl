@@ -460,7 +460,7 @@ default_handle_packet(<<Tag,_/binary>>=Msg, State) ->
     end.
 
 print_packet(Msg, State) -> 
-    log:info("packet: ~p~n", [Msg]),
+    log:info("gdbstub_hub: packet: ~p~n", [Msg]),
     State.
 print_etf(Msg, State) -> 
     try
