@@ -151,6 +151,21 @@ dev_start(#{ tty        := Dev,
     %% application's serial port framing protocol.  SLIP is a good
     %% standard.  It is also assumed that the packet level supports
     %% the 2-byte tags.
+
+    %% FIXME: Later, change gdbstub_connect.c such that it takes
+    %% either a device name, or a full devpath.  With the latter it
+    %% could identify the device by its bus address, which would be
+    %% more robust as the ttyACMx number does change across device
+    %% reconnects, and it seems there are scenarios where the database
+    %% is not updated properly.  But really, fix that latter bug
+    %% first!
+
+    %% MaybeDevpathArg =
+    %%     case maps:find(devpath, Init0) of
+    %%         {ok, DP} -> [DP];
+    %%         error -> []
+    %%     end,
+        
     Init =
         case AppRunning of
             false ->
