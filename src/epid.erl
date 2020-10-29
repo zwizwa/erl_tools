@@ -264,11 +264,31 @@ down({'DOWN', _Ref, process, Pid, _Reason}=_Msg, State) ->
 
     
 
+%% 8. DATAFLOW BINDING SITES
+
+%% In many applications, data flow is unidirectional, leading to a
+%% directed acyclic graph structure.  In this case it is easier to use
+%% "applicative" notions, instead of "arrow" notions.  This requires
+%% re-implementation of routable objects as variable binding sites and
+%% variable references.
+
+%% A variable reference can be implemented by a "connect" operation.
+%% A binding site is a bit more complicated: it is essentially a
+%% push-style frp system.  There are two main questions here: who
+%% holds the value (and re-exposes it as a connectable node), and what
+%% to do with stateful processing?
+
+%% Focusing only on the pure connectivity, what this does effectively
+%% is to invert the DAG: specification is in "pull style",
+%% e.g. applicative notiation, while implementation is in "push
+%% style", based on message send and the creation of channels.  For
+%% each binding site B, there would be a number of reference sites
+%% {B,n}, one for each argument to the pure function that updates B,
+%% to which messages can be sent.
 
 
 
-
-%% 8. MISC NOTES
+%% 9. MISC NOTES
 
 %% External/Extended Process IDentifier: process-like resources
 %% implemented through Erlang proxy processes.
