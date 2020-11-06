@@ -9,6 +9,7 @@
          reset/1,
          uid/1,
          elf_sections/1, elf_mem_top/2, mem_ld/1,
+         elf2config/1,
          %% uc_tools gdbstub code
          config/1,company/1,product/1,serial/1,firmware/1,version/1,
          config_start/0,protocol/1,protocol2/1]).
@@ -219,11 +220,14 @@ elf_sections_row(Row) ->
 %% meaningless, but it is set to the correct value of the next free
 %% Flash byte.  We round that up to the next erase block.
 
+to_integer_hex(H) ->
+    list_to_integer(binary_to_list(H),16).
+
 elf_mem_top(Elf, FlashBS) ->
     #{ <<".bss">> := {HexRamAddr, HexRamSize, HexFlashAddr} }
         = elf_sections(Elf),
     [RamAddr,RamSize,FlashAddr] =
-        [list_to_integer(binary_to_list(H),16)
+        [to_integer_hex(H)
          || H <- [HexRamAddr, HexRamSize, HexFlashAddr]],
     RamBlock = tools:n_div(RamAddr + RamSize, 4),  %% 32-bit align
     RamTop = 4 * RamBlock,
@@ -243,3 +247,53 @@ mem_ld(#{ rom := FlashTop, ram := RamTop }) ->
           "}\n",
           [FlashTop,RamTop]),
     Script.
+
+
+
+%% Second attempt at something simpler.  What I want is to be able to
+%% load the firmware config block from an elf file.  It seems simplest
+%% to not have the build system create .bin files, but to just dump
+%% them when they are needed.
+
+%% Currently hardcoded to ARM + assume it is in path.
+elf2config_bin(Elf) ->
+    Tmp = lib:nonl(os:cmd("mktemp")),
+    Cmd = tools:format(
+            "arm-none-eabi-objcopy -j .config -O binary '~s' '~s'",
+            [Elf, Tmp]),
+    {ok, []} = run:script_output(Cmd, infinity),
+    %% log:info("Cmd = ~p~n",[Cmd]),
+    {ok, Bin} = file:read_file(Tmp),
+    file:delete(Tmp),
+    {ok, Bin}.
+               
+
+%% Parse the config block from ELF file.
+elf2config(Elf) ->
+    %% First get the absolute address
+    #{ <<".config">> := {_, Config_, _} } = elf_sections(Elf),
+    Config = to_integer_hex(Config_),
+    %% Then parse the rest from the binary dump of the file.
+    {ok, Bin} = elf2config_bin(Elf),
+    << C0:32/little,  C1:32/little, _C2:32/little, _C3:32/little,
+      _C4:32/little, _C5:32/little, _C6:32/little, _C7:32/little,
+       C8:32/little,  C9:32/little,
+      _/binary>> = Bin,
+    %% FIXME: Get this from the elf using routines above.
+    Cstring = fun(Abs) -> cstring(Bin, Abs - Config) end,
+    #{company  => Cstring(C0),
+      product  => Cstring(C1),
+      firmware => Cstring(C8),
+      version  => Cstring(C9)}.
+
+
+cstring(Bin, Offset) ->
+    case binary:at(Bin, Offset) of
+        0 -> [];
+        Char -> [Char | cstring(Bin, Offset+1)]
+    end.
+            
+
+    
+    
+    

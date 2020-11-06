@@ -207,7 +207,9 @@ dev_start(#{ tty        := Dev,
                              obj:call(Pid, {set_meta, 
                                             gdbstub:uid(Pid),
                                             gdbstub:protocol(Pid),
-                                            gdbstub:protocol2(Pid)},
+                                            gdbstub:protocol2(Pid),
+                                            gdbstub:firmware(Pid),
+                                            gdbstub:version(Pid)},
                                       6001)
                          catch
                              C:E ->
@@ -230,7 +232,7 @@ dev_handle(Msg,State) ->
     dev_handle_(Msg,State).
 dev_handle_(Msg={_,dump},State) ->
     obj:handle(Msg, State);
-dev_handle_({Pid,{set_meta, UID, Proto, Proto2_}}, State) ->
+dev_handle_({Pid,{set_meta, UID, Proto, Proto2_, Firmware, Version}}, State) ->
     obj:reply(Pid, ok),
     Proto2 = case Proto2_ of unknown -> Proto; P2 -> P2 end,
     %% Pick a decoder for Proto2
@@ -240,7 +242,9 @@ dev_handle_({Pid,{set_meta, UID, Proto, Proto2_}}, State) ->
          decode => decoder(Proto2),
          encode => encoder(Proto),
          proto => Proto,
-         proto2 => Proto2 });
+         proto2 => Proto2,
+         firmware => Firmware,
+         version => Version });
 dev_handle_({set_peer, Peer}, State) ->
     link(Peer),
     maps:put(peer, Peer, State);
