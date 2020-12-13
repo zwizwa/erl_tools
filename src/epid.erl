@@ -7,6 +7,8 @@
     transfer/2,
     call/3, reply/3,
 
+    dag_update/4,
+
     %% Machinery for implementing an aggregating proxy.
     subscribe/3, unsubscribe/3, unsubscribe_all/2, down/2,
     subscribers/2, dispatch/3]).
@@ -269,7 +271,7 @@ down({'DOWN', _Ref, process, Pid, _Reason}=_Msg, State) ->
 %% In many applications, data flow is unidirectional, leading to a
 %% directed acyclic graph structure.  In this case it is easier to use
 %% "applicative" notions, instead of "arrow" notions.  This requires
-%% re-implementation of routable objects as variable binding sites and
+%% interpretation of routable objects as variable binding sites and
 %% variable references.
 
 %% A variable reference can be implemented by a "connect" operation.
@@ -286,6 +288,33 @@ down({'DOWN', _Ref, process, Pid, _Reason}=_Msg, State) ->
 %% {B,n}, one for each argument to the pure function that updates B,
 %% to which messages can be sent.
 
+%% Note that by focusing on a data representation spec, it is still
+%% possible to use function composition to compose networks, in a way
+%% similar as it is to abstract name resolution.
+
+%% The function below converts a DAG specification (change) to a
+%% sequence of connect and disconnect operations.
+
+dag_update(
+  %% Parameterized by abstract connect, disconnect, to allow
+  %% application-specific name resolution and connection tracking.
+  Connect, Disconnect,
+  %% States are "determined by" maps.
+  OldState, NewState) ->
+    Diff = diff:diff(OldState, NewState),
+    lists:foreach(
+      fun({delete,[Dst]}) ->
+              PrevSrc = maps:get(Dst, OldState),
+              Disconnect(PrevSrc, Dst);
+         ({insert,[Dst],Src}) ->
+              Connect(Src, Dst);
+         ({update,[Dst],PrevSrc,Src}) ->
+              Disconnect(PrevSrc, Dst),
+              Connect(Src, Dst)
+      end,
+      Diff),
+    Diff.
+    
 
 
 %% 9. MISC NOTES

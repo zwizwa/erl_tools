@@ -52,7 +52,29 @@ handle(<<?TAG_PLUGIO:16, _/binary>>=Msg, State) ->
     %% handle_to_pty(plugin_pty, {pty,"/tmp/plugin"}, Msg, State);
     handle_to_port(plugin_port, {tcp_listen,5555}, Msg, State);
 
+handle(<<?TAG_U32:16, NbArgs:16, Bin/binary>>=_Msg, State) ->
+    %% This needs to go to epid dispatch.
+    BArgsLen = NbArgs*4,
+    BArgs = binary:part(Bin, 0, BArgsLen),
+    BTail = binary:part(Bin, BArgsLen, size(Bin)-BArgsLen),
+    %% log:info("TAG_U32 ~p\n", [{NbArgs,BArgs}]),
+    %% FIXME: Tail
+    Args = [Arg || <<Arg:32>> <= BArgs],
+    case Args of
+        [Tag|Rest] ->
+            epid:dispatch(Tag, Rest, State);
+        _ ->
+            ok
+    end,
+    %% log:info("TAG_U32 ~p\n", [{Args,BTail}]),
+    State;
+
 %% Support the fine-grained sinks protocol.  See exo_connect.erl
+handle({epid_send,Src,{epid_subscribe,Dst}}=_Msg, State) ->
+    epid:subscribe(Src, Dst, State);
+handle({epid_send,Src,{epid_unsubscribe,Dst}}=_Msg, State) ->
+    epid:unsubscribe(Src, Dst, State);
+
 handle({epid_send,Sink,Msg}, State) ->
     case Sink of
         {relay, Relay} when is_number(Msg) ->
@@ -71,6 +93,7 @@ handle({epid_send,Sink,Msg}, State) ->
             log:info("WARNING: message ~p for unkown Sink ~p~n", [Msg, Sink])
     end,
     State;
+
 
 %% Temperature and humidity data
 handle(<<16#FFF30000:32, OK:8, RH:16, T:16, _/binary>>=_Msg, State = #{name := Name}) ->
