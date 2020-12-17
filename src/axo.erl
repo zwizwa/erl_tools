@@ -2,7 +2,8 @@
 -export([start_link/1, handle/2, call/1, call/2]).
 -define(MEM_TYPE_HINT_LARGE,(1 bsl 17)).
 
-
+%% This contains protocol bits.
+%% Start reading at axo_hub.erl to find out how to set up the hardware.
 
 %% Axo protocol:
 %% https://github.com/JohannesTaelman/axrai/blob/master/firmware/pconnection.c
@@ -63,9 +64,21 @@
 
 %% pconnection_mem.c rcv_mem_alloc
 
+%% Convenience routine, specialized to current ad-hoc setup.
+axo_pid() ->
+    Hub = exo:need(axo_hub),
+    case axo_hub:pids(Hub) of
+        [Pid|_] ->
+            Pid;
+        [] ->
+            log:info("axo_pid: waiting for hub~n"),
+            Hub ! {add_dev,<<"zoo">>},
+            timer:sleep(1000),
+            axo_pid()
+    end.
+
 call(Cmd) ->
-    [Pid|_] = axo_hub:pids(exo:need(axo_hub)),
-    call(Pid, Cmd).
+    call(axo_pid(), Cmd).
 
 call(Pid, {mem_alloc, Size}) ->
     call(Pid, {mem_alloc, Size, 0, 4});
@@ -158,9 +171,7 @@ call(Pid, {patch_start, PatchName}) ->
     %% Note that is the first character in PatchName is null, then the
     %% format is different and contains a patch index.
     %% call_raw(Pid, <<"AxoS">>, [<<"AxPs">>, PatchName]).
-    Pid ! {send, [<<"AxPs">>, PatchName]}.
-
-
+    Pid ! {send, [<<"AxPs">>, PatchName, 0]}.
 
 call_u32(Pid, ReplyTag, Tag, Ints) when is_binary(ReplyTag) ->
     log:info("call_u32:~p~n",[{Pid,ReplyTag,Tag,Ints}]),
@@ -179,10 +190,11 @@ start_link(Config) ->
        {handler,
         fun() ->
                 Port = 
-                    tools:spawn_port(
+                    exo_port:spawn_port(
                       Config,
-                      {"axo_connect.elf", []},
-                      [use_stdio, binary, exit_status, {packet,4}]),
+                      #{ cmd => "axo_connect.elf",
+                         args => [],
+                         opts => [use_stdio, binary, exit_status, {packet,4}]}),
                 State = maps:merge(
                           Config,
                           #{ port => Port }),

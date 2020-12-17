@@ -4,14 +4,33 @@
 
 %% Start here:
 %%
-%% - plug in core board in zoe
-%% - @29: exo:need(axo_hub) ! {add_dev,<<"zoe">>}.
-%% - @12: verify that log messages pass by (up asks version)
+%% - plug in core board in zoo
+%% - panda: exo:need(axo_hub) ! {add_dev,<<"zoo">>}.
+%% - zoo:   verify that log messages pass by (up asks version)
 %%
+%% Partial implementation of axo protocol in axo.erl
+%%
+%% Then to use, see axo:call/1
+
+
+
+
+
 %% Code is derived from ftdi_hub.erl / ftdi.erl
 %% See comments in that file.
 
-%% Partial implementation of axo protocol in axo.erl
+
+%% To use debugger, plug in the board.  First the axoloti board, then
+%% the stlink.  /etc/net/udev/openocd/3310_axoloti.sh starts openocd
+%% on port 3312 via /etc/udev/rules.d/99-openocd.rules
+%%
+%% Firmware loading:
+%%
+%% (gdb) file /i/exo/axrai/firmware/build/axoloti.elf 
+%% (gdb) load
+%%
+%% There is some automated gdb firmware load setup as well, see do.erl
+%% target {axo_openocd,Host,Port}.
 
 
 start_link(#{ spawn_port := _ }=Config) ->

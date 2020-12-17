@@ -185,7 +185,7 @@ transfer(Src, Dst) ->
 dispatch(EventId, Msg, State) ->
     lists:foreach(
       fun(Epid) ->
-              log:info("epid:dispatch ~p~n", [{Epid,Msg}]),
+              %% log:info("epid:dispatch ~p~n", [{Epid,Msg}]),
               send(Epid, Msg)
       end,
       subscribers(EventId, State)).

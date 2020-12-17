@@ -54,6 +54,7 @@ handle(<<?TAG_PLUGIO:16, _/binary>>=Msg, State) ->
 
 handle(<<?TAG_U32:16, NbArgs:16, Bin/binary>>=_Msg, State) ->
     %% This needs to go to epid dispatch.
+    %% log:info("TAG_U32 ~p\n", [_Msg]),
     BArgsLen = NbArgs*4,
     BArgs = binary:part(Bin, 0, BArgsLen),
     BTail = binary:part(Bin, BArgsLen, size(Bin)-BArgsLen),
@@ -89,6 +90,20 @@ handle({epid_send,Sink,Msg}, State) ->
                       gdbstub_hub:call(Self, <<0,0,Code>>, 1000)
               end),
             ok;
+        midi ->
+            %% FIXME: Jack interface produces a list of messages?
+            lists:foreach(
+              fun(Midi) ->
+                      case Midi of
+                          {cc,_,CC,Val} ->
+                              self() ! {send_u32,[CC,Val]},
+                              ok;
+                          _ ->
+                              log:info("ignore midi ~p~n", [Msg]),
+                              ok
+                      end
+              end,
+              Msg);
         _ ->
             log:info("WARNING: message ~p for unkown Sink ~p~n", [Msg, Sink])
     end,
