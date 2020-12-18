@@ -1,32 +1,38 @@
-%% Abstract Syntax
-
-%% Here's the conundrum:
+%% A "Final" higher order abstract syntax representation in Erlang.
+%% http://okmij.org/ftp/tagless-final/index.html
+%% https://en.wikipedia.org/wiki/Higher-order_abstract_syntax
+%% 
+%% The main purpose of this abstraction is to implement the compiler
+%% for a pure dataflow language.
 %%
-%% - Passing state explicitly is a pain.
-%%
-%% - Explicit monad syntax is really annoying for a "pure" DSL.
-%%
-%% - Instantiating and using variables bound to context instead of
-%%   just named Erlang functions is a pain.
-%%
-%% So, why not stop worring and use the process dictionary to bind an
-%% evaluator process to its "accumulator process".  The only actual
-%% effect is data structure compilation in the background,
-%% unobservable to the pure DSL code.
-%%
-%% Note that we could put the compiler state in the process dictionary
-%% as well, but that seems like more of a violation of principles.
-
+%% The side effect needed to thread compilation state through the
+%% evaluation of the abstract syntax is implemented using a second
+%% process.  The individual operators that implement language
+%% semantics resemble operators in a State Monad.  The evaluaor
+%% process is implictly linked to the evaluator process through the
+%% process dictionary, and state-threading operations are implemented
+%% using RPC.  Note that this is impure code, but the side effect is
+%% only observable during the extent of eval/3, which is reasonable.
 
 -module(dsl).
--export([eval/3, handle/2, op/2, example/0]).
-eval(InitState, Function, Argument) ->
-    CompilerPid = 
+-export([eval/3,
+         op/2,
+         compile_dataflow/2,
+         example/0]).
+eval(InitState, Function, Arguments) ->
+    StatePid = 
         %% Compiler is a separate process to isolate side effects.
         serv:start(
           {handler,
            fun() -> InitState end,
-           fun ?MODULE:handle/2}),
+           %% Keep this really simple.
+           fun({_, dump}=Msg, State) ->
+                   obj:handle(Msg, State);
+              ({Pid, {op, Op, Arg}}, State = #{ ops := Ops }) ->
+                   {Val, State1} = Ops(Op, Arg, State),
+                   obj:reply(Pid, Val),
+                   State1
+           end}),
     Ref = erlang:make_ref(),
     Pid = self(),
     _EvalPid = 
@@ -34,52 +40,48 @@ eval(InitState, Function, Argument) ->
         %% process dictionary.
         spawn_link(
           fun() ->
-                  put(dsl_compiler, CompilerPid),
-                  Value = Function(Argument),
-                  State = obj:call(CompilerPid, dump),
+                  put(dsl_state, StatePid),
+                  Value = apply(Function, Arguments),
+                  State = obj:call(StatePid, dump),
                   Pid ! {Ref, Value, State}
           end),
     receive
         {Ref, Value, State} ->
-            exit(CompilerPid, normal),
+            exit(StatePid, normal),
             {ok, {Value, State}}
     end.
 
-%% Keep this really simple.
-handle({_, dump}=Msg, State) ->
-    obj:handle(Msg, State);
-handle({Pid, {op, Op, Arg}}, State = #{ ops := Ops }) ->
-    {Val, State1} = Ops(Op, Arg, State),
-    obj:reply(Pid, Val),
-    State1.
-op(Op, Arg) ->
-    obj:call(get(dsl_compiler), {op, Op, Arg}).
+op(Op, Args) ->
+    obj:call(get(dsl_state), {op, Op, Args}).
 
 
 %% Simple dataflow language.
-compile_dataflow(Program) ->
+compile_dataflow(Program, ProgramArgs) ->
     InitState = #{
       env => [],
       ops =>
-          fun(Op, {_, _}=Args, State = #{ env := Env}) ->
+          fun(Op, Args, State = #{ env := Env}) ->
                   Node = {r, length(Env)},
-                  Binding = {Node, {Op, Args}},
+                  Binding = {Node, {op, {Op, Args}}},
                   State1 = maps:put(env, [Binding | Env], State),
                   {Node, State1}
           end
      },
     {ok, {Output,State}} =
-        eval(InitState, Program, {a, b}),
-    Dag = maps:from_list(maps:get(env, State)),
-    {Output,Dag}.
+        eval(InitState, Program, ProgramArgs),
+    %% Provide bindings in intantiation order.
+    Bindings = lists:reverse(maps:get(env, State)),
+    {Output, Bindings}.
 
 example() ->
     compile_dataflow(
-        fun({A, B}) ->
-                %% Typically these would be wrapped in an interface
-                %% function, but that is not necessary for testing.
-                op(mul,
-                   {op(add, {A, B}),
-                    A})
-        end).
+      fun(A, B) ->
+              %% Typically these wo3uld be wrapped in an interface
+              %% function, but that is not necessary for testing.
+              op(mul, [op(add, [A, B]), A])
+      end,
+      [a, b]).
+     
+
+
       
