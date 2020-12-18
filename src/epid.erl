@@ -2,6 +2,7 @@
 -export(
    [send/2,
     connect/2, disconnect/2,
+    connect_proc/2,
     connect_bidir/2, disconnect_bidir/2,
     map/2,
     transfer/2,
@@ -314,6 +315,31 @@ dag_update(
       end,
       Diff),
     Diff.
+
+
+%% Connectivity.
+%%
+%% Processor nodes have extra structure: we can derive the
+%% corresponding inputs directly through composite naming derived from
+%% OutputTag.
+%%
+connect_proc(InputMap, Output) ->
+
+    %% Note that this is general
+
+    %% This call abstracts process management for epid_proc instances.
+    %% E.g. it will call ?MODULE:start_link to get the process up if
+    %% necssary, and return an insteance to us.  See exo_patch.erl for
+    %% an example.
+    {epid, Pid, OutputTag} = Output,
+
+    %% Use the same resolver to instantiate the inputs if needed.
+    lists:foreach(
+      fun({InputName, InputEpid}) ->
+              InputTag = {OutputTag, InputName},
+              epid:connect(InputEpid, {epid, Pid, InputTag})
+      end,
+      maps:to_list(InputMap)).
     
 
 
