@@ -38,7 +38,7 @@
 %% Some other protocol will need to be devised to push unpack into the
 %% machine, providing multiple outputs.
 
--define(PROC_TAG,proc).
+-define(PROC_TAG,epid_proc).
 
 %% This should dispatch based on Type.
 %% Note that _Tag only needs to be unique wrt Type.

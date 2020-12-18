@@ -192,7 +192,14 @@ dispatch(EventId, Msg, State) ->
       subscribers(EventId, State)).
 
 subscribers(EventId, State) ->
-    maps:get({epid_dispatch,EventId}, State, []).
+    Subs = maps:get({epid_dispatch,EventId}, State, []),
+    case Subs of
+        [] -> ok;
+        _ ->
+            %% log:info("Subs ~p~n", [{EventId,Subs}]),
+            ok
+    end,
+    Subs.
 
 %% Set up the data structure necessary for dispatch.  Processes are
 %% monitored, so we can tear down connections if proxy process fails.
