@@ -117,7 +117,7 @@ debug(_F,_As) ->
 %% -------- CORE
 
 %% Bound shorthands in case of registered redo singleton setup.
-pull(Products) -> pull(redo, Products).
+pull(Products) -> pull(exo:need(redo), Products).
 pull_vals(Products) -> pull_vals(redo, Products).
 
 %% Main entry point.  See test(ex1) below.
