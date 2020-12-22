@@ -56,14 +56,29 @@ op(Op, Args) ->
 
 
 %% Simple dataflow language.
+
 compile_dataflow(Program, ProgramArgs) ->
     InitState = #{
       env => [],
       ops =>
           fun(Op, Args, State = #{ env := Env}) ->
-                  Node = {r, length(Env)},
+
+                  %% Old style: just count nodes.  This works but it
+                  %% does not distinguish instances per type, which is
+                  %% really what we want.
+                  %% N = length(Env), Node = {r, N},
+
+                  %% New style: allow counting per op type.
+                  OpType = optype(Op),
+                  N = maps:get({next, OpType}, State, 0),
+                  Node = {node, {OpType, N}},
+
                   Binding = {Node, {op, {Op, Args}}},
-                  State1 = maps:put(env, [Binding | Env], State),
+                  State1 = 
+                      maps:merge(
+                        State,
+                        #{{next, OpType} => N + 1,
+                          env => [Binding | Env]}),
                   {Node, State1}
           end
      },
@@ -73,12 +88,21 @@ compile_dataflow(Program, ProgramArgs) ->
     Bindings = lists:reverse(maps:get(env, State)),
     {Output, Bindings}.
 
+optype(Op) ->
+    case Op of
+        {OpT,_} -> OpT;
+        _       -> Op
+    end.
+
+
 example() ->
     compile_dataflow(
       fun(A, B) ->
               %% Typically these wo3uld be wrapped in an interface
               %% function, but that is not necessary for testing.
-              op(mul, [op(add, [A, B]), A])
+              C = op(mul, [A,A]),
+              D = op(mul, [B,B]),
+              op(add, [C, D])
       end,
       [a, b]).
      
