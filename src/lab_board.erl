@@ -124,6 +124,16 @@ handle(<<16#FFF30000:32, OK:8, RH:16, T:16, _/binary>>=_Msg, State = #{name := N
       exo:pids(thermostat)),
     State;
 
+%% FIXME: It is probably not ok to make this this catch-all.
+%% But it is very convenient to have the command interface be the default.
+handle({Name, Args}, State) when is_atom(Name) and is_list(Args) ->
+    %% Use TAG_U32 to access Forth console commands.
+    %% This uses the first argument ==0 to dispatch on.
+    Data = atom_to_binary(Name, utf8),
+    self() ! {send_u32, Args, Data},
+    State;
+handle(Name, State) when is_atom(Name) ->
+    handle({Name,[]}, State);
 
 handle(Msg, State) ->
     %% log:info("lab_board: passing on: ~p~n",[Msg]),

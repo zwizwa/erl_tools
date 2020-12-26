@@ -8,6 +8,7 @@
          call/3,
          parse_syslog_ttyACM/1,
          tag_u32/1,
+         tag_u32/2,
 
          %% Internal, for reloads
          ignore/2, print_etf/2,
@@ -322,6 +323,9 @@ dev_handle_({send_u32, U32List}, State) ->
     %% TAG_U32 format
     dev_handle({send_packet, tag_u32(U32List)}, State);
 
+dev_handle_({send_u32, U32List, Data}, State) ->
+    %% TAG_U32 format
+    dev_handle({send_packet, tag_u32(U32List, Data)}, State);
 
 dev_handle_({send_term, Term},
             #{ port := Port } = State) ->
@@ -330,7 +334,6 @@ dev_handle_({send_term, Term},
     Size = size(Bin),
     true = port_command(Port, [<<Size:32>>,Bin]),
     State;
-
 
 %% Generic RPC call.   See also ?TAG_REPLY case below.
 %%
@@ -368,7 +371,6 @@ dev_handle_({Port, Msg}, #{ port := Port} = State) ->
 dev_handle_({Port, _}=Msg, State) when is_port(Port) ->
     Handle = maps:get({handle,Port}, State),
     Handle(Msg, State);
-
 
 %% Any other message gets passed to the "driver", which originally
 %% only handled incoming binary messages, but can just as well be
@@ -512,9 +514,12 @@ decode_info(Msg, State = #{ line_buf := Buf }) ->
 %% low level code.
 %%tag_u32({U32List,BinaryTail}) ->
 %%    [tag_u32(U32List), BinaryTail];
-tag_u32(U32List) ->
+tag_u32(U32List,Data) ->
     N = length(U32List),
-    [<<16#FFF5:16, N:16>> | [<<W:32>> || W<-U32List]].
+    [[<<16#FFF5:16, N:16>> | [<<W:32>> || W<-U32List]],
+     Data].
+tag_u32(U32List) ->
+    tag_u32(U32List,[]).
 
     
 
