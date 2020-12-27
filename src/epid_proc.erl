@@ -38,24 +38,22 @@
 %% Some other protocol will need to be devised to push unpack into the
 %% machine, providing multiple outputs.
 
--define(PROC_TAG,epid_proc).
+-define(PROC_OUTPUT_TAG,epid_proc_out).
 
 %% This should dispatch based on Type.
 %% Note that _Tag only needs to be unique wrt Type.
-epid({epid_proc, _Tag, _Type}=Spec) ->
-    {ok, Pid} = start_link(#{spec => Spec}),
-    {epid, Pid, ?PROC_TAG}.
+epid(Type) ->
+    {ok, Pid} = start_link(#{type => Type}),
+    {epid, Pid, ?PROC_OUTPUT_TAG}.
 
-start_link(InitState = #{ spec := Spec}) ->
-    {epid_proc, _Tag, Type} = Spec,
+start_link(InitState = #{ type := Type }) ->
     log:info("start_epid_machine ~p~n", [Type]),
     {ok,
      serv:start(
        {handler,
         fun() -> InitState end,
         fun ?MODULE:handle/2})}.
-handle(Msg, State = #{spec := Spec}) ->
-    {epid_proc, _Tag, Type} = Spec,
+handle(Msg, State = #{type := Type}) ->
     {Module, Function} =
         case Type of
             {M,F} when is_atom(M) and is_atom(F) -> {M, F};
@@ -64,24 +62,24 @@ handle(Msg, State = #{spec := Spec}) ->
     case Msg of
         {_, dump} ->
             obj:handle(Msg, State);
-        {epid_send, ?PROC_TAG, {epid_subscribe, Dst}} ->
-            epid:subscribe(?PROC_TAG, Dst, State);
-        {epid_send, ?PROC_TAG, {epid_unsubscribe, Dst}} ->
-            epid:unsubscribe(?PROC_TAG, Dst, State);
+        {epid_send, ?PROC_OUTPUT_TAG, {epid_subscribe, Dst}} ->
+            epid:subscribe(?PROC_OUTPUT_TAG, Dst, State);
+        {epid_send, ?PROC_OUTPUT_TAG, {epid_unsubscribe, Dst}} ->
+            epid:unsubscribe(?PROC_OUTPUT_TAG, Dst, State);
         %% Note that all processors that support the applicative model
         %% can reference the input nodes by composing the output tag
         %% name with the input tag.
-        {epid_send, {?PROC_TAG, InputTag}, Value} ->
+        {epid_send, {?PROC_OUTPUT_TAG, InputTag}, Value} ->
             {Outputs,State1} =
                 Module:Function(InputTag,Value,State),
             lists:foreach(
               fun(OutputValue) ->
                       %% log:info("dispatch ~p~n", [OutputValue]),
-                      epid:dispatch(?PROC_TAG, OutputValue, State1)
+                      epid:dispatch(?PROC_OUTPUT_TAG, OutputValue, State1)
               end, Outputs),
             State1;
         _ ->
-            log:info("~p: ~p~n", Spec, [Msg])
+            log:info("epid_proc: ~p: ~p~n", Type, [Msg])
     end.
 
 

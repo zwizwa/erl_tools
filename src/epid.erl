@@ -16,7 +16,7 @@
 -export_type(
    [epid/0, epid_map/1]).
 
-%% TL;DR: Routable names for proxied objects.
+%% TL;DR: Fine-grained abstract (heterogeneous) processes.
 
 %% 1. INTRODUCTION
 
