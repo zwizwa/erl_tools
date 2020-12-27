@@ -39,9 +39,14 @@ op(TypeName, Args) ->
 %% To instantiate, convert the Spec to a concrete ANF datatype,
 %% instantiate each binding, and connect output nodes.
 
+eval(O,As) ->
+    log:info("epid_app:eval: ~p~n", [{O,As}]),
+    {op, {O, As}}.
+
 instantiate(MakeEpid, Spec) ->
+    Config = #{ eval => fun eval/2 },
     {FlatSpec, Intermediates} =
-        dsl:compile_dataflow(Spec, []),
+        dsl:compile_dataflow(Spec, [], Config),
     Instances =
         lists:foldl(
           fun(Binding, Instances) ->

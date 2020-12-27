@@ -18,6 +18,7 @@
 -export([eval/3,
          op/2,
          compile_dataflow/2,
+         compile_dataflow/3,
          example/0]).
 eval(InitState, Function, Arguments) ->
     StatePid = 
@@ -56,37 +57,41 @@ op(Op, Args) ->
 
 
 %% Simple dataflow language.
-
 compile_dataflow(Program, ProgramArgs) ->
-    InitState = #{
+    compile_dataflow(Program, ProgramArgs, #{}).
+compile_dataflow(Program, ProgramArgs, Config) ->
+    DefaultState = #{
       env => [],
       ops =>
           fun(Op, Args, State = #{ env := Env}) ->
-
-                  %% Old style: just count nodes.  This works but it
-                  %% does not distinguish instances per type, which is
-                  %% really what we want.
-                  %% N = length(Env), Node = {r, N},
-
-                  %% New style: allow counting per op type.
+                  %% Instances are counted per operation type.
                   OpType = optype(Op),
                   N = maps:get({next, OpType}, State, 0),
-                  Node = {node, {OpType, N}},
-
-                  Binding = {Node, {op, {Op, Args}}},
+                  Bind = maps:get(bind, State, fun bind/4),
+                  {Node,Env1} = Bind({OpType, N}, Op, Args, Env),
                   State1 = 
                       maps:merge(
                         State,
                         #{{next, OpType} => N + 1,
-                          env => [Binding | Env]}),
+                          env => Env1}),
                   {Node, State1}
           end
      },
+    InitState = maps:merge(DefaultState, Config),
     {ok, {Output,State}} =
         eval(InitState, Program, ProgramArgs),
     %% Provide bindings in intantiation order.
     Bindings = lists:reverse(maps:get(env, State)),
     {Output, Bindings}.
+
+%% Default evaluator/binder is just compilation to syntax data
+%% structure.  For an example where this is overridden, see
+%% epid_app.erl which performs processor instantiation eagerly.
+bind({OpType, N}, Op, Args, Env) ->
+    Node = {node, {OpType, N}},
+    Binding = {Node, {op, {Op, Args}}},
+    Env1 = [Binding|Env],
+    {Node, Env1}.
 
 optype(Op) ->
     case Op of

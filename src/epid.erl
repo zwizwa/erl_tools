@@ -8,6 +8,8 @@
     transfer/2,
     call/3, reply/3,
 
+    unpack/2,
+
     dag_update/4,
 
     %% Machinery for implementing an aggregating proxy.
@@ -348,6 +350,12 @@ connect_proc(InputMap, Output) ->
       end,
       maps:to_list(InputMap)).
     
+
+%% Remove one layer of wrapping.  E.g. map an epid to an Erlang map of
+%% epids.  This is used e.g. to implement multiple outputs, because
+%% the output of a processor node is always a single epid.
+unpack(Epid, Timeout) ->
+    call(Epid, epid_unpack, Timeout).
 
 
 %% 9. MISC NOTES
