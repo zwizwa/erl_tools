@@ -66,6 +66,8 @@ handle(Msg, State = #{type := Type}) ->
             epid:subscribe(?PROC_OUTPUT_TAG, Dst, State);
         {epid_send, ?PROC_OUTPUT_TAG, {epid_unsubscribe, Dst}} ->
             epid:unsubscribe(?PROC_OUTPUT_TAG, Dst, State);
+        {epid_send, ?PROC_OUTPUT_TAG, epid_unsubscribe_all} ->
+            epid:unsubscribe_all(?PROC_OUTPUT_TAG, State);
         %% Note that all processors that support the applicative model
         %% can reference the input nodes by composing the output tag
         %% name with the input tag.
@@ -78,8 +80,9 @@ handle(Msg, State = #{type := Type}) ->
                       epid:dispatch(?PROC_OUTPUT_TAG, OutputValue, State1)
               end, Outputs),
             State1;
-        _ ->
-            log:info("epid_proc: ~p: ~p~n", Type, [Msg])
+        %% We don't need compilation.
+        epid_compile ->
+            State
     end.
 
 
