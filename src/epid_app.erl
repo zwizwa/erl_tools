@@ -71,9 +71,7 @@ instantiate_binding(MakeEpid,
           fun(_InputName, Ref) ->
                   MakeEpid(ref(Ref, Instances)) end,
           InputSpec),
-    %% Operator is instantiated in unbound state.
-    OutputEpid = MakeEpid({epid_op, InstanceId}),
-    epid:connect_proc(InputEpids, OutputEpid),
+    OutputEpid = MakeEpid({epid_app, InstanceId, InputEpids}),
     maps:put(R, OutputEpid, Instances).
 
 ref({node,_}=R, Instances) -> maps:get(R, Instances);
