@@ -29,8 +29,8 @@ eval(InitState, Function, Arguments) ->
            %% Keep this really simple.
            fun({_, dump}=Msg, State) ->
                    obj:handle(Msg, State);
-              ({Pid, {op, Op, Arg}}, State = #{ ops := Ops }) ->
-                   {Val, State1} = Ops(Op, Arg, State),
+              ({Pid, {op, Op, Arg}}, State = #{ bind := Bind }) ->
+                   {Val, State1} = Bind(Op, Arg, State),
                    obj:reply(Pid, Val),
                    State1
            end}),
@@ -49,7 +49,7 @@ eval(InitState, Function, Arguments) ->
     receive
         {Ref, Value, State} ->
             exit(StatePid, normal),
-            {ok, {Value, State}}
+            {ok, #{ value => Value, state => State}}
     end.
 
 op(Op, Args) ->
@@ -62,43 +62,29 @@ compile_dataflow(Program, ProgramArgs) ->
 compile_dataflow(Program, ProgramArgs, Config) ->
     DefaultState = #{
       env => [],
-      ops =>
-          fun(Op, Args, State = #{ env := Env}) ->
-                  %% Instances are counted per operation type.
-                  OpType = optype(Op),
+      bind =>
+          %% Perform instance allocation, and call into bind-like
+          %% instantiator.
+          fun(OpType, Args, State = #{ bind_dfl := Bind }) ->
                   N = maps:get({next, OpType}, State, 0),
-                  Bind = maps:get(bind, State, fun bind/4),
-                  {Node,Env1} = Bind({OpType, N}, Op, Args, Env),
-                  State1 = 
-                      maps:merge(
-                        State,
-                        #{{next, OpType} => N + 1,
-                          env => Env1}),
-                  {Node, State1}
+                  InstanceId = {OpType, N},
+                  Bind(InstanceId, Args,
+                       maps:put({next, OpType}, N + 1, State))
           end
      },
     InitState = maps:merge(DefaultState, Config),
-    {ok, {Output,State}} =
-        eval(InitState, Program, ProgramArgs),
-    %% Provide bindings in intantiation order.
-    Bindings = lists:reverse(maps:get(env, State)),
-    {Output, Bindings}.
+    eval(InitState, Program, ProgramArgs).
 
-%% Default evaluator/binder is just compilation to syntax data
-%% structure.  For an example where this is overridden, see
-%% epid_app.erl which performs processor instantiation eagerly.
-bind({OpType, N}, Op, Args, Env) ->
+
+
+%% EXAMPLE
+
+%% Binder for compiling to syntax data structure.
+bind_compile({OpType, N}, Args, State = #{ env := Env }) ->
     Node = {node, {OpType, N}},
-    Binding = {Node, {op, {Op, Args}}},
+    Binding = {Node, {op, {OpType, Args}}},
     Env1 = [Binding|Env],
-    {Node, Env1}.
-
-optype(Op) ->
-    case Op of
-        {OpT,_} -> OpT;
-        _       -> Op
-    end.
-
+    {Node, maps:put(env, Env1, State)}.
 
 example() ->
     compile_dataflow(
@@ -109,7 +95,8 @@ example() ->
               D = op(mul, [B,B]),
               op(add, [C, D])
       end,
-      [a, b]).
+      [a, b],
+      #{ bind_dfl => fun bind_compile/3 }).
      
 
 
