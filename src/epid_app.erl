@@ -39,28 +39,29 @@ op(OpType, Args) ->
 %% instaniation.  I.e. no intermediate data structure is generated (as
 %% e.g. in the example in dsl.erl)
 %%
-%% dsl:compile_dataflow basically only keeps track of instance
-%% numbers, starting with N=0 per unique OpType.
+%% MakeEpid in exo_patch is memoized, i.e. it will re-use an existing
+%% processor if the input pids are the same.  This makes incremental
+%% network updates possible.
 
-bind_instance({_OpType, _N}=InstanceId,
-     Args,
-     State = #{ make_epid := MakeEpid }) ->
+bind(Op, Args, State = #{ make_epid := MakeEpid, refs := Refs }) ->
     %% Intermediate nodes produced by previous bind are already in
     %% normal {epid,_,_} form, but we need to make sure that named
     %% input nodes are also flattened.
     InputEpids = maps:map(fun(_, Name) -> MakeEpid(Name) end, Args),
-    OutputEpid = MakeEpid({epid_app, InstanceId, InputEpids}),
-    {OutputEpid, State}.
+    OutputEpid = MakeEpid({epid_app, {Op, InputEpids}}),
+    State1 = maps:put(refs, maps:put(OutputEpid, true, Refs), State),
+    {OutputEpid, State1}.
 
 instantiate(MakeEpid, Spec) ->
-    Config = #{ bind_instance => fun bind_instance/3, make_epid => MakeEpid },
-    {ok, #{value := FlatSpec}} = dsl:compile_dataflow(Config, Spec, []),
+    Config = #{ bind => fun bind/3, make_epid => MakeEpid, refs => #{} },
+    State = dsl:eval(Config, Spec, []),
+    {ok, #{value := FlatSpec}} = State,
     %% The convention is that Spec will evaluate to a map of output
     %% bindings, which can then be connected to the generated nodes:
     lists:foreach(
       fun({Dst, Src}) -> epid:connect(Src,  MakeEpid(Dst)) end,
       maps:to_list(FlatSpec)),
-    ok.
+    State.
 
 
 

@@ -55,21 +55,23 @@ op(Op, Args) ->
     obj:call(get(dsl_state), {op, Op, Args}).
 
 
-%% Simple dataflow language.
+%% EXAMPLES
+
+%% Note that epid_app doesn't use any of these.  It uses raw bind,
+%% relying on memoized instantiation.
+
+%% Dataflow language with instance ID allocator.
 compile_dataflow(Config, Program, ProgramArgs) ->
-    DefaultState = #{
-      bind =>
-          %% Perform instance ID allocation, and call into specialized
-          %% binding/instantiation operation.
-          fun(OpType, Args, State = #{ bind_instance := Bind }) ->
-                  N = maps:get({count, OpType}, State, 0),
-                  InstanceId = {OpType, N},
-                  Bind(InstanceId, Args,
-                       maps:put({count, OpType}, N + 1, State))
-          end
-     },
+    DefaultState = #{ bind => fun bind_alloc/3 },
     InitState = maps:merge(DefaultState, Config),
     eval(InitState, Program, ProgramArgs).
+%% Perform instance ID allocation, and call into specialized
+%% binding/instantiation operation.
+bind_alloc(OpType, Args, State = #{ bind_instance := Bind }) ->
+    N = maps:get({count, OpType}, State, 0),
+    InstanceId = {OpType, N},
+    Bind(InstanceId, Args,
+         maps:put({count, OpType}, N + 1, State)).
 
 %% ... specialized to compile to concrete syntax.
 compile_dataflow(Program, ProgramArgs) ->
@@ -80,9 +82,6 @@ bind_compile({OpType, N}, Args, State = #{ env := Env }) ->
     Binding = {Node, {op, {OpType, Args}}},
     Env1 = [Binding|Env],
     {Node, maps:put(env, Env1, State)}.
-
-
-%% EXAMPLE
 
 %% Binder for compiling to syntax data structure.
 example() ->
