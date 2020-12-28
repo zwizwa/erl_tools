@@ -124,13 +124,49 @@ handle(<<16#FFF30000:32, OK:8, RH:16, T:16, _/binary>>=_Msg, State = #{name := N
       exo:pids(thermostat)),
     State;
 
+%% Processor instantiation for blue pill.  This is always done in two
+%% steps: accumulate all epid_app messages to create a DAG, then commit
+%% it to the board.
+%%
+handle({Caller, {epid_app, OpType, InputPids}}, State) ->
+    %% Composing monads is a pain, so just write a flattened special case.
+    Env = maps:get(env, State, #{}),
+    Node = maps:get(count, State, 0),
+    Epid = {epid, self(), Node},
+    obj:reply(Caller, Epid),
+    maps:merge(
+      State,
+      #{ count => Node+1,
+         env => maps:put(Node, {OpType, InputPids}, Env)
+       });
+handle({Caller, {epid_kill, {epid, _, Node}}}, State = #{env := Env}) ->
+    obj:reply(Caller, ok),
+    Env1 = maps:remove(Node, Env),
+    maps:put(env, Env1, State);
+handle({epid_compile, Cmd}=_Tag, State = #{ env := Env }) ->
+    case Cmd of
+        clear ->
+            State;
+        commit ->
+            Nodes = lists:sort(maps:keys(Env)),
+            lists:foreach(
+              fun(Node) ->
+                      Binding = maps:get(Node, Env),
+                      log:info("~999p~n", [{Node, Binding}])
+              end,
+              Nodes),
+            State
+    end;
+
 %% FIXME: It is probably not ok to make this this catch-all.
 %% But it is very convenient to have the command interface be the default.
 handle({Name, Args}, State) when is_atom(Name) and is_list(Args) ->
     %% Use TAG_U32 to access Forth console commands.
     %% This uses the first argument ==0 to dispatch on.
     Data = atom_to_binary(Name, utf8),
-    self() ! {send_u32, Args, Data},
+    Msg = {send_u32, Args, Data},
+    log:info("~p~n", [Msg]),
+    self() ! Msg,
     State;
 handle(Name, State) when is_atom(Name) ->
     handle({Name,[]}, State);

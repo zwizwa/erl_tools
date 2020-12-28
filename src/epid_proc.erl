@@ -1,7 +1,7 @@
 %% Stateful multi-in, single-out event processors.
 
 -module(epid_proc).
--export([start_link/1, handle/2, epid/1,
+-export([start_link/1, handle/2, epid_app/2,
          %% The rest are all machine update routines
          count/3
 ]).
@@ -46,8 +46,13 @@ epid(Type) ->
     {ok, Pid} = start_link(#{type => Type}),
     {epid, Pid, ?PROC_OUTPUT_TAG}.
 
-start_link(InitState = #{ type := Type }) ->
-    log:info("start_epid_machine ~p~n", [Type]),
+epid_app(Type, InputEpids) ->
+    Epid = epid(Type),
+    epid:connect_proc(InputEpids, Epid),
+    Epid.
+
+start_link(InitState = #{ type := _Type }) ->
+    %% log:info("epid_proc start ~p~n", [_Type]),
     {ok,
      serv:start(
        {handler,
@@ -81,7 +86,7 @@ handle(Msg, State = #{type := Type}) ->
               end, Outputs),
             State1;
         %% We don't need compilation.
-        epid_compile ->
+        {epid_compile, _} ->
             State
     end.
 
