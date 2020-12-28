@@ -17,7 +17,6 @@
 -module(dsl).
 -export([eval/3,
          op/2,
-         compile_dataflow/2,
          compile_dataflow/3,
          example/0]).
 eval(InitState, Function, Arguments) ->
@@ -57,47 +56,40 @@ op(Op, Args) ->
 
 
 %% Simple dataflow language.
-compile_dataflow(Program, ProgramArgs) ->
-    compile_dataflow(Program, ProgramArgs, #{}).
-compile_dataflow(Program, ProgramArgs, Config) ->
+compile_dataflow(Config, Program, ProgramArgs) ->
     DefaultState = #{
-      env => [],
       bind =>
-          %% Perform instance allocation, and call into bind-like
-          %% instantiator.
-          fun(OpType, Args, State = #{ bind_dfl := Bind }) ->
-                  N = maps:get({next, OpType}, State, 0),
+          %% Perform instance ID allocation, and call into specialized
+          %% binding/instantiation operation.
+          fun(OpType, Args, State = #{ bind_instance := Bind }) ->
+                  N = maps:get({count, OpType}, State, 0),
                   InstanceId = {OpType, N},
                   Bind(InstanceId, Args,
-                       maps:put({next, OpType}, N + 1, State))
+                       maps:put({count, OpType}, N + 1, State))
           end
      },
     InitState = maps:merge(DefaultState, Config),
     eval(InitState, Program, ProgramArgs).
 
-
-
-%% EXAMPLE
-
-%% Binder for compiling to syntax data structure.
+%% ... specialized to compile to concrete syntax.
+compile_dataflow(Program, ProgramArgs) ->
+    Config = #{ env => [], bind_instance => fun bind_compile/3 },
+    compile_dataflow(Config, Program, ProgramArgs).
 bind_compile({OpType, N}, Args, State = #{ env := Env }) ->
     Node = {node, {OpType, N}},
     Binding = {Node, {op, {OpType, Args}}},
     Env1 = [Binding|Env],
     {Node, maps:put(env, Env1, State)}.
 
+
+%% EXAMPLE
+
+%% Binder for compiling to syntax data structure.
 example() ->
     compile_dataflow(
       fun(A, B) ->
-              %% Typically these wo3uld be wrapped in an interface
-              %% function, but that is not necessary for testing.
-              C = op(mul, [A,A]),
-              D = op(mul, [B,B]),
+              C = op(mul, [A, A]),
+              D = op(mul, [B, B]),
               op(add, [C, D])
       end,
-      [a, b],
-      #{ bind_dfl => fun bind_compile/3 }).
-     
-
-
-      
+      [a, b]).

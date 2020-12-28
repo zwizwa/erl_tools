@@ -42,7 +42,7 @@ op(OpType, Args) ->
 %% dsl:compile_dataflow basically only keeps track of instance
 %% numbers, starting with N=0 per unique OpType.
 
-bind({_OpType, _N}=InstanceId,
+bind_instance({_OpType, _N}=InstanceId,
      Args,
      State = #{ make_epid := MakeEpid }) ->
     %% Intermediate nodes produced by previous bind are already in
@@ -53,14 +53,14 @@ bind({_OpType, _N}=InstanceId,
     {OutputEpid, State}.
 
 instantiate(MakeEpid, Spec) ->
-    Config = #{ bind_dfl => fun bind/3, make_epid => MakeEpid },
-    {ok, #{value := FlatSpec}} = dsl:compile_dataflow(Spec, [], Config),
+    Config = #{ bind_instance => fun bind_instance/3, make_epid => MakeEpid },
+    {ok, #{value := FlatSpec}} = dsl:compile_dataflow(Config, Spec, []),
     %% The convention is that Spec will evaluate to a map of output
     %% bindings, which can then be connected to the generated nodes:
     lists:foreach(
       fun({Dst, Src}) -> epid:connect(Src,  MakeEpid(Dst)) end,
       maps:to_list(FlatSpec)),
-    FlatSpec.
+    ok.
 
 
 
