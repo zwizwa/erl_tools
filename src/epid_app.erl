@@ -82,13 +82,10 @@ handle({epid_compile, Cmd}=_Tag, State = #{ epid_env := Env }) ->
         clear ->
             State;
         commit ->
-            Nodes = lists:sort(maps:keys(Env)),
-            lists:foreach(
-              fun(Node) ->
-                      Binding = maps:get(Node, Env),
-                      log:info("~999p~n", [{Node, Binding}])
-              end,
-              Nodes),
+            %% The dag representation can be reduced by splitting
+            %% inputs and internal nodes.
+            Reduced = epid_cproc:compile(self(), Env),
+            log:info("reduced to internal rep:~n~p~n" ,[Reduced]),
             State
     end.
 
