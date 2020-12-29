@@ -68,44 +68,43 @@ compile(LocalPid, Env) ->
     Ns = env_to_seq(Nm),
     #{ inputs => Is, procs => Ns}.
     
-%% This generates let.h syntax.
+%% This generates let.h syntax for mod_cproc.c conventions.
 %%
 %% Note that inputs are named to stick with the assumption throughout
 %% that epid_app inputs are named.  The LET() macro uses an array
 %% initializer to implement this.  We do what is convenient; constant
 %% propagation is left to the C compiler.
 
-code(_Reduced = #{ inputs := Inputs, procs := Procs }) ->
+code(Reduced) ->
+    sink:gen_to_list(fun(Sink) -> code(Sink, Reduced) end).
 
+code(Sink, _Reduced = #{ inputs := Inputs, procs := Procs }) ->
     EInputs = tools:enumerate(Inputs),
     InputIndex = maps:from_list([{N,I} || {I,{N,_}} <- EInputs]),
-
-    sink:gen_to_list(
-      fun(Sink) ->
+    lists:foreach(
+      fun({Node, {Proc, InNodes}}) ->
+              Sink({data,
+                    ["LET(n", integer_to_list(Node),
+                     ", proc_", atom_to_list(Proc)
+                    ]}),
               lists:foreach(
-                fun({Node, {Proc, InNodes}}) ->
+                fun({InName, Node}) ->
                         Sink({data,
-                              ["LET(n", integer_to_list(Node),
-                               ", proc_", atom_to_list(Proc)
-                               ]}),
-                        lists:foreach(
-                          fun({InName, Node}) ->
-                                  Sink({data,
-                                        [", .", atom_to_list(InName), " = ",
-                                         case maps:find(Node, InputIndex) of
-                                             {ok, Index} ->
-                                                 ["input[",
-                                                  integer_to_list(Index),
-                                                  "]"];
-                                             error ->
-                                                 ["n",
-                                                  integer_to_list(Node),
-                                                  ".out"]
-                                         end]})
-                          end,
-                          maps:to_list(InNodes)),
-                        Sink({data,");\n"})
+                              [", .", atom_to_list(InName), " = ",
+                       case maps:find(Node, InputIndex) of
+                           {ok, Index} ->
+                               ["input[",
+                                integer_to_list(Index),
+                                "]"];
+                           error ->
+                               ["n",
+                                integer_to_list(Node),
+                                ".out"]
+                       end]})
                 end,
-                Procs),
-              Sink(eof)
-      end).
+                maps:to_list(InNodes)),
+              Sink({data,");\n"})
+      end,
+      Procs),
+    Sink(eof).
+

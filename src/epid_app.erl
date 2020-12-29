@@ -121,14 +121,3 @@ compile_inputs(Self, InputPids, State) ->
     
 
 
-%% To compile to C what comes out of this:
-%% bp2: {12,{input,#{in => {epid,<22052.32472.1>,{filter,{port,in,4},{cc,0,14}}}}}}
-%% bp2: {13,{count,#{in => {epid,<0.24700.266>,12}}}}
-%% Split nodes into input and other
-%% Count inputs, then do something like
-%% uint32_t input[1]; // total number of inputs
-%% uint32_t input12 = input[0]; // for each input
-%% Then generate the rest of the code using postfixed names.
-%% Or just do the transformation before generating C.
-
-
