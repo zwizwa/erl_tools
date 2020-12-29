@@ -25,22 +25,28 @@ example() ->
       15 => {count,#{in => {epid,LocalPid,14}}},
       16 => {count,#{in => {epid,LocalPid,13}}}
      },
-    compile(LocalPid, Env).
+    Reduced = compile(LocalPid, Env),
+    Code = code(Reduced),
+    log:info("Reduced:~n~p~nCode:~n~s", [Reduced, Code]),
+    ok.
 
-maps_to_list_sorted(M) ->
+env_to_seq(M) ->
     [{K,maps:get(K,M)} || K <- lists:sort(maps:keys(M))].
 
+%% Separate internal and external references, as they are handled
+%% differently.  The resulting representation can be used to generate
+%% the C code and the Erlang dispatcher.
 compile(LocalPid, Env) ->
 
-    %% Separate internal and external references, as they are handled
-    %% differently.  External references
     {Im, Nm} =
         maps:fold(
           fun(N, {Proc, Inputs}, {Is, Ns}) ->
                   case Proc of
                       input ->
                           %% External epids
-                          {maps:put(N,maps:get(in, Inputs), Is), Ns};
+                          InEpid = maps:get(in, Inputs),
+                          {maps:put(N,InEpid, Is),
+                           Ns};
                       _ ->
                           %% All processor inputs are "simple",
                           %% e.g. internal nodes.
@@ -52,12 +58,52 @@ compile(LocalPid, Env) ->
                                         end
                                 end,
                                 Inputs),
-                          {Is, maps:put(N, {Proc, InNodes}, Ns)}
+                          {Is,
+                           maps:put(N, {Proc, InNodes}, Ns)}
                   end
           end,
           {#{},#{}},
           Env),
-    Is = tools:enumerate(maps_to_list_sorted(Im)),
-    Ns = maps_to_list_sorted(Nm),
+    Is = env_to_seq(Im),
+    Ns = env_to_seq(Nm),
     #{ inputs => Is, procs => Ns}.
     
+%% This generates let.h syntax.
+%%
+%% Note that inputs are named to stick with the assumption throughout
+%% that epid_app inputs are named.  The LET() macro uses an array
+%% initializer to implement this.  We do what is convenient; constant
+%% propagation is left to the C compiler.
+
+code(_Reduced = #{ inputs := Inputs, procs := Procs }) ->
+
+    EInputs = lists:enumerate(Inputs),
+    %% InputIndex = maps:from_list([{N,I} || {I,{N,_}} <- EInputs]),
+
+    sink:gen_to_list(
+      fun(Sink) ->
+              lists:foreach(
+                fun({Index,{Node, _Epid}}) ->
+                        Sink({data,
+                              ["w n",integer_to_list(Node),
+                               " = input[",integer_to_list(Index),"];\n"]})
+                end,
+                EInputs),
+              lists:foreach(
+                fun({Node, {Proc, InNodes}}) ->
+                        Sink({data,
+                              ["LET(n", integer_to_list(Node),
+                               ", proc_", atom_to_list(Proc)
+                               ]}),
+                        lists:foreach(
+                          fun({InName, Node}) ->
+                                  Sink({data,
+                                        [", .", atom_to_list(InName),
+                                         " = n", integer_to_list(Node)]})
+                          end,
+                          maps:to_list(InNodes)),
+                        Sink({data,");\n"})
+                end,
+                Procs),
+              Sink(eof)
+      end).
