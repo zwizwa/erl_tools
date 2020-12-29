@@ -85,7 +85,9 @@ handle({epid_compile, Cmd}=_Tag, State = #{ epid_env := Env }) ->
             %% The dag representation can be reduced by splitting
             %% inputs and internal nodes.
             Reduced = epid_cproc:compile(self(), Env),
-            log:info("reduced to internal rep:~n~p~n" ,[Reduced]),
+            Code = epid_cproc:code(Reduced),
+            log:info("Reduced:~n~p~nCode:~n~s", [Reduced, Code]),
+
             State
     end.
 
@@ -107,7 +109,7 @@ compile_inputs(Self, InputPids, State) ->
               case Epid of
                   {epid, Self, _} ->
                       %% Input is already local.
-                      I1 = maps:put(Var, Epid),
+                      I1 = maps:put(Var, Epid, I),
                       {I1,S,Tmp};
                   _ ->
                       %% Replace Var with a buffered version

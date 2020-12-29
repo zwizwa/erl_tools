@@ -14,7 +14,7 @@
 %% FIXME: I'm going to implement this in lab_board.erl first.
 
 -module(epid_cproc).
--export([example/0, compile/2]).
+-export([example/0, compile/2, code/1]).
 
 
 example() ->
@@ -77,18 +77,11 @@ compile(LocalPid, Env) ->
 
 code(_Reduced = #{ inputs := Inputs, procs := Procs }) ->
 
-    EInputs = lists:enumerate(Inputs),
-    %% InputIndex = maps:from_list([{N,I} || {I,{N,_}} <- EInputs]),
+    EInputs = tools:enumerate(Inputs),
+    InputIndex = maps:from_list([{N,I} || {I,{N,_}} <- EInputs]),
 
     sink:gen_to_list(
       fun(Sink) ->
-              lists:foreach(
-                fun({Index,{Node, _Epid}}) ->
-                        Sink({data,
-                              ["w n",integer_to_list(Node),
-                               " = input[",integer_to_list(Index),"];\n"]})
-                end,
-                EInputs),
               lists:foreach(
                 fun({Node, {Proc, InNodes}}) ->
                         Sink({data,
@@ -98,8 +91,17 @@ code(_Reduced = #{ inputs := Inputs, procs := Procs }) ->
                         lists:foreach(
                           fun({InName, Node}) ->
                                   Sink({data,
-                                        [", .", atom_to_list(InName),
-                                         " = n", integer_to_list(Node)]})
+                                        [", .", atom_to_list(InName), " = ",
+                                         case maps:find(Node, InputIndex) of
+                                             {ok, Index} ->
+                                                 ["input[",
+                                                  integer_to_list(Index),
+                                                  "]"];
+                                             error ->
+                                                 ["n",
+                                                  integer_to_list(Node),
+                                                  ".out"]
+                                         end]})
                           end,
                           maps:to_list(InNodes)),
                         Sink({data,");\n"})
