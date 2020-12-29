@@ -69,15 +69,26 @@ instantiate(MakeEpid, Spec) ->
 %% The handler is experimental.  This is implements bookkeeping to
 %% keep track of a DAG in the proxy.
 handle({Caller, {epid_app, OpType, InputPids}}, State) ->
-    Env = maps:get(epid_env, State, #{}),
-    Node = maps:get(epid_count, State, 0),
-    Epid = {epid, self(), Node},
+    Self = self(),
+    %% 'traverse' the inputs, and create a buffer for each non-local signal
+    {InputPids1, State1} =
+        maps:fold(
+          fun(Var,Epid,{I,S}) ->
+                  case Epid of
+                      {epid, Self, _} ->
+                          %% Input is already local.
+                          I1 = maps:put(Var, Epid),
+                          {I1,S};
+                      _ ->
+                          %% Replace Var with a buffered version
+                          {Epid1,S1} = compile(input, #{in => Epid}, S),
+                          I1 = maps:put(Var, Epid1, I),
+                          {I1,S1}
+                  end
+          end, {InputPids, State}, InputPids),
+    {Epid, State2} = compile(OpType, InputPids1, State1),
     obj:reply(Caller, Epid),
-    maps:merge(
-      State,
-      #{ epid_count => Node+1,
-         epid_env => maps:put(Node, {OpType, InputPids}, Env)
-       });
+    State2;
 handle({Caller, {epid_kill, {epid, _, Node}}}, State = #{epid_env := Env}) ->
     obj:reply(Caller, ok),
     Env1 = maps:remove(Node, Env),
@@ -97,4 +108,14 @@ handle({epid_compile, Cmd}=_Tag, State = #{ epid_env := Env }) ->
             State
     end.
 
+compile(OpType, InputPids, State) ->
+    Env = maps:get(epid_env, State, #{}),
+    Node = maps:get(epid_count, State, 0),
+    Epid = {epid, self(), Node},
+    {Epid,
+     maps:merge(
+       State,
+       #{ epid_count => Node+1,
+          epid_env => maps:put(Node, {OpType, InputPids}, Env)
+        })}.
 
