@@ -25,7 +25,7 @@
 
 
 -module(epid_app).
--export([op/2, instantiate/2]).
+-export([op/2, instantiate/2, handle/2]).
 
 
 %% Operators are just type names.  Those can be arbitrary data
@@ -64,5 +64,37 @@ instantiate(MakeEpid, Spec) ->
     State.
 
 
+
+
+%% The handler is experimental.  This is implements bookkeeping to
+%% keep track of a DAG in the proxy.
+handle({Caller, {epid_app, OpType, InputPids}}, State) ->
+    Env = maps:get(epid_env, State, #{}),
+    Node = maps:get(epid_count, State, 0),
+    Epid = {epid, self(), Node},
+    obj:reply(Caller, Epid),
+    maps:merge(
+      State,
+      #{ epid_count => Node+1,
+         epid_env => maps:put(Node, {OpType, InputPids}, Env)
+       });
+handle({Caller, {epid_kill, {epid, _, Node}}}, State = #{epid_env := Env}) ->
+    obj:reply(Caller, ok),
+    Env1 = maps:remove(Node, Env),
+    maps:put(epid_env, Env1, State);
+handle({epid_compile, Cmd}=_Tag, State = #{ epid_env := Env }) ->
+    case Cmd of
+        clear ->
+            State;
+        commit ->
+            Nodes = lists:sort(maps:keys(Env)),
+            lists:foreach(
+              fun(Node) ->
+                      Binding = maps:get(Node, Env),
+                      log:info("~999p~n", [{Node, Binding}])
+              end,
+              Nodes),
+            State
+    end.
 
 

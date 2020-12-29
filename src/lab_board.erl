@@ -128,35 +128,9 @@ handle(<<16#FFF30000:32, OK:8, RH:16, T:16, _/binary>>=_Msg, State = #{name := N
 %% steps: accumulate all epid_app messages to create a DAG, then commit
 %% it to the board.
 %%
-handle({Caller, {epid_app, OpType, InputPids}}, State) ->
-    %% Composing monads is a pain, so just write a flattened special case.
-    Env = maps:get(env, State, #{}),
-    Node = maps:get(count, State, 0),
-    Epid = {epid, self(), Node},
-    obj:reply(Caller, Epid),
-    maps:merge(
-      State,
-      #{ count => Node+1,
-         env => maps:put(Node, {OpType, InputPids}, Env)
-       });
-handle({Caller, {epid_kill, {epid, _, Node}}}, State = #{env := Env}) ->
-    obj:reply(Caller, ok),
-    Env1 = maps:remove(Node, Env),
-    maps:put(env, Env1, State);
-handle({epid_compile, Cmd}=_Tag, State = #{ env := Env }) ->
-    case Cmd of
-        clear ->
-            State;
-        commit ->
-            Nodes = lists:sort(maps:keys(Env)),
-            lists:foreach(
-              fun(Node) ->
-                      Binding = maps:get(Node, Env),
-                      log:info("~999p~n", [{Node, Binding}])
-              end,
-              Nodes),
-            State
-    end;
+handle(Msg={_, {epid_app, _, _}},  State) -> epid_app:handle(Msg, State);
+handle(Msg={_, {epid_kill, _}},    State) -> epid_app:handle(Msg, State);
+handle(Msg={epid_compile, _}=_Tag, State) -> epid_app:handle(Msg, State);
 
 %% FIXME: It is probably not ok to make this this catch-all.
 %% But it is very convenient to have the command interface be the default.

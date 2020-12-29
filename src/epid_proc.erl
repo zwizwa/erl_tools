@@ -1,7 +1,7 @@
 %% Stateful multi-in, single-out event processors.
 
 -module(epid_proc).
--export([start_link/1, handle/2, epid_app/2,
+-export([start_link/1, handle/2, epid_app/2, epid_kill/1,
          %% The rest are all machine update routines
          count/3
 ]).
@@ -50,6 +50,12 @@ epid_app(Type, InputEpids) ->
     Epid = epid(Type),
     epid:connect_proc(InputEpids, Epid),
     Epid.
+
+epid_kill({epid,Pid,_}) ->
+    unlink(Pid),
+    exit(Pid, normal),
+    ok.
+
 
 start_link(InitState = #{ type := _Type }) ->
     %% log:info("epid_proc start ~p~n", [_Type]),
