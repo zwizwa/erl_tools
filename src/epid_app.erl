@@ -69,25 +69,9 @@ instantiate(MakeEpid, Spec) ->
 %% The handler is experimental.  This is implements bookkeeping to
 %% keep track of a DAG in the proxy.
 handle({Caller, {epid_app, OpType, InputPids}}, State) ->
-    Self = self(),
-    %% 'traverse' the inputs, and create a buffer for each non-local signal
-    {InputPids1, State1} =
-        maps:fold(
-          fun(Var,Epid,{I,S}) ->
-                  case Epid of
-                      {epid, Self, _} ->
-                          %% Input is already local.
-                          I1 = maps:put(Var, Epid),
-                          {I1,S};
-                      _ ->
-                          %% Replace Var with a buffered version
-                          {Epid1,S1} = compile(input, #{in => Epid}, S),
-                          I1 = maps:put(Var, Epid1, I),
-                          {I1,S1}
-                  end
-          end, {InputPids, State}, InputPids),
+    {InputPids1, State1, Tmp} = compile_inputs(self(), InputPids, State),
     {Epid, State2} = compile(OpType, InputPids1, State1),
-    obj:reply(Caller, Epid),
+    obj:reply(Caller, #{ out => Epid, tmp => Tmp }),
     State2;
 handle({Caller, {epid_kill, {epid, _, Node}}}, State = #{epid_env := Env}) ->
     obj:reply(Caller, ok),
@@ -118,4 +102,34 @@ compile(OpType, InputPids, State) ->
        #{ epid_count => Node+1,
           epid_env => maps:put(Node, {OpType, InputPids}, Env)
         })}.
+
+%% 'traverse' the inputs, and create a buffer for each non-local signal
+compile_inputs(Self, InputPids, State) ->
+    maps:fold(
+      fun(Var,Epid,{I,S,Tmp}) ->
+              case Epid of
+                  {epid, Self, _} ->
+                      %% Input is already local.
+                      I1 = maps:put(Var, Epid),
+                      {I1,S,Tmp};
+                  _ ->
+                      %% Replace Var with a buffered version
+                      {Epid1,S1} = compile(input, #{in => Epid}, S),
+                      I1 = maps:put(Var, Epid1, I),
+                      {I1,S1,[Epid1|Tmp]}
+              end
+      end, {InputPids, State, []}, InputPids).
+    
+
+
+%% To compile to C what comes out of this:
+%% bp2: {12,{input,#{in => {epid,<22052.32472.1>,{filter,{port,in,4},{cc,0,14}}}}}}
+%% bp2: {13,{count,#{in => {epid,<0.24700.266>,12}}}}
+%% Split nodes into input and other
+%% Count inputs, then do something like
+%% uint32_t input[1]; // total number of inputs
+%% uint32_t input12 = input[0]; // for each input
+%% Then generate the rest of the code using postfixed names.
+%% Or just do the transformation before generating C.
+
 

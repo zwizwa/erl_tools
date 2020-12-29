@@ -49,7 +49,7 @@ epid(Type) ->
 epid_app(Type, InputEpids) ->
     Epid = epid(Type),
     epid:connect_proc(InputEpids, Epid),
-    Epid.
+    #{ out => Epid, tmp => [] }.
 
 epid_kill({epid,Pid,_}) ->
     unlink(Pid),
