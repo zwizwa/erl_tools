@@ -187,7 +187,7 @@ handle_to_port(PortName, {_EcatPortType, _Arg}=Spec, <<Tag:16,Data/binary>>, Sta
 
 %% Generate the source code.  The rest of the propagation is done by
 %% redo, which is run after exo_patch graph update.
-update_plugin(#{ code := CodeIOL, name := Name} = State) ->
+update_plugin(#{ code := CodeIOL, dag := #{ inputs := _Inputs} = _DAG, name := Name} = State) ->
     FileName = tools:format("/i/exo/uc_tools/gdb/~s_plugin.c", [Name]),
     Code = iolist_to_binary(CodeIOL),
     case file:read_file(FileName) of

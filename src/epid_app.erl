@@ -73,10 +73,14 @@ handle({Caller, {epid_app, OpType, InputPids}}, State) ->
     {Epid, State2} = compile(OpType, InputPids1, State1),
     obj:reply(Caller, #{ out => Epid, tmp => Tmp }),
     State2;
-handle({Caller, {epid_kill, {epid, _, Node}}}, State = #{epid_env := Env}) ->
+handle({Caller, _Msg = {epid_kill, {epid, _, Node}}}, State = #{epid_env := Env}) ->
+    log:info("~p~n", [_Msg]),
     obj:reply(Caller, ok),
+    %% Delete from dispatcher
+    State1 = maps:remove({epid_dispatch,Node}, State),
+    %% Delete from environment (DAG)
     Env1 = maps:remove(Node, Env),
-    maps:put(epid_env, Env1, State);
+    maps:put(epid_env, Env1, State1);
 handle({Caller, {epid_compile, Cmd}}, State = #{ epid_env := Env }) ->
     obj:reply(Caller, ok),
     case Cmd of
@@ -85,10 +89,28 @@ handle({Caller, {epid_compile, Cmd}}, State = #{ epid_env := Env }) ->
         commit ->
             %% The dag representation can be reduced by splitting
             %% inputs and internal nodes.
-            Reduced = epid_cproc:compile(self(), Env),
-            Code = epid_cproc:code(Reduced),
-            %% log:info("Reduced:~n~p~nCode:~n~s", [Reduced, Code]),
-            maps:put(code, Code, State)
+            DAG = epid_cproc:compile(self(), Env),
+
+            %% The DAG representation gets mapped to two things: input
+            %% buffer mapping and C code.
+
+            %% C code knows the input index mapping, so we can use
+            %% just that to make the connections.
+            #{ inputs := Inputs } = DAG,
+            lists:foreach(
+              fun({Index,{_Node,Epid}}) ->
+                      epid:connect(Epid, {epid, self(), Index})
+              end, tools:enumerate(Inputs)),
+
+            %% log:info("DAG:~n~p~nCode:~n~s", [DAG, Code]),
+            Code = epid_cproc:code(DAG),
+
+            %% FIXME: It's not necessary to keep these intermedates.
+            %% Just pass them as values.
+            maps:merge(
+              State,
+              #{ code => Code,
+                 dag  => DAG })
     end.
 
 compile(OpType, InputPids, State) ->
