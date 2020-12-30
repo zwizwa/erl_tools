@@ -14,7 +14,7 @@
 %% FIXME: I'm going to implement this in lab_board.erl first.
 
 -module(epid_cproc).
--export([example/0, compile/2, code/1]).
+-export([example/0, compile/2, code/2]).
 
 
 example() ->
@@ -26,7 +26,7 @@ example() ->
       16 => {count,#{in => {epid,LocalPid,13}}}
      },
     Reduced = compile(LocalPid, Env),
-    Code = code(Reduced),
+    Code = code(Reduced, [16]),
     log:info("Reduced:~n~p~nCode:~n~s", [Reduced, Code]),
     ok.
 
@@ -78,10 +78,10 @@ compile(LocalPid, Env) ->
 %% The counterpart to this is connect external epids to internal ones,
 %% and then forward them over TAG_U32 to the C code.
 
-code(Reduced) ->
-    sink:gen_to_list(fun(Sink) -> code(Sink, Reduced) end).
+code(Reduced, Outputs) ->
+    sink:gen_to_list(fun(Sink) -> code(Sink, Reduced, Outputs) end).
 
-code(Sink, _Reduced = #{ inputs := Inputs, procs := Procs }) ->
+code(Sink, _Reduced = #{ inputs := Inputs, procs := Procs }, Outputs) ->
     EInputs = tools:enumerate(Inputs),
     NbInputs = length(EInputs),
     InputIndex = maps:from_list([{N,I} || {I,{N,_}} <- EInputs]),
@@ -90,10 +90,11 @@ code(Sink, _Reduced = #{ inputs := Inputs, procs := Procs }) ->
            "#define CPROC_NB_INPUTS ", integer_to_list(NbInputs), "\n",
            "#include \"mod_cproc_plugin.c\"\n",
            "void cproc_update(w *input) {\n"]}),
+    Tab = "    ",
     lists:foreach(
       fun({Node, {Proc, InNodes}}) ->
               Sink({data,
-                    ["    "
+                    [Tab,
                      "LET(n", integer_to_list(Node),
                      ", proc_", atom_to_list(Proc)
                     ]}),
@@ -116,6 +117,18 @@ code(Sink, _Reduced = #{ inputs := Inputs, procs := Procs }) ->
               Sink({data,");\n"})
       end,
       Procs),
+    lists:foreach(
+      fun(Output) ->
+              Nout = integer_to_list(Output),
+              Sink({data,
+                    [Tab,
+                     "cproc_output(",
+                     Nout,", ",
+                     "n",Nout,".out",
+                     ");\n"]})
+      end,
+      Outputs),
+
     Sink({data,
           ["}\n"]}),
     Sink(eof).

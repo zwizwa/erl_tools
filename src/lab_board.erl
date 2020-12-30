@@ -63,6 +63,7 @@ handle(<<?TAG_U32:16, NbArgs:16, Bin/binary>>=_Msg, State) ->
     Args = [Arg || <<Arg:32>> <= BArgs],
     case Args of
         [Tag|Rest] ->
+            log:info("TAG_U32 dispatch ~p\n", [{Tag,Rest}]),
             epid:dispatch(Tag, Rest, State);
         _ ->
             ok
