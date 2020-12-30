@@ -130,7 +130,7 @@ handle(<<16#FFF30000:32, OK:8, RH:16, T:16, _/binary>>=_Msg, State = #{name := N
 %%
 handle(Msg={_, {epid_app, _, _}},  State) -> epid_app:handle(Msg, State);
 handle(Msg={_, {epid_kill, _}},    State) -> epid_app:handle(Msg, State);
-handle(Msg={epid_compile, _}=_Tag, State) -> epid_app:handle(Msg, State);
+handle(Msg={_, {epid_compile, _}}, State) -> update_plugin(epid_app:handle(Msg, State));
 
 %% FIXME: It is probably not ok to make this this catch-all.
 %% But it is very convenient to have the command interface be the default.
@@ -184,3 +184,18 @@ handle_to_port(PortName, {_EcatPortType, _Arg}=Spec, <<Tag:16,Data/binary>>, Sta
         end,                                
     Port ! {self(), {command, Data}},
     State1.
+
+%% Generate the source code.  The rest of the propagation is done by
+%% redo, which is run after exo_patch graph update.
+update_plugin(#{ code := CodeIOL, name := Name} = State) ->
+    FileName = tools:format("/i/exo/uc_tools/gdb/~s_plugin.c", [Name]),
+    Code = iolist_to_binary(CodeIOL),
+    case file:read_file(FileName) of
+        {ok, Code} ->
+            %% Don't write anything if file didn't change.
+            ok;
+        _ ->
+            log:info("Code:~n~s", [Code]),
+            file:write_file(FileName, Code)
+    end,
+    State.

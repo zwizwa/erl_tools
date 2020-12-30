@@ -77,7 +77,8 @@ handle({Caller, {epid_kill, {epid, _, Node}}}, State = #{epid_env := Env}) ->
     obj:reply(Caller, ok),
     Env1 = maps:remove(Node, Env),
     maps:put(epid_env, Env1, State);
-handle({epid_compile, Cmd}=_Tag, State = #{ epid_env := Env }) ->
+handle({Caller, {epid_compile, Cmd}}, State = #{ epid_env := Env }) ->
+    obj:reply(Caller, ok),
     case Cmd of
         clear ->
             State;
@@ -86,9 +87,8 @@ handle({epid_compile, Cmd}=_Tag, State = #{ epid_env := Env }) ->
             %% inputs and internal nodes.
             Reduced = epid_cproc:compile(self(), Env),
             Code = epid_cproc:code(Reduced),
-            log:info("Reduced:~n~p~nCode:~n~s", [Reduced, Code]),
-
-            State
+            %% log:info("Reduced:~n~p~nCode:~n~s", [Reduced, Code]),
+            maps:put(code, Code, State)
     end.
 
 compile(OpType, InputPids, State) ->

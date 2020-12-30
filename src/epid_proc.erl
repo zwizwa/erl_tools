@@ -92,7 +92,8 @@ handle(Msg, State = #{type := Type}) ->
               end, Outputs),
             State1;
         %% We don't need compilation.
-        {epid_compile, _} ->
+        {Caller, {epid_compile, _}} ->
+            obj:reply(Caller, ok),
             State
     end.
 
