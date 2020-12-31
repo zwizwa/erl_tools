@@ -91,6 +91,11 @@ handle({Caller, {epid_compile, Cmd}}, State = #{ epid_env := Env }) ->
             %% inputs and internal nodes.
             DAG = epid_cproc:compile(self(), Env),
 
+            %% Transitive input dependencies for each node.  This can
+            %% be used to compute input->node dependencies, to create
+            %% guard clauses for evaluating a partial graph.
+            _Deps = epid_cproc:deps(DAG),
+
             %% The DAG representation gets mapped to two things: input
             %% buffer mapping and C code.
 

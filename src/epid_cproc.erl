@@ -14,7 +14,7 @@
 %% FIXME: I'm going to implement this in lab_board.erl first.
 
 -module(epid_cproc).
--export([example/0, compile/2, code/2]).
+-export([example/0, compile/2, deps/1, code/2]).
 
 
 example() ->
@@ -67,6 +67,28 @@ compile(LocalPid, Env) ->
     Is = env_to_seq(Im),
     Ns = env_to_seq(Nm),
     #{ inputs => Is, procs => Ns}.
+
+%% Compute input dependencies for each node by computing transitive
+%% closure.  This is used to add guard clauses to perfrom partial DAG
+%% evaluation, e.g. for evented systems with DAG known at compile
+%% time.
+deps(_DAG = #{ inputs := _Inputs, procs := Procs }) ->
+    log:info("DAG=~n~p~n", [_DAG]),
+    AllDeps =
+        lists:foldl(
+          fun({OutNode,{_Proc,InNodes}},Deps) ->
+                  OutNodeDeps =
+                      maps:fold(
+                        fun(_InName, InNode, D) ->
+                                %% Record the node, and its transitive closure.
+                                D1 = maps:put(InNode, true, D),
+                                maps:merge(D1, maps:get(InNode, Deps, #{}))
+                        end, #{}, InNodes),
+                  maps:put(OutNode, OutNodeDeps, Deps)
+          end, #{}, Procs),
+    log:info("AllDeps=~n~p~n", [AllDeps]),
+    AllDeps.
+    
     
 %% This generates let.h syntax for mod_cproc.c conventions.
 %%
