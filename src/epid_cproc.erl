@@ -73,7 +73,7 @@ compile(LocalPid, Env) ->
 %% evaluation, e.g. for evented systems with DAG known at compile
 %% time.
 deps(_DAG = #{ inputs := _Inputs, procs := Procs }) ->
-    log:info("DAG=~n~p~n", [_DAG]),
+    %% log:info("DAG=~n~p~n", [_DAG]),
     AllDeps =
         lists:foldl(
           fun({OutNode,{_Proc,InNodes}},Deps) ->
@@ -86,7 +86,7 @@ deps(_DAG = #{ inputs := _Inputs, procs := Procs }) ->
                         end, #{}, InNodes),
                   maps:put(OutNode, OutNodeDeps, Deps)
           end, #{}, Procs),
-    log:info("AllDeps=~n~p~n", [AllDeps]),
+    %% log:info("AllDeps=~n~p~n", [AllDeps]),
     AllDeps.
     
     
@@ -148,7 +148,8 @@ code(Sink, _Reduced = #{ inputs := Inputs, procs := Procs }, Outputs) ->
       fun({Node, {Proc, InNodes}}) ->
               Sink({data,
                     [Tab,
-                     "LET(n", i(Node), ", ",
+                     "LET(", 
+                     "n", i(Node), ", ",
                      case Proc of
                          _ when is_atom(Proc) ->
                              [a(Proc), ", NULL"];
