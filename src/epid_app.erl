@@ -107,7 +107,7 @@ handle({Caller, {epid_compile, Cmd}}, State = #{ epid_env := Env }) ->
             Outputs = 
                 lists:foldl(
                   fun(_Binding = {Node, {_Proc, _Args}}, Os) ->
-                          log:info("~p~n",[_Binding]),
+                          %% log:info("~p~n",[_Binding]),
                           case maps:find({epid_dispatch, Node}, State) of
                               {ok, _Epid} -> [Node|Os];
                               error -> Os

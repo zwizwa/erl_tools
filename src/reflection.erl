@@ -5,7 +5,8 @@
          inotifywait/1, inotifywait_handle/2, push_erl_change/2,
          push_expect/2, run_expect/1,
          load_erl/3, run_erl/1, run_beam/3, run_module/3,
-         push_change/2, describe_build_product/2, push_build_product/4,
+         push_change/2, push_change/3,
+         describe_build_product/2, push_build_product/4,
          find_parent/2, redo/2, redo/3, copy/2, clone_module/2]).
 
 %% 2019-03-08 This code has been in substantial flux in recent weeks,
