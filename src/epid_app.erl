@@ -91,10 +91,10 @@ handle({Caller, {epid_compile, Cmd}}, State = #{ epid_env := Env }) ->
             %% inputs and internal nodes.
             DAG = epid_cproc:compile(self(), Env),
 
-            %% Transitive input dependencies for each node.  This can
-            %% be used to compute input->node dependencies, to create
-            %% guard clauses for evaluating a partial graph.
-            _Deps = epid_cproc:deps(DAG),
+            %% Compute the "evented" subgraphs, encoded as a map from
+            %% node number to indexed input, to be used in clause
+            %% gating.
+            Subgraphs = epid_cproc:subgraphs(DAG),
 
             %% The DAG representation gets mapped to two things: input
             %% buffer mapping and C code.
@@ -120,7 +120,7 @@ handle({Caller, {epid_compile, Cmd}}, State = #{ epid_env := Env }) ->
                   end, [], Procs),
 
             %% log:info("DAG:~n~p~nCode:~n~s", [DAG, Code]),
-            Code = epid_cproc:code(DAG, Outputs),
+            Code = epid_cproc:code(DAG, Outputs, Subgraphs),
 
             %% FIXME: It's not necessary to keep these intermedates.
             %% Just pass them as values.

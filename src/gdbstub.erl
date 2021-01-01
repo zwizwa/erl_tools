@@ -280,11 +280,21 @@ elf2config(Elf) ->
        C8:32/little,  C9:32/little,
       _/binary>> = Bin,
     %% FIXME: Get this from the elf using routines above.
-    Cstring = fun(Abs) -> cstring(Bin, Abs - Config) end,
-    #{company  => Cstring(C0),
-      product  => Cstring(C1),
-      firmware => Cstring(C8),
-      version  => Cstring(C9)}.
+    Cstring =
+        fun(Field, Abs) ->
+                try
+                    cstring(Bin, Abs - Config) 
+                catch C:E ->
+                        log:info(
+                          "WARNING: elf2config string fail: ~p~n~p~n", 
+                          [Field, {C,E}]),
+                        ""
+                end
+        end,
+    #{company  => Cstring(company,  C0),
+      product  => Cstring(product,  C1),
+      firmware => Cstring(firmware, C8),
+      version  => Cstring(version,  C9)}.
 
 
 cstring(Bin, Offset) ->
