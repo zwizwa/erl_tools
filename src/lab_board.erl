@@ -135,12 +135,11 @@ handle(Msg={_, {epid_compile, _}}, State) -> update_plugin(epid_app:handle(Msg, 
 
 %% FIXME: It is probably not ok to make this this catch-all.
 %% But it is very convenient to have the command interface be the default.
-handle({Name, Args}, State) when is_atom(Name) and is_list(Args) ->
+handle({Name, Args}=Cmd, State) when is_atom(Name) and is_list(Args) ->
     %% Use TAG_U32 to access Forth console commands.
     %% This uses the first argument ==0 to dispatch on.
-    Data = atom_to_binary(Name, utf8),
-    Msg = {send_u32, Args, Data},
-    log:info("~p~n", [Msg]),
+    Msg = {send_command, Cmd},
+    log:info("lab_board: ~p~n", [Msg]),
     self() ! Msg,
     State;
 handle(Name, State) when is_atom(Name) ->

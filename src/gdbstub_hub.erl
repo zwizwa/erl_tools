@@ -9,6 +9,8 @@
          parse_syslog_ttyACM/1,
          tag_u32/1,
          tag_u32/2,
+         tag_u32/3,
+         command/1,
 
          %% Internal, for reloads
          ignore/2, print_etf/2,
@@ -320,12 +322,14 @@ dev_handle_({send_packet, IOList}, State) ->
     dev_handle_({send_packet, iolist_to_binary(IOList)}, State);
 
 dev_handle_({send_u32, U32List}, State) ->
-    %% TAG_U32 format
     dev_handle({send_packet, tag_u32(U32List)}, State);
-
 dev_handle_({send_u32, U32List, Data}, State) ->
-    %% TAG_U32 format
     dev_handle({send_packet, tag_u32(U32List, Data)}, State);
+
+%% Similar encoding, different semantics.
+dev_handle_({send_command, Cmd}, State) ->
+    dev_handle({send_packet, command(Cmd)}, State);
+
 
 dev_handle_({send_term, Term},
             #{ port := Port } = State) ->
@@ -514,12 +518,20 @@ decode_info(Msg, State = #{ line_buf := Buf }) ->
 %% low level code.
 %%tag_u32({U32List,BinaryTail}) ->
 %%    [tag_u32(U32List), BinaryTail];
-tag_u32(U32List,Data) ->
+
+tag_u32(Tag,U32List,Data) ->
+    Nr = 0, %% For RPC, later
     N = length(U32List),
-    [[<<16#FFF5:16, N:16>> | [<<W:32>> || W<-U32List]],
+    [[<<Tag:16, Nr, N>> | [<<W:32>> || W<-U32List]],
      Data].
+tag_u32(U32List,Data) ->
+    tag_u32(16#FFF5, U32List, Data).
 tag_u32(U32List) ->
     tag_u32(U32List,[]).
+
+%% Uses tha same basic format, different tag.
+command({Name,U32List}) when is_atom(Name) and is_list(U32List) ->
+    tag_u32(16#FFF1, U32List, atom_to_binary(Name, utf8)).
 
     
 
