@@ -85,7 +85,7 @@ subgraphs(_DAG = #{ inputs := Inputs, procs := Procs }) ->
     log:info("InputMap=~n~p~n", [InputMap]),
     %% log:info("DAG=~n~p~n", [_DAG]),
 
-    %% Crate a map from a node to all its parent nodes.
+    %% Crate a map from a node to its parent node set.
     NodeToDeps =
         lists:foldl(
           fun({OutNode,{_Proc,InNodes}},Deps) ->
@@ -158,12 +158,12 @@ code(W, _Reduced = #{ inputs := Inputs, procs := Procs }, Outputs, SubGraph) ->
       fun({Node, {Proc, _InNodes}}) -> config_def(W, Node, Proc) end,
       Procs),
     %% Function body: let clauses and output clauses.
-    W(["void cproc_update(w *input, w changed) {\n"]),
+    W(["void cproc_update(w *input, w g) {\n"]),
     lists:foreach(
       fun({OutNode, {Proc, InNodes}}) -> let_clause(W, OutNode, Proc, InNodes, InputIndex, SubGraph) end,
       Procs),
     lists:foreach(
-      fun(Output) -> W([tab(),"cproc_output(",i(Output),",","n",i(Output),".out",");\n"]) end,
+      fun(Output) -> W([tab(),"cproc_output(",i(Output),", ","n",i(Output),".out",");\n"]) end,
       Outputs),
     W("}\n").
 
@@ -187,13 +187,21 @@ config_def(W, Node, Proc) ->
 tab() ->
     "    ".
 
+cond_bitvec(List) ->
+    lists:foldl(
+      fun(Bit,Acc) -> Acc + 1 bsl Bit end,
+      0, List).
+%% b(N) -> io_lib:format("~32.2.0B",[N]).
+b(N) -> io_lib:format("0b~.2.0B",[N]).
+
 let_clause(W, OutNode, Proc, InNodes, InputIndex, SubGraph) ->
     W([tab(),
        %% FIXME: SubGraph should contain a sensitivity vector
        %% wrt. inputs, for each node, to generate the guards for
        %% LET_COND.  Currently it still contains a dependency list.
        case SubGraph of
-           _ -> "LET("
+           synchronous -> "LET(";
+           _ -> ["LET_COND(g&", b(cond_bitvec(maps:get(OutNode, SubGraph))), ", "]
        end,
        "n", i(OutNode), ", ",
        case Proc of
