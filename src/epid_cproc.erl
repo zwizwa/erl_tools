@@ -155,7 +155,10 @@ code(W, _Reduced = #{ inputs := Inputs, procs := Procs }, Outputs, SubGraph) ->
        "#include \"mod_cproc_plugin.c\"\n"]),
     %% Config parameter definitions
     lists:foreach(
-      fun({Node, {Proc, _InNodes}}) -> config_def(W, Node, Proc) end,
+      fun({Node, {Proc, _InNodes}}) ->
+              config_def(W, Node, Proc),
+              params_def(W, Node, Proc)
+      end,
       Procs),
     %% Function body: let clauses and output clauses.
     W(["void cproc_update(w *input, w g) {\n"]),
@@ -167,22 +170,26 @@ code(W, _Reduced = #{ inputs := Inputs, procs := Procs }, Outputs, SubGraph) ->
       Outputs),
     W("}\n").
 
-config_def(W, Node, Proc) ->
-    case Proc of
-        _ when is_atom(Proc) ->
-            ok;
-        {ProcName, ProcParams} ->
-            W(["const ", a(ProcName),"_config ",
-               "n",i(Node),"_config = { "]),
-            
-            lists:foreach(
-              fun({ParamName, ParamValue}) ->
-                      W([".", a(ParamName), " = ",
-                         ref(ParamValue),", "])
-              end,
-              maps:to_list(ProcParams)),
-            W(["};\n"])
-    end.
+struct_def(W, Node, ProcName, ProcParams, StorageClass, PostFix) ->
+    W([StorageClass, a(ProcName),PostFix," ",
+       "n",i(Node),PostFix," = { "]),
+    
+    lists:foreach(
+      fun({ParamName, ParamValue}) ->
+              W([".", a(ParamName), " = ",
+                 ref(ParamValue),", "])
+      end,
+      maps:to_list(ProcParams)),
+    W(["};\n"]).
+
+config_def(W, Node, _Proc = #{ name := ProcName, config := ProcParams }) ->
+    struct_def(W, Node, ProcName, ProcParams, "static const ", "_config");
+config_def(_,_,_) -> ok.
+
+params_def(W, Node, _Proc = #{ name := ProcName, params := ProcParams }) ->
+    struct_def(W, Node, ProcName, ProcParams, "", "_params");
+params_def(_,_,_) -> ok.
+
 
 tab() ->
     "    ".
@@ -194,22 +201,34 @@ cond_bitvec(List) ->
 %% b(N) -> io_lib:format("~32.2.0B",[N]).
 b(N) -> io_lib:format("0b~.2.0B",[N]).
 
-let_clause(W, OutNode, Proc, InNodes, InputIndex, SubGraph) ->
+let_clause(W, OutNode, ProcMeta = #{name :=ProcName}, InNodes, InputIndex, SubGraph) ->
     W([tab(),
        %% FIXME: SubGraph should contain a sensitivity vector
        %% wrt. inputs, for each node, to generate the guards for
        %% LET_COND.  Currently it still contains a dependency list.
+
+       %% Arg1 subgraph mask
        case SubGraph of
            synchronous -> "LET(";
            _ -> ["LET_COND(g&", b(cond_bitvec(maps:get(OutNode, SubGraph))), ", "]
        end,
+       %% Arg2 instance name
        "n", i(OutNode), ", ",
-       case Proc of
-           %% Non-parameterized and parameterized processors.
-           _ when is_atom(Proc)   -> [a(Proc), ", NULL"];
-           {ProcName,_ProcParams} -> [a(ProcName), ", &n", i(OutNode), "_config"]
+       %% Arg3 processor name
+       a(ProcName),", ",
+       %% Arg4 static configuration
+       case maps:find(config, ProcMeta) of
+           {ok, _} -> ["&n", i(OutNode), "_config"];
+           error   -> "NULL"
+       end,
+       ", ",
+       %% Arg5 dynamic parameter
+       case maps:find(params, ProcMeta) of
+           {ok, _} -> ["&n", i(OutNode), "_params"];
+           error   -> "NULL"
        end
       ]),
+    %% Arg 6+ dataflow inputs.
     lists:foreach(
       fun({InName, InNode}) ->
               W([", .", a(InName), " = ",

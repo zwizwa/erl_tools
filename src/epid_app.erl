@@ -119,8 +119,8 @@ handle({Caller, {epid_compile, Cmd}}, State = #{ epid_env := Env }) ->
                           end
                   end, [], Procs),
 
-            %% log:info("DAG:~n~p~nCode:~n~s", [DAG, Code]),
             Code = epid_cproc:code(DAG, Outputs, Subgraphs),
+            %% log:info("DAG:~n~p~nCode:~n~s", [DAG, Code]),
 
             %% FIXME: It's not necessary to keep these intermedates.
             %% Just pass them as values.
