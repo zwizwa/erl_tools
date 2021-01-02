@@ -5,8 +5,8 @@
 %% uc_tools
 %%
 %% uint32_t in = hw_gpio_read(IN);
-%% LET(in_edge,       /*=*/ proc_edge, in);
-%% LET(in_edge_count, /*=*/ proc_acc,  in_edge.out);
+%% PROC(in_edge,       /*=*/ proc_edge, in);
+%% PROC(in_edge_count, /*=*/ proc_acc,  in_edge.out);
 %% if (in_edge.out) {
 %%     infof("count = %d\n", in_edge_count);
 %% }
@@ -123,7 +123,7 @@ subgraphs(_DAG = #{ inputs := Inputs, procs := Procs }) ->
 %% This generates let.h syntax for mod_cproc.c conventions.
 %%
 %% Note that inputs are named to stick with the assumption throughout
-%% that epid_app inputs are named.  The LET() macro uses an array
+%% that epid_app inputs are named.  The PROC() macro uses an array
 %% initializer to implement this.  We do what is convenient; constant
 %% propagation is left to the C compiler.
 %%
@@ -205,12 +205,12 @@ let_clause(W, OutNode, ProcMeta = #{name :=ProcName}, InNodes, InputIndex, SubGr
     W([tab(),
        %% FIXME: SubGraph should contain a sensitivity vector
        %% wrt. inputs, for each node, to generate the guards for
-       %% LET_COND.  Currently it still contains a dependency list.
+       %% PROC_COND.  Currently it still contains a dependency list.
 
        %% Arg1 subgraph mask
        case SubGraph of
-           synchronous -> "LET(";
-           _ -> ["LET_COND(g&", b(cond_bitvec(maps:get(OutNode, SubGraph))), ", "]
+           synchronous -> "PROC(";
+           _ -> ["PROC_COND(g&", b(cond_bitvec(maps:get(OutNode, SubGraph))), ", "]
        end,
        %% Arg2 instance name
        "n", i(OutNode), ", ",
