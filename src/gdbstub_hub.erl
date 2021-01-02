@@ -11,6 +11,7 @@
          tag_u32/2,
          tag_u32/3,
          command/1,
+         req_u32/3,
 
          %% Internal, for reloads
          ignore/2, print_etf/2,
@@ -326,6 +327,12 @@ dev_handle_({send_u32, U32List}, State) ->
 dev_handle_({send_u32, U32List, Data}, State) ->
     dev_handle({send_packet, tag_u32(U32List, Data)}, State);
 
+dev_handle_({req_u32, Pid, U32List, Data}, State) ->
+    dev_handle({send_packet, req_u32(Pid, U32List, Data)}, State);
+
+dev_handle_({req_u32, Pid, U32List}, State) ->
+    dev_handle({send_packet, req_u32(Pid, U32List, <<>>)}, State);
+
 %% Similar encoding, different semantics.
 dev_handle_({send_command, Cmd}, State) ->
     dev_handle({send_packet, command(Cmd)}, State);
@@ -533,6 +540,26 @@ tag_u32(U32List) ->
 command({Name,U32List}) when is_atom(Name) and is_list(U32List) ->
     tag_u32(16#FFF1, U32List, atom_to_binary(Name, utf8)).
 
+
+
+%% Just map pid to u32 array for RPC reply addresses.
+term_to_binary_u32(Term) ->
+    B = term_to_binary(Term),
+    NbU32 = ((size(B)-1) div 4)+1,
+    {NbU32, [B,binary:copy(<<0>>, 4*NbU32 - size(B))]}.
+
+req_u32(Pid, U32List, Data) ->
+    {Nr, From} = term_to_binary_u32(Pid),
+    Nr1 = Nr + 1,
+    N = length(U32List),
+    Tag = 16#FFF5,
+    FromPid = 16#FFFFFF00 + Nr,
+    [[<<Tag:16, Nr1, N, FromPid:32>>],
+     From,
+     [<<W:32>> || W<-U32List],
+     Data].
+    
+    
     
 
 

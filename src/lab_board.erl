@@ -52,7 +52,10 @@ handle(<<?TAG_PLUGIO:16, _/binary>>=Msg, State) ->
     %% handle_to_pty(plugin_pty, {pty,"/tmp/plugin"}, Msg, State);
     handle_to_port(plugin_port, {tcp_listen,5555}, Msg, State);
 
-handle(<<?TAG_U32:16, NbArgs:16, Bin/binary>>=_Msg, State) ->
+handle(<<?TAG_U32:16, _NbFrom:8, NbArgs:8, Bin/binary>>=_Msg, State) ->
+    %% FIXME _NbFrom is not handled: RPC requests from other side are
+    %% not supported.
+
     %% This needs to go to epid dispatch.
     %% log:info("TAG_U32 ~p\n", [_Msg]),
     BArgsLen = NbArgs*4,
@@ -61,10 +64,23 @@ handle(<<?TAG_U32:16, NbArgs:16, Bin/binary>>=_Msg, State) ->
     %% log:info("TAG_U32 ~p\n", [{NbArgs,BArgs}]),
     %% FIXME: Tail
     Args = [Arg || <<Arg:32>> <= BArgs],
+    log:info("TAG_U32 dispatch ~p\n", [{Args,BTail}]),
     case Args of
         [Tag|Rest] ->
-            %% log:info("TAG_U32 dispatch ~p\n", [{Tag,Rest}]),
-            epid:dispatch(Tag, Rest, State);
+            case Tag >= 16#FFFFFF00 of
+                true ->
+                    NbWords = Tag - 16#FFFFFF00,
+                    EncPid = lists:sublist(Rest, NbWords),
+                    Pid = binary_to_term(
+                            iolist_to_binary(
+                              [<<W:32>> || W<-EncPid])),
+                    Rest1 = lists:sublist(Rest, NbWords+1, length(Rest)-NbWords),
+                    obj:reply(Pid, {Rest1,BTail}),
+                    ok;
+                false ->
+                    %% log:info("TAG_U32 dispatch ~p\n", [{Tag,Rest}]),
+                    epid:dispatch(Tag, Rest, State)
+            end;
         _ ->
             ok
     end,
