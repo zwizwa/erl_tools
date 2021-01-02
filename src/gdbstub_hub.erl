@@ -11,7 +11,9 @@
          tag_u32/2,
          tag_u32/3,
          command/1,
+
          req_u32/3,
+         req_u32_reply/3,
 
          %% Internal, for reloads
          ignore/2, print_etf/2,
@@ -327,10 +329,10 @@ dev_handle_({send_u32, U32List}, State) ->
 dev_handle_({send_u32, U32List, Data}, State) ->
     dev_handle({send_packet, tag_u32(U32List, Data)}, State);
 
-dev_handle_({req_u32, Pid, U32List, Data}, State) ->
+dev_handle_({Pid,{req_u32, U32List, Data}}, State) ->
     dev_handle({send_packet, req_u32(Pid, U32List, Data)}, State);
 
-dev_handle_({req_u32, Pid, U32List}, State) ->
+dev_handle_({Pid,{req_u32, U32List}}, State) ->
     dev_handle({send_packet, req_u32(Pid, U32List, <<>>)}, State);
 
 %% Similar encoding, different semantics.
@@ -536,7 +538,7 @@ tag_u32(U32List,Data) ->
 tag_u32(U32List) ->
     tag_u32(U32List,[]).
 
-%% Uses tha same basic format, different tag.
+%% Uses the same basic format, different tag.
 command({Name,U32List}) when is_atom(Name) and is_list(U32List) ->
     tag_u32(16#FFF1, U32List, atom_to_binary(Name, utf8)).
 
@@ -558,6 +560,16 @@ req_u32(Pid, U32List, Data) ->
      From,
      [<<W:32>> || W<-U32List],
      Data].
+
+req_u32_reply(Tag, Rest ,BTail) ->
+    NbWords = Tag - 16#FFFFFF00,
+    EncPid = lists:sublist(Rest, NbWords),
+    Pid = binary_to_term(
+            iolist_to_binary(
+              [<<W:32>> || W<-EncPid])),
+    Rest1 = lists:sublist(Rest, NbWords+1, length(Rest)-NbWords),
+    obj:reply(Pid, {Rest1,BTail}),
+    ok.
     
     
     

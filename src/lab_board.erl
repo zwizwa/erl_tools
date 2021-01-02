@@ -64,19 +64,12 @@ handle(<<?TAG_U32:16, _NbFrom:8, NbArgs:8, Bin/binary>>=_Msg, State) ->
     %% log:info("TAG_U32 ~p\n", [{NbArgs,BArgs}]),
     %% FIXME: Tail
     Args = [Arg || <<Arg:32>> <= BArgs],
-    log:info("TAG_U32 dispatch ~p\n", [{Args,BTail}]),
+    %% log:info("TAG_U32 dispatch ~p\n", [{Args,BTail}]),
     case Args of
         [Tag|Rest] ->
             case Tag >= 16#FFFFFF00 of
                 true ->
-                    NbWords = Tag - 16#FFFFFF00,
-                    EncPid = lists:sublist(Rest, NbWords),
-                    Pid = binary_to_term(
-                            iolist_to_binary(
-                              [<<W:32>> || W<-EncPid])),
-                    Rest1 = lists:sublist(Rest, NbWords+1, length(Rest)-NbWords),
-                    obj:reply(Pid, {Rest1,BTail}),
-                    ok;
+                    gdbstub_hub:req_u32_reply(Tag, Rest, BTail);
                 false ->
                     %% log:info("TAG_U32 dispatch ~p\n", [{Tag,Rest}]),
                     epid:dispatch(Tag, Rest, State)
@@ -215,3 +208,5 @@ update_plugin(#{ code := CodeIOL, dag := #{ inputs := _Inputs} = _DAG, name := N
             file:write_file(FileName, Code)
     end,
     State.
+
+
