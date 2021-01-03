@@ -25,7 +25,9 @@
 
 
 -module(epid_app).
--export([op/2, instantiate/2, handle/2]).
+-export([op/2, instantiate/2,
+         handle_epid_app/2,
+         handle_epid_kill/2]).
 
 
 %% Operators are just type names.  Those can be arbitrary data
@@ -65,70 +67,22 @@ instantiate(MakeEpid, Spec) ->
 
 
 
-
-%% The handler is experimental.  This is implements bookkeeping to
-%% keep track of a DAG in the proxy.
-handle({Caller, {epid_app, OpType, InputPids}}, State) ->
+%% Handlers to implement some of the bookkeeping for generating a
+%% dataflow graph, keeping state in the proxy object.  See
+%% lab_board.erl
+handle_epid_app({Caller, {epid_app, OpType, InputPids}}, State) ->
     {InputPids1, State1, Tmp} = compile_inputs(self(), InputPids, State),
     {Epid, State2} = compile(OpType, InputPids1, State1),
     obj:reply(Caller, #{ out => Epid, tmp => Tmp }),
-    State2;
-handle({Caller, _Msg = {epid_kill, {epid, _, Node}}}, State = #{epid_env := Env}) ->
+    State2.
+handle_epid_kill({Caller, _Msg = {epid_kill, {epid, _, Node}}}, State = #{epid_env := Env}) ->
     %% log:info("~p~n", [_Msg]),
     obj:reply(Caller, ok),
     %% Delete from dispatcher
     State1 = maps:remove({epid_dispatch,Node}, State),
     %% Delete from environment (DAG)
     Env1 = maps:remove(Node, Env),
-    maps:put(epid_env, Env1, State1);
-handle({Caller, {epid_compile, Cmd}}, State = #{ epid_env := Env }) ->
-    obj:reply(Caller, ok),
-    case Cmd of
-        clear ->
-            State;
-        commit ->
-            %% The dag representation can be reduced by splitting
-            %% inputs and internal nodes.
-            DAG = epid_cproc:compile(self(), Env),
-
-            %% Compute the "evented" subgraphs, encoded as a map from
-            %% node number to indexed input, to be used in clause
-            %% gating.
-            Subgraphs = epid_cproc:subgraphs(DAG),
-
-            %% The DAG representation gets mapped to two things: input
-            %% buffer mapping and C code.
-
-            %% C code knows the input index mapping, so we can use
-            %% just that to make the connections.
-            #{ inputs := Inputs, procs := Procs } = DAG,
-            lists:foreach(
-              fun({Index,{_Node,Epid}}) ->
-                      epid:connect(Epid, {epid, self(), Index})
-              end, tools:enumerate(Inputs)),
-
-            %% Before commit is called, connections have been made.
-            %% So we can just collect everything here.
-            Outputs = 
-                lists:foldl(
-                  fun(_Binding = {Node, {_Proc, _Args}}, Os) ->
-                          %% log:info("~p~n",[_Binding]),
-                          case maps:find({epid_dispatch, Node}, State) of
-                              {ok, _Epid} -> [Node|Os];
-                              error -> Os
-                          end
-                  end, [], Procs),
-
-            Code = epid_cproc:code(DAG, Outputs, Subgraphs),
-            %% log:info("DAG:~n~p~nCode:~n~s", [DAG, Code]),
-
-            %% FIXME: It's not necessary to keep these intermedates.
-            %% Just pass them as values.
-            maps:merge(
-              State,
-              #{ code => Code,
-                 dag  => DAG })
-    end.
+    maps:put(epid_env, Env1, State1).
 
 compile(OpType, InputPids, State) ->
     Env = maps:get(epid_env, State, #{}),

@@ -14,7 +14,7 @@
 %% FIXME: I'm going to implement this in lab_board.erl first.
 
 -module(epid_cproc).
--export([example/0, compile/2, subgraphs/1, code/3]).
+-export([example/0, compile/2, subgraphs/1, code/3, handle_epid_compile/2]).
 
 
 example() ->
@@ -241,3 +241,61 @@ let_clause(W, OutNode, ProcMeta = #{name :=ProcName}, InNodes, InputIndex, SubGr
       maps:to_list(InNodes)),
     W(");\n").
 
+
+
+%% This is used in conjunction with handle_epid_app/2 and
+%% handle_epid_kill/2 from epid_app.  
+
+%% See example in lab_board.erl, it uses delegates like this:
+%% handle(Msg={_, {epid_app, _, _}},  State) -> epid_app:handle_epid_app(Msg, State);
+%% handle(Msg={_, {epid_kill, _}},    State) -> epid_app:handle_epid_kill(Msg, State);
+%% handle(Msg={_, {epid_compile, _}}, State) -> update_plugin(epid_cproc:handle_epid_compile(Msg, State));
+
+handle_epid_compile({Caller, {epid_compile, Cmd}}, State = #{ epid_env := Env }) ->
+    obj:reply(Caller, ok),
+    case Cmd of
+        clear ->
+            State;
+        commit ->
+            %% The dag representation can be reduced by splitting
+            %% inputs and internal nodes.
+            DAG = epid_cproc:compile(self(), Env),
+
+            %% Compute the "evented" subgraphs, encoded as a map from
+            %% node number to indexed input, to be used in clause
+            %% gating.
+            Subgraphs = epid_cproc:subgraphs(DAG),
+
+            %% The DAG representation gets mapped to two things: input
+            %% buffer mapping and C code.
+
+            %% C code knows the input index mapping, so we can use
+            %% just that to make the connections.
+            #{ inputs := Inputs, procs := Procs } = DAG,
+            lists:foreach(
+              fun({Index,{_Node,Epid}}) ->
+                      epid:connect(Epid, {epid, self(), Index})
+              end, tools:enumerate(Inputs)),
+
+            %% Before commit is called, connections have been made.
+            %% So we can just collect everything here.
+            Outputs = 
+                lists:foldl(
+                  fun(_Binding = {Node, {_Proc, _Args}}, Os) ->
+                          %% log:info("~p~n",[_Binding]),
+                          case maps:find({epid_dispatch, Node}, State) of
+                              {ok, _Epid} -> [Node|Os];
+                              error -> Os
+                          end
+                  end, [], Procs),
+
+            Code = epid_cproc:code(DAG, Outputs, Subgraphs),
+            %% log:info("DAG:~n~p~nCode:~n~s", [DAG, Code]),
+
+            %% FIXME: It's not necessary to keep these intermedates.
+            %% Just pass them as values.
+            maps:merge(
+              State,
+              #{ code => Code,
+                 dag  => DAG })
+    end.
