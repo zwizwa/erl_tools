@@ -1,17 +1,7 @@
-%% Instantiate an epid_app subgraph as a set of C macro invocations.
-%% Generic code.  See exo_patch.erl for specific code.
-
-%% Example of a manually coded C fragment that uses mod_cproc.c from
-%% uc_tools
+%% Instantiate a dataflow subgraph as a set of C macro invocations,
+%% using primtivies in the style of uc_tools/cproc.h
 %%
-%% uint32_t in = hw_gpio_read(IN);
-%% PROC(in_edge,       /*=*/ proc_edge, in);
-%% PROC(in_edge_count, /*=*/ proc_acc,  in_edge.out);
-%% if (in_edge.out) {
-%%     infof("count = %d\n", in_edge_count);
-%% }
-
-%% FIXME: I'm going to implement this in lab_board.erl first.
+%% See exo_patch.erl for specific code.
 
 -module(epid_cproc).
 -export([example/0, code/3, handle_epid_compile/2]).
@@ -186,7 +176,8 @@ handle_epid_compile({Caller, {epid_compile, Cmd}}, State = #{ epid_env := Env })
             %% C code knows the input index mapping, so we can use
             %% just that to make the connections.
             epid_dag:connect_inputs(Inputs),
-            
+
+            %% C code needs to send out messages for internal output nodes.
             Outputs = epid_dag:outputs(Procs, State),
 
             Code = code(DAG, Outputs, Subgraphs),

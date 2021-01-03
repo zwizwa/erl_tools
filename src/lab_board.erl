@@ -141,6 +141,9 @@ handle(<<16#FFF30000:32, OK:8, RH:16, T:16, _/binary>>=_Msg, State = #{name := N
 handle(Msg={_, {epid_app, _, _}},  State) -> epid_dag:handle_epid_app(Msg, State);
 handle(Msg={_, {epid_kill, _}},    State) -> epid_dag:handle_epid_kill(Msg, State);
 handle(Msg={_, {epid_compile, _}}, State) -> update_plugin(epid_cproc:handle_epid_compile(Msg, State));
+%% To bootstreap epid_cprim work: this uses the same internal data
+%% structures as as epid_cproc, but a different C code generator.
+%%handle(Msg={_, {epid_compile, _}}, State) -> epid_cprim:handle_epid_compile(Msg, State);
 
 %% FIXME: It is probably not ok to make this this catch-all.
 %% But it is very convenient to have the command interface be the default.

@@ -84,9 +84,13 @@ compile_inputs(Self, InputPids, State) ->
 env_to_seq(M) ->
     [{K,maps:get(K,M)} || K <- lists:sort(maps:keys(M))].
 
-%% Separate internal and external references, as they are handled
-%% differently.  The resulting representation can be used to generate
-%% the C code and the Erlang dispatcher.
+%% Translate the DAG expressed in terms of epid nodes, into a
+%% representation that separates the external interface and the
+%% internal connectivity.
+%%
+%% This separates internal and external references, as they are
+%% handled differently.  The resulting representation can be used to
+%% generate the C code and the Erlang dispatcher.
 internalize(LocalPid, Env) ->
 
     {Im, Nm} =
@@ -133,7 +137,7 @@ subgraphs(_DAG = #{ inputs := Inputs, procs := Procs }) ->
     %% subgraph mask.
     InputMap = maps:from_list(
                  [{N,I} || {I,{N,_Epid}} <- tools:enumerate(Inputs)]),
-    log:info("InputMap=~n~p~n", [InputMap]),
+    %% log:info("InputMap=~n~p~n", [InputMap]),
     %% log:info("DAG=~n~p~n", [_DAG]),
 
     %% Crate a map from a node to its parent node set.
@@ -150,7 +154,7 @@ subgraphs(_DAG = #{ inputs := Inputs, procs := Procs }) ->
                         end, #{}, InNodes),
                   maps:put(OutNode, OutNodeDeps, Deps)
           end, #{}, Procs),
-    log:info("NodeToDeps=~n~p~n", [NodeToDeps]),
+    %% log:info("NodeToDeps=~n~p~n", [NodeToDeps]),
 
     %% Filter out only the indexed inputs.  That's all we need to
     %% "switch on" a subgraph.
@@ -167,7 +171,7 @@ subgraphs(_DAG = #{ inputs := Inputs, procs := Procs }) ->
           end,
           NodeToDeps),
 
-    log:info("SubGraphs=~n~p~n", [SubGraphs]),
+    %% log:info("SubGraphs=~n~p~n", [SubGraphs]),
     SubGraphs.
 
 
