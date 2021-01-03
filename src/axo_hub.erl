@@ -109,10 +109,3 @@ pids(Pid) ->
 
 
 
-%% Convenience.  These are bound to default hub and assume only one
-%% device.
-
-
-load(_Elf) ->
-    %% allocate(),
-    ok.

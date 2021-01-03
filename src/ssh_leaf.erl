@@ -126,7 +126,7 @@ handle(Msg, State = #{host := Host}) ->
             State
     end.
 
-handle_log_reply(Msg={Port, PMsg}, State = #{host := Host}) ->
+handle_log_reply(Msg={_Port, PMsg}, State = #{host := Host}) ->
     %% Parse log message.
     case PMsg of
         {data, {eol, Line}} -> 

@@ -61,7 +61,7 @@ upload(TargetHost, Gdb, TargetPort, Elf, Sink) ->
 %% Quit gdb, ensuring it has actually quit by catching the monitor
 %% message.  Note that 'quit' doesn't send any feedback, so add a
 %% timeout and be loud about failing.
-quit(P, Sink) ->
+quit(P, _Sink) ->
     Ref = erlang:monitor(port, P),
     ok = send(P, "quit"),
     receive 

@@ -645,10 +645,10 @@ gdb_dispatch(#{ pid := Pid}, Request) ->
 
 
 %% FIXME: Resolution isn't done very well.
-send(Hub, Msg) -> Hub ! Msg.
+%%send(Hub, Msg) -> Hub ! Msg.
 call(Hub, Msg) -> obj:call(Hub, Msg, 6003).
 
-dev(Hub, Pid) when is_pid(Pid) -> Pid;
+dev(_Hub, Pid) when is_pid(Pid) -> Pid;
 dev(Hub, ID) -> {ok, Pid} = call(Hub, {dev_pid, ID}), Pid.
 
 

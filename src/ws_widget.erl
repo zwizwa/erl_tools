@@ -264,7 +264,7 @@ kvstore_init(_Env = #{defaults := Defaults, kvstore := KVStore}) ->
 %% Sync all inputs with current store state.  This is necessary
 %% because the browser keeps its local input state across reloads,
 %% which is likely stale.
-sync(_Env = #{ kvstore := KVStore, ws := Ws, path := Path }) ->
+sync(_Env = #{ kvstore := KVStore, ws := _Ws, path := Path }) ->
     Cmds =
         lists:flatten(
           lists:map(

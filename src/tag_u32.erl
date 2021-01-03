@@ -8,12 +8,14 @@
 %% In this module we use reverse path notation, bottom-to-tom,
 %% i.e. zipper or stack view, which is easier to work with.  TAG_U32
 %% uses top-to-bottom order.
-call(Pid, Sub) ->
-    obj:call(Pid, {req_u32, lists:reverse(Sub)}, 2000).
+callr(Pid, RPath) ->
+    call(Pid, lists:reverse(RPath)).
+call(Pid, Path) ->
+    obj:call(Pid, {req_u32, Path}, 2000).
 
 %% Metatdata commands
 meta(Pid, [N|Path0], Cmd) ->
-    {[], Name} = call(Pid, [N, Cmd, 16#FFFFFFFF | Path0]),
+    {[], Name} = callr(Pid, [N, Cmd, 16#FFFFFFFF | Path0]),
     binary_to_atom(Name,utf8).
 
 %% Map identifier to name string.
@@ -34,8 +36,8 @@ type(Pid, Path) -> meta(Pid, Path, 3).
 dict(Pid) ->
     sub(Pid, []).
 sub(Pid, Path) ->
-    maps:from_list(dict_list(Pid, 0, Path))
-dict_list(Pid,N,Path) ->exo
+    maps:from_list(dict_list(Pid, 0, Path)).
+dict_list(Pid,N,Path) ->
     case name(Pid,[N|Path]) of
         '' -> [];
         Name -> 
@@ -50,6 +52,10 @@ dict_list(Pid,N,Path) ->exo
                         %% Atoms don't have substructure, just a type.
                         Type
                 end,
-            [{Name,{N,Sub}} | dict_list(Pid, N+1, Path)]
+            [{Name,
+              %% {N,Sub}  %% I really don't care about node indices atm.
+              Sub
+             } 
+             |dict_list(Pid, N+1, Path)]
     end.
             
