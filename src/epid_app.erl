@@ -25,9 +25,7 @@
 
 
 -module(epid_app).
--export([op/2, instantiate/2,
-         handle_epid_app/2,
-         handle_epid_kill/2]).
+-export([op/2, instantiate/2]).
 
 
 %% Operators are just type names.  Those can be arbitrary data
@@ -66,51 +64,5 @@ instantiate(MakeEpid, Spec) ->
     State.
 
 
-
-%% Handlers to implement some of the bookkeeping for generating a
-%% dataflow graph, keeping state in the proxy object.  See
-%% lab_board.erl
-handle_epid_app({Caller, {epid_app, OpType, InputPids}}, State) ->
-    {InputPids1, State1, Tmp} = compile_inputs(self(), InputPids, State),
-    {Epid, State2} = compile(OpType, InputPids1, State1),
-    obj:reply(Caller, #{ out => Epid, tmp => Tmp }),
-    State2.
-handle_epid_kill({Caller, _Msg = {epid_kill, {epid, _, Node}}}, State = #{epid_env := Env}) ->
-    %% log:info("~p~n", [_Msg]),
-    obj:reply(Caller, ok),
-    %% Delete from dispatcher
-    State1 = maps:remove({epid_dispatch,Node}, State),
-    %% Delete from environment (DAG)
-    Env1 = maps:remove(Node, Env),
-    maps:put(epid_env, Env1, State1).
-
-compile(OpType, InputPids, State) ->
-    Env = maps:get(epid_env, State, #{}),
-    Node = maps:get(epid_count, State, 0),
-    Epid = {epid, self(), Node},
-    {Epid,
-     maps:merge(
-       State,
-       #{ epid_count => Node+1,
-          epid_env => maps:put(Node, {OpType, InputPids}, Env)
-        })}.
-
-%% 'traverse' the inputs, and create a buffer for each non-local signal
-compile_inputs(Self, InputPids, State) ->
-    maps:fold(
-      fun(Var,Epid,{I,S,Tmp}) ->
-              case Epid of
-                  {epid, Self, _} ->
-                      %% Input is already local.
-                      I1 = maps:put(Var, Epid, I),
-                      {I1,S,Tmp};
-                  _ ->
-                      %% Replace Var with a buffered version
-                      {Epid1,S1} = compile(input, #{in => Epid}, S),
-                      I1 = maps:put(Var, Epid1, I),
-                      {I1,S1,[Epid1|Tmp]}
-              end
-      end, {InputPids, State, []}, InputPids).
-    
 
 

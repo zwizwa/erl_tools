@@ -14,7 +14,7 @@
 %% FIXME: I'm going to implement this in lab_board.erl first.
 
 -module(epid_cproc).
--export([example/0, compile/2, subgraphs/1, code/3, handle_epid_compile/2]).
+-export([example/0, code/3, handle_epid_compile/2]).
 
 
 example() ->
@@ -25,99 +25,12 @@ example() ->
       15 => {count,#{in => {epid,LocalPid,14}}},
       16 => {count,#{in => {epid,LocalPid,13}}}
      },
-    Reduced = compile(LocalPid, Env),
+    Reduced = epid_dag:internalize(LocalPid, Env),
     Code = code(Reduced, [16], #{}),
     log:info("Reduced:~n~p~nCode:~n~s", [Reduced, Code]),
     ok.
 
-env_to_seq(M) ->
-    [{K,maps:get(K,M)} || K <- lists:sort(maps:keys(M))].
 
-%% Separate internal and external references, as they are handled
-%% differently.  The resulting representation can be used to generate
-%% the C code and the Erlang dispatcher.
-compile(LocalPid, Env) ->
-
-    {Im, Nm} =
-        maps:fold(
-          fun(N, {Proc, Inputs}, {Is, Ns}) ->
-                  case Proc of
-                      input ->
-                          %% External epids
-                          InEpid = maps:get(in, Inputs),
-                          {maps:put(N,InEpid, Is),
-                           Ns};
-                      _ ->
-                          %% All processor inputs are "simple",
-                          %% e.g. internal nodes.
-                          InNodes =
-                              maps:map(
-                                fun(_InName, InEpid) ->
-                                        case InEpid of
-                                            {epid, LocalPid, InN} -> InN
-                                        end
-                                end,
-                                Inputs),
-                          {Is,
-                           maps:put(N, {Proc, InNodes}, Ns)}
-                  end
-          end,
-          {#{},#{}},
-          Env),
-    Is = env_to_seq(Im),
-    Ns = env_to_seq(Nm),
-    #{ inputs => Is, procs => Ns}.
-
-%% When only part of the input changes, we can just execute a part of
-%% the graph.  We can encode this by guarding each update clause with
-%% an input mask.  This function creates that mask as a list of input
-%% indices for each node.
-%%
-%% Compute input dependencies for each node by computing transitive
-%% closure of all dependencies for each node, then filtering out only
-%% the input nodes using indexed coordinates.  
-%%
-subgraphs(_DAG = #{ inputs := Inputs, procs := Procs }) ->
-    %% Map Node name to Input index, which is what is used for the
-    %% subgraph mask.
-    InputMap = maps:from_list(
-                 [{N,I} || {I,{N,_Epid}} <- tools:enumerate(Inputs)]),
-    log:info("InputMap=~n~p~n", [InputMap]),
-    %% log:info("DAG=~n~p~n", [_DAG]),
-
-    %% Crate a map from a node to its parent node set.
-    NodeToDeps =
-        lists:foldl(
-          fun({OutNode,{_Proc,InNodes}},Deps) ->
-                  %% All dependencies of this node
-                  OutNodeDeps =
-                      maps:fold(
-                        fun(_InName, InNode, D) ->
-                                %% Record the node, and its transitive closure.
-                                D1 = maps:put(InNode, true, D),
-                                maps:merge(D1, maps:get(InNode, Deps, #{}))
-                        end, #{}, InNodes),
-                  maps:put(OutNode, OutNodeDeps, Deps)
-          end, #{}, Procs),
-    log:info("NodeToDeps=~n~p~n", [NodeToDeps]),
-
-    %% Filter out only the indexed inputs.  That's all we need to
-    %% "switch on" a subgraph.
-    SubGraphs =
-        maps:map(
-          fun(_Node, Deps) ->
-                  lists:foldl(
-                    fun({N,true}, Idxs) ->
-                            case maps:find(N,InputMap) of
-                                {ok, Idx} -> [Idx|Idxs];
-                                error -> Idxs
-                            end
-                    end,[],maps:to_list(Deps))
-          end,
-          NodeToDeps),
-
-    log:info("SubGraphs=~n~p~n", [SubGraphs]),
-    SubGraphs.
     
     
 %% This generates let.h syntax for mod_cproc.c conventions.
@@ -259,37 +172,24 @@ handle_epid_compile({Caller, {epid_compile, Cmd}}, State = #{ epid_env := Env })
         commit ->
             %% The dag representation can be reduced by splitting
             %% inputs and internal nodes.
-            DAG = epid_cproc:compile(self(), Env),
+            DAG = epid_dag:internalize(self(), Env),
 
             %% Compute the "evented" subgraphs, encoded as a map from
             %% node number to indexed input, to be used in clause
             %% gating.
-            Subgraphs = epid_cproc:subgraphs(DAG),
+            Subgraphs = epid_dag:subgraphs(DAG),
 
             %% The DAG representation gets mapped to two things: input
             %% buffer mapping and C code.
+            #{ inputs := Inputs, procs := Procs } = DAG,
 
             %% C code knows the input index mapping, so we can use
             %% just that to make the connections.
-            #{ inputs := Inputs, procs := Procs } = DAG,
-            lists:foreach(
-              fun({Index,{_Node,Epid}}) ->
-                      epid:connect(Epid, {epid, self(), Index})
-              end, tools:enumerate(Inputs)),
+            epid_dag:connect_inputs(Inputs),
+            
+            Outputs = epid_dag:outputs(Procs, State),
 
-            %% Before commit is called, connections have been made.
-            %% So we can just collect everything here.
-            Outputs = 
-                lists:foldl(
-                  fun(_Binding = {Node, {_Proc, _Args}}, Os) ->
-                          %% log:info("~p~n",[_Binding]),
-                          case maps:find({epid_dispatch, Node}, State) of
-                              {ok, _Epid} -> [Node|Os];
-                              error -> Os
-                          end
-                  end, [], Procs),
-
-            Code = epid_cproc:code(DAG, Outputs, Subgraphs),
+            Code = code(DAG, Outputs, Subgraphs),
             %% log:info("DAG:~n~p~nCode:~n~s", [DAG, Code]),
 
             %% FIXME: It's not necessary to keep these intermedates.
