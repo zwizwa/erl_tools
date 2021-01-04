@@ -1,8 +1,10 @@
 %% Protocol wrappers for TAG_U32-based RPC protocol.
 
 -module(tag_u32).
--export([call/2, resolve/2,
-         meta/3, name/2, type/2, dict/1,
+-export([call/2, call/3,
+         find/3, resolve/2,
+         meta/3, name/2, type/2,
+         dict/1, sub/2,
          apply/3]).
 
 %% Generic RPC
@@ -14,34 +16,56 @@ callr(Pid, RPath) ->
     call(Pid, lists:reverse(RPath)).
 
 call(Pid, Path) ->
-    NPath =
-        case Path of
-            %% This is just for convenience during testing.  Please
-            %% use explicit path resolving.
-            [S|_] when is_atom(S) -> resolve(dict(Pid), Path);
-            _ -> Path
-        end,
-    obj:call(Pid, {req_u32, NPath}, 2000).
+    call(Pid, Path, <<>>).
 
-resolve(Dict, [Tag|Path]) ->
-    case maps:find(Tag, Dict) of
-        {ok, {N, Sub}} when is_map(Sub) ->
-            [N | resolve(Sub, Path)];
-        {ok, {N, Type}} when is_atom(Type) ->
-            %% The remainder is opaque.
-            %% FIXME: Check that it consists of integers?
-            [N | Path]
+call(Pid, Path, Bin) ->
+    %% FIXME: Later, use only resolved paths.
+    NPath = resolve(Pid, Path),
+    obj:call(Pid, {req_u32, NPath, Bin}, 2000).
+
+
+%% Incremental resolve
+find(Pid, Path, Atom) when is_atom(Atom) ->
+    Bin = atom_to_binary(Atom,utf8),
+    case call(Pid, Path ++ [-1,4], Bin) of
+        {[0,Id],<<>>} -> {ok, Id};
+        _ -> error
     end.
+resolve(Pid, Path) ->
+    resolve(Pid,[],Path).
+resolve(_,_,[]) -> [];
+resolve(Pid, Upper, [X|Rest]) ->
+    Id = if is_number(X) -> X; true -> {ok, N} = find(Pid, Upper, X), N end,
+    [Id|resolve(Pid, Upper++[Id], Rest)].
 
 
-%% Metatdata commands
+%% %% Resolve based on dictionary.
+%% resolve(_Dict, []) -> [];
+%% resolve(Dict, [Tag|Path]) ->
+%%     case maps:find(Tag, Dict) of
+%%         {ok, {N, Sub}} when is_map(Sub) ->
+%%             [N | resolve(Sub, Path)];
+%%         {ok, {N, Type}} when is_atom(Type) ->
+%%             %% The remainder is opaque.
+%%             %% FIXME: Check that it consists of integers?
+%%             [N | Path]
+%%     end.
+
+
+%% Metadata commands
 meta(Pid, [N|RPath0], Cmd) ->
-    {[], Name} = callr(Pid, [N, Cmd, 16#FFFFFFFF | RPath0]),
-    binary_to_atom(Name,utf8).
+    case callr(Pid, [N, Cmd, 16#FFFFFFFF | RPath0]) of
+        {[0], Name} ->
+            {ok, binary_to_atom(Name,utf8)};
+        _ ->
+            error
+    end.
 
 %% Map identifier to name string.
 name(Pid, RPath) -> meta(Pid, RPath, 2).
 type(Pid, RPath) -> meta(Pid, RPath, 3).
+    
+    
 
 %% Retreive the whole dictionary.
 
@@ -60,10 +84,10 @@ sub(Pid, Path) ->
     maps:from_list(dict_list(Pid, 0, Path)).
 dict_list(Pid,N,Path) ->
     case name(Pid,[N|Path]) of
-        '' -> [];
-        Name -> 
+        error -> [];
+        {ok, Name} -> 
             Path1 = [N|Path],
-            Type = type(Pid,Path1),
+            {ok, Type} = type(Pid,Path1),
             Sub =
                 case Type of
                     map ->
@@ -83,7 +107,7 @@ dict_list(Pid,N,Path) ->
 
 %% FIXME: API is not stable.
 apply(Pid, Proc, Nodes) ->
-    {[Node],<<>>} = call(Pid,[apply,Proc] ++ Nodes),
+    {[Node],<<>>} = call(Pid,[class,Proc,apply] ++ Nodes),
     Node.
 
     
