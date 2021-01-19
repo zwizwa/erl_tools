@@ -1,0 +1,28 @@
+Language-Oriented Design
+========================
+
+If you want to learn "full stack" software, going from the very low
+levels (machine code, assembly) to the very high (esoteric programming
+languages), start by learning how to implement an interpreter and a
+compiler.  The ideal language for this is Scheme, because it's
+structure is very simple, but at the same time it can host many
+different programming paradigms.
+
+In doing so, do not focus too much on textual syntax.  The important
+bits are abstract syntax representations.
+
+In almost all the programming work I do, I always try to ask these
+questions in the background:
+
+- am I writing an interpreter for a language?
+
+- if so, can I make that language more formal and relate it to an
+  existing programming or specification language?
+
+- and, does it make sense to split the problem into compiler (convert
+  a high level representation to a low level one), and an interpreter
+  (or virtual machine: interpret the low level representation).
+
+Once you learn to see these patterns, you'll see them everywhere and
+it will give you guidance about how to structure your code.
+
