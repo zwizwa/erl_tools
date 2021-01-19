@@ -26,3 +26,13 @@ questions in the background:
 Once you learn to see these patterns, you'll see them everywhere and
 it will give you guidance about how to structure your code.
 
+
+
+OS-Oriented Design
+==================
+
+Some for operating systems (multitaskers).
+
+But maybe this is more for low level work: it really helps to know how
+a multitasker works, to be able to reuse the abstractions in cases an
+OS is not available.
