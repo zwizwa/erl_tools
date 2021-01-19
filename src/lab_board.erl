@@ -86,11 +86,12 @@ handle({epid_send,Src,{epid_subscribe,Dst}}=_Msg, State) ->
 handle({epid_send,Src,{epid_unsubscribe,Dst}}=_Msg, State) ->
     epid:unsubscribe(Src, Dst, State);
 
-handle({epid_send,Sink,Msg}, State) ->
+handle({epid_send,Sink,Msg}=_Msg, State) ->
+    %% log:info("~p~n",[_Msg]),
+    Self = self(),
     case Sink of
         {relay, Relay} when is_number(Msg) ->
             %% Translate to relay protocol
-            Self = self(),
             spawn(
               fun() -> 
                       true = lists:member(Relay, "ABCD"),
@@ -114,6 +115,13 @@ handle({epid_send,Sink,Msg}, State) ->
                       end
               end,
               Msg);
+        %% Treat it as a symbolic tag_u32 path/arg command.  This
+        %% seems to be a good default.
+        Path when is_list(Path) ->
+            %% This results in RPC calls against this object, so just
+            %% spawn a process.
+            spawn(fun() -> tag_u32:send(Self, Path, Msg) end);
+            
         _ ->
             log:info("WARNING: message ~p for unkown Sink ~p~n", [Msg, Sink])
     end,
@@ -145,17 +153,17 @@ handle(Msg={_, {epid_compile, _}}, State) -> update_plugin(epid_cproc:handle_epi
 %% structures as as epid_cproc, but a different C code generator.
 %%handle(Msg={_, {epid_compile, _}}, State) -> epid_cprim:handle_epid_compile(Msg, State);
 
-%% FIXME: It is probably not ok to make this this catch-all.
-%% But it is very convenient to have the command interface be the default.
-handle({Name, Args}=Cmd, State) when is_atom(Name) and is_list(Args) ->
-    %% Use TAG_U32 to access Forth console commands.
-    %% This uses the first argument ==0 to dispatch on.
-    Msg = {send_command, Cmd},
-    log:info("lab_board: ~p~n", [Msg]),
-    self() ! Msg,
-    State;
-handle(Name, State) when is_atom(Name) ->
-    handle({Name,[]}, State);
+%% %% FIXME: It is probably not ok to make this this catch-all.
+%% %% But it is very convenient to have the command interface be the default.
+%% handle({Name, Args}=Cmd, State) when is_atom(Name) and is_list(Args) ->
+%%     %% Use TAG_U32 to access Forth console commands.
+%%     %% This uses the first argument ==0 to dispatch on.
+%%     Msg = {send_command, Cmd},
+%%     log:info("lab_board: ~p~n", [Msg]),
+%%     self() ! Msg,
+%%     State;
+%% handle(Name, State) when is_atom(Name) ->
+%%     handle({Name,[]}, State);
 
 handle(Msg, State) ->
     %% log:info("lab_board: passing on: ~p~n",[Msg]),

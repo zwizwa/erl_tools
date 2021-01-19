@@ -1,10 +1,9 @@
 %% Protocol wrappers for TAG_U32-based RPC protocol.
 
 -module(tag_u32).
--export([call/2, call/3,
+-export([call/2, call/3, send/3,
          find/3, resolve/2,
-         meta/3, name/2, type/2,
-         dict/1, sub/2,
+         dir/2,
          apply/3]).
 
 %% Generic RPC
@@ -12,7 +11,7 @@
 %% In this module we use reverse path notation, bottom-to-tom,
 %% i.e. zipper or stack view, which is easier to work with.  TAG_U32
 %% uses top-to-bottom order.
-callr(Pid, RPath) ->
+call_rev(Pid, RPath) ->
     call(Pid, lists:reverse(RPath)).
 
 call(Pid, Path) ->
@@ -21,8 +20,18 @@ call(Pid, Path) ->
 call(Pid, Path, Bin) ->
     %% FIXME: Later, use only resolved paths.
     NPath = resolve(Pid, Path),
+    %% log:info("tag_u32:call ~p~n", [{Path,Bin}]),
     obj:call(Pid, {req_u32, NPath, Bin}, 2000).
 
+%% This is mostly to plug into epid, so we do some automatic wrapping
+%% here in case of single numbers.
+send(Pid, Path, Thing) ->
+    Msg = case is_number(Thing) of true -> [Thing]; false -> Thing end,
+    %% Just use synchronous calls for now.  It crashes earlier...
+    Path1 = Path ++ Msg,
+    %% log:info("tag_u32:send ~p~n", [Path1]),
+    call(Pid, Path1).
+    
 
 %% Incremental resolve
 find(Pid, Path, Atom) when is_atom(Atom) ->
@@ -53,8 +62,12 @@ resolve(Pid, Upper, [X|Rest]) ->
 
 
 %% Metadata commands
-meta(Pid, [N|RPath0], Cmd) ->
-    case callr(Pid, [N, Cmd, 16#FFFFFFFF | RPath0]) of
+maybe_named_rev(Pid, [N|RPath0], Cmd) ->
+    case call_rev(Pid, [N, Cmd, 16#FFFFFFFF | RPath0]) of
+        {[0], <<>>} ->
+            %% Empty string means the node is there, but doesn't have
+            %% a name.  So we return the number instead.
+            {ok, N};
         {[0], Name} ->
             {ok, binary_to_atom(Name,utf8)};
         _ ->
@@ -62,8 +75,8 @@ meta(Pid, [N|RPath0], Cmd) ->
     end.
 
 %% Map identifier to name string.
-name(Pid, RPath) -> meta(Pid, RPath, 2).
-type(Pid, RPath) -> meta(Pid, RPath, 3).
+name_rev(Pid, RPath) -> maybe_named_rev(Pid, RPath, 2).
+type_rev(Pid, RPath) -> maybe_named_rev(Pid, RPath, 3).
     
     
 
@@ -77,31 +90,31 @@ type(Pid, RPath) -> meta(Pid, RPath, 3).
 %%                 Id = atom_index_to_id(Pid, Idx),
 %%                 {Id, name(Pid, Id)} end,
 %%         fold:range(nb_atoms(Pid)))).
+
+%% Directory is represented as lists, where index in list corresponds
+%% to the id used in the protocol.
     
-dict(Pid) ->
-    sub(Pid, []).
-sub(Pid, Path) ->
-    maps:from_list(dict_list(Pid, 0, Path)).
-dict_list(Pid,N,Path) ->
-    case name(Pid,[N|Path]) of
+dir(Pid, Path) ->
+    dir_rev(Pid, lists:reverse(Path)).
+dir_rev(Pid, RPath) ->
+    dict_list_rev(Pid, 0, RPath).
+dict_list_rev(Pid,N,RPath) ->
+    RPath1 = [N|RPath],
+    case name_rev(Pid,RPath1) of
         error -> [];
         {ok, Name} -> 
-            Path1 = [N|Path],
-            {ok, Type} = type(Pid,Path1),
+            {ok, Type} = type_rev(Pid,RPath1),
             Sub =
                 case Type of
                     map ->
                         %% Recurse.
-                        sub(Pid, Path1);
+                        dir_rev(Pid, RPath1);
                     _ ->
                         %% Atoms don't have substructure, just a type.
                         Type
                 end,
-            [{Name,
-              {N,Sub}
-              %% Sub
-             } 
-             |dict_list(Pid, N+1, Path)]
+            [{Name,Sub} 
+             |dict_list_rev(Pid, N+1, RPath)]
     end.
             
 
@@ -110,4 +123,5 @@ apply(Pid, Proc, Nodes) ->
     {[Node],<<>>} = call(Pid,[class,Proc,apply] ++ Nodes),
     Node.
 
-    
+
+

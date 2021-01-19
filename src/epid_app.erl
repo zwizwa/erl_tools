@@ -59,7 +59,7 @@ instantiate(MakeEpid, Spec) ->
     %% The convention is that Spec will evaluate to a map of output
     %% bindings, which can then be connected to the generated nodes:
     lists:foreach(
-      fun({Dst, Src}) -> epid:connect(Src,  MakeEpid(Dst)) end,
+      fun({Dst, Src}) -> epid:connect(MakeEpid(Src),  MakeEpid(Dst)) end,
       maps:to_list(FlatSpec)),
     State.
 
