@@ -186,9 +186,5 @@ kvstore_obj(Obj,FieldName,Method) ->
         put_map  -> fun(M1)       -> Update(fun(M0) -> maps:merge(M0,M1) end) end;
         put_list -> fun(List)     -> Update(fun(M0) -> maps:merge(M0,maps:from_list(List)) end) end
     end.
-
-                       
-                           
-                           
              
             

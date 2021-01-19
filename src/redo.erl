@@ -444,7 +444,12 @@ handle_outer(Msg, State = #{eval := Eval}) ->
             TC = obj:call(Eval, {transitive_closure, Changed}),
             debug("TC: ~p~n", [TC]),
             obj:reply(Pid, try need(Eval, TC) catch C:E -> {error,{C,E}} end),
-            State
+            State;
+        _ ->
+            %% Delegate to a mixin.
+            Mixins = [fun epid:mixin/3],
+            {true, State1} = serv:delegate(Mixins, Msg, State),
+            State1
     end.
 
 with_redo(Spec, Fun) ->
@@ -1248,6 +1253,9 @@ file_changed(Eval, Product, RelPath) ->
 %% FIXME: The .do version allows for configuration to add .c and .h
 %% files from external repositories.  It uses environment variables to
 %% do so.  We do it with explicit configuration items.
+
+%% FIXME: This is a really bad idea!  Currently only do_uc_tools.erl
+%% uses this.  I'm going to phase it out.
 
 path_find(_Eval, _Ext, _BaseName, []) ->
     error;

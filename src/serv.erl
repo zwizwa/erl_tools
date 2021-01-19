@@ -25,7 +25,9 @@
          %% Private, needed for reloading.
          bc_init/0, bc_handle/2,
          receive_loop/2,
-         periodic_loop/3
+         periodic_loop/3,
+
+         delegate/3
 
         ]).
 
@@ -390,3 +392,30 @@ retain_get(DataPid) ->
 %%       fun serv_expect/0).
 %% -endif.
 
+
+
+
+%% This is only a single simple function, so it just goes in the serv
+%% module.
+
+%% A mixin is a handler that:
+%% - receives message and state
+%% - receives an indication that the message was handled previously
+%% - returns a new state, and an indication that it handled the message
+
+%% The input Handled can be used to ignore a message if it is an RPC
+%% protocol and it already has been handled by a previous mixin.
+%% Previously this was implemented using a breakoff search which is
+%% more similar to pattern matching, but that will not be able to
+%% handle events like 'DOWN', which might be needed for multiple
+%% mixins.
+
+%% Let's use this for a bit and see how it fares.
+
+delegate(Mixins, Msg, State0) ->
+
+    lists:foldl(
+      fun(Mixin, {Handled, State}) ->
+              {Handled1, State1} = Mixin(Handled, Msg, State),
+              {Handled1 or Handled, State1}
+      end, {false, State0}, Mixins).

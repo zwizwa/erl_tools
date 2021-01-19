@@ -13,6 +13,7 @@
     dag_update/4,
 
     %% Machinery for implementing an aggregating proxy.
+    mixin/3,
     subscribe/3, unsubscribe/3, unsubscribe_all/2, down/2,
     subscribers/2, dispatch/3]).
 -export_type(
@@ -273,6 +274,30 @@ down({'DOWN', _Ref, process, Pid, _Reason}=_Msg, State) ->
     filter_connections(
       fun(_Src0, {epid, Pid0, _}) -> Pid /= Pid0 end,
       State).
+
+%% The mixin is the default implementation of the epid protocol.
+%% Don't handle it if it's already been handled by another mixin.
+mixin(_Handled=true, _Msg, State) ->
+    {false, State};
+mixin(_Handled=false, Msg, State) ->
+    log:info("epid:mixin: ~p~n", [Msg]),
+    case Msg of
+        {epid_send, Tag, EMsg} ->
+            case EMsg of
+                {epid_subscribe, Dst} ->
+                    {true, subscribe(Tag, Dst, State)};
+                {epid_unsubscribe, Dst} ->
+                    {true, unsubscribe(Tag, Dst, State)};
+                epid_unsubscribe_all ->
+                    {true, unsubscribe_all(Tag, State)};
+                _ ->
+                    {false, State}
+            end;
+        _ ->
+            {false, State}
+    end.
+
+%% All of these, in a mixin.
 
     
 
