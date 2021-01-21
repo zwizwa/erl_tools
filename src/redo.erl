@@ -1149,10 +1149,16 @@ is_list_of_binary([H|T]) ->
 %% E.g. {c,<<"dht11">>=BaseName,[]=Path}
 %% Symbol tags can be multiple.
 to_directory(Dirs) ->
-    true = is_list_of_binary(Dirs),
+    case is_list_of_binary(Dirs) of
+        true -> ok;
+        false -> throw({redo_dirname, Dirs})
+    end,
     tools:format("~s",[[[Dir,"/"] || Dir <- lists:reverse(Dirs)]]).
-to_filename({Type,BaseName,Dirs}) ->
-    true = is_binary(BaseName),
+to_filename({Type,BaseName,Dirs}=Product) ->
+    case is_binary(BaseName) of
+        true -> ok;
+        false -> throw({redo_basename,Product})
+    end,
     Tags = case {Type,is_tuple(Type)} of
                {'',_} -> [];
                {_,true} -> lists:reverse(tuple_to_list(Type));
