@@ -4,9 +4,10 @@
     connect/2, disconnect/2,
     connect_proc/2,
     connect_bidir/2, disconnect_bidir/2,
-    map/2,
     transfer/2,
     call/3, reply/3,
+
+    filter/2,
 
     unpack/2,
 
@@ -17,7 +18,7 @@
     subscribe/3, unsubscribe/3, unsubscribe_all/2, down/2,
     subscribers/2, dispatch/3]).
 -export_type(
-   [epid/0, epid_map/1]).
+   [epid/0]).
 
 %% TL;DR: Fine-grained abstract (heterogeneous) processes.
 
@@ -50,13 +51,9 @@
 %% this file for more information.
 
 
-%% One example: If a channel only transports the message type T, it
-%% starts to make sense to embed message transformations T->T.  This
-%% can be expressed directly on the process identifier as ...
--type epid_map(T) :: {'epid_map', fun((T) -> T), epid_map(T) | epid()}.
 
-%% ... with the associated operation:
-map(Fn, Node) -> {epid_map, Fn, Node}.
+%% Source-end type conversion and filtering.
+filter(Fn, Node) -> {epid_filter, Fn, Node}.
 
 
 
@@ -72,7 +69,7 @@ send({epid, ProxyProcess, ChannelId}=_Dst, Msg) ->
 
 %% The functor extension is handled in send/2, since destination epids
 %% are usually opaque to the sender.
-send({epid_map, Fn, Epid}, Msg) ->
+send({epid_filter, Fn, Epid}, Msg) ->
     send(Epid, Fn(Msg)).
 
 
@@ -91,18 +88,18 @@ connect({epid,_,_}=Src, Sink) ->
     send(Src, {epid_subscribe, Sink}),
     ok;
 
-%% connect/2 also supports {epid_map,_,_} functor extension, but to
-%% simplify other operations the mapping functions are are moved to
-%% the sink before sending the epid_subscribe message to the source.
-connect({epid_map, Fn, Src}, Sink) ->
-    connect(Src, {epid_map, Fn, Sink}).
+%% connect/2 also supports {epid_filter,_,_} extension, but to
+%% simplify other operations the functions are moved to the sink
+%% before sending the epid_subscribe message to the source.
+connect({epid_filter, Fn, Src}, Sink) ->
+    connect(Src, {epid_filter, Fn, Sink}).
 
 %% Disconnect is analogous.
 disconnect({epid,_,_}=Src, Sink) ->    
     send(Src, {epid_unsubscribe, Sink}),
     ok;
-disconnect({epid_map, Fn, Src}, Sink) ->
-    disconnect(Src, {epid_map, Fn, Sink}).
+disconnect({epid_filter, Fn, Src}, Sink) ->
+    disconnect(Src, {epid_filter, Fn, Sink}).
 
 
 %% 4. BI-DIRECTIONAL CONNECTIONS
@@ -114,10 +111,10 @@ disconnect({epid_map, Fn, Src}, Sink) ->
 %% reception of epid_subscribe_bidir.  See implementation in ecat.erl,
 %% which abstracts bi-directional socat-like channels.
 
-%% Bi-directional connections do not support epid_map.
+%% Bi-directional connections do not support epid_filter.
 
-connect_bidir({epid_map, _, _}, _) -> throw(no_bidir_map);
-connect_bidir(_, {epid_map, _, _}) -> throw(no_bidir_map);
+connect_bidir({epid_filter, _, _}, _) -> throw(no_bidir_map);
+connect_bidir(_, {epid_filter, _, _}) -> throw(no_bidir_map);
 connect_bidir(Src, Dst) ->
     send(Src, {epid_subscribe_bidir, Dst}).
 disconnect_bidir(Src, Dst) ->
@@ -188,11 +185,21 @@ transfer(Src, Dst) ->
 %% The datastructure is optimzed for dispatch.
 dispatch(EventId, Msg, State) ->
     lists:foreach(
-      fun(Epid) ->
-              %% log:info("epid:dispatch ~p~n", [{Epid,Msg}]),
-              send(Epid, Msg)
-      end,
+      fun(Epid) -> send_filtered(Epid, Msg) end, 
       subscribers(EventId, State)).
+
+send_filtered({epid_filter, Filter, Epid}, Msg) ->
+    %% FIXME: Support lambda-lifted functions, since anonymous
+    %% closures do not survive reloads.
+    case Filter(Msg) of
+        {ok, Val} -> send_filtered(Epid, Val);
+        error -> ok
+    end;
+send_filtered(Epid, Msg) ->
+    send(Epid, Msg).
+
+
+
 
 subscribers(EventId, State) ->
     Subs = maps:get({epid_dispatch,EventId}, State, []),
@@ -227,7 +234,7 @@ subscribe(EventId, DstEpid, State) ->
       #{ {epid_dispatch, EventId} => DList }).
 
 %% Strip all functor processing.
-final_epid({epid_map,_,E}) -> final_epid(E);
+final_epid({epid_filter,_,E}) -> final_epid(E);
 final_epid(E) -> E.
      
 

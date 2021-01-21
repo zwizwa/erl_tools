@@ -400,8 +400,8 @@ retain_get(DataPid) ->
 
 %% A mixin is a handler that:
 %% - receives message and state
-%% - receives an indication that the message was handled previously
-%% - returns a new state, and an indication that it handled the message
+%% - receives an indication whether the message was handled previously
+%% - returns a new state, and an indication whether it handled the message
 
 %% The input Handled can be used to ignore a message if it is an RPC
 %% protocol and it already has been handled by a previous mixin.
@@ -413,7 +413,6 @@ retain_get(DataPid) ->
 %% Let's use this for a bit and see how it fares.
 
 delegate(Mixins, Msg, State0) ->
-
     lists:foldl(
       fun(Mixin, {Handled, State}) ->
               {Handled1, State1} = Mixin(Handled, Msg, State),

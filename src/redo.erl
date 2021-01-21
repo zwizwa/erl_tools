@@ -421,8 +421,10 @@ handle_outer(Msg, State = #{eval := Eval}) ->
             obj:reply(Pid, obj:call(Eval, {make_var, Fun, MaybeVar})),
             State;
         {Pid, {with_eval, Fun}} ->
+            epid:dispatch(notify, start, State),
             obj:call(Eval, reload),
             ok = obj:call(Eval, start_pull),
+            epid:dispatch(notify, stop, State),
             obj:reply(Pid, try Fun(Eval) catch C:E -> {error,{C,E}} end),
             State;
         {Pid, {push, Changed, NotChanged}} when 
@@ -448,7 +450,11 @@ handle_outer(Msg, State = #{eval := Eval}) ->
         _ ->
             %% Delegate to a mixin.
             Mixins = [fun epid:mixin/3],
-            {true, State1} = serv:delegate(Mixins, Msg, State),
+            {Handled, State1} = serv:delegate(Mixins, Msg, State),
+            case Handled of
+                true -> ok;
+                false -> log:info("WARNING: not handled: ~p~n", [Msg])
+            end,
             State1
     end.
 
@@ -858,6 +864,10 @@ worker(Eval, Product, Update, OldDeps) ->
                 %% Dont crash the daemon in the common case that a
                 %% build rule has a runtime or type error.  Propagate
                 %% 'error' instead.
+
+                %% Logger wil print the product as log prefix.
+                %% log:info("worker~n"),
+
                 {Changed, NewDeps} =
                     try
                         %% app/2 allows for "reloadable closures".
@@ -1129,11 +1139,20 @@ from_filename(IOList) ->
      end,
      BaseName,RPath}.
 
+
+%% Do type checks to avoid weird issues with target name aliasing
+%% between strings and byte strings.
+is_list_of_binary([]) -> true;
+is_list_of_binary([H|T]) -> 
+    is_binary(H) and is_list_of_binary(T).
+
 %% E.g. {c,<<"dht11">>=BaseName,[]=Path}
 %% Symbol tags can be multiple.
 to_directory(Dirs) ->
+    true = is_list_of_binary(Dirs),
     tools:format("~s",[[[Dir,"/"] || Dir <- lists:reverse(Dirs)]]).
 to_filename({Type,BaseName,Dirs}) ->
+    true = is_binary(BaseName),
     Tags = case {Type,is_tuple(Type)} of
                {'',_} -> [];
                {_,true} -> lists:reverse(tuple_to_list(Type));
@@ -1168,6 +1187,7 @@ need_gcc_deps(Eval, {_Type,_BaseName,_Path}=D) ->
     DepsFile = to_filename(D),
     {ok, DepsBin} = read_file(Eval, DepsFile),
     Deps = gcc_deps(DepsBin),
+    %% log:info("need_gcc_deps:~n~p~n",[Deps]),
     need(Eval,Deps).
 
 

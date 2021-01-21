@@ -23,6 +23,7 @@
 %% with -i=mi argument.
 
 open_mi(GdbMi) ->
+    log:info("GdbMI = ~p~n", [GdbMi]),
     open_port({spawn, GdbMi}, [{line, 1024}, use_stdio]).
 
 open_os_pid(GdbMi, OsPid, Elf, Sink) ->
