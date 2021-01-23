@@ -291,15 +291,34 @@ mixin(_Handled=false, Msg, State) ->
     case Msg of
         {epid_send, Tag, EMsg} ->
             case EMsg of
+                %% Manipulate the dispatcher data structure, which is
+                %% stored as {epid_dispatch,Local} -> Epid entries in
+                %% the main dictionary, and later used by
+                %% epid:dispatch/3 for dispatching locally generated
+                %% events.
                 {epid_subscribe, Dst} ->
                     {true, subscribe(Tag, Dst, State)};
                 {epid_unsubscribe, Dst} ->
                     {true, unsubscribe(Tag, Dst, State)};
                 epid_unsubscribe_all ->
                     {true, unsubscribe_all(Tag, State)};
+
+                %% Other epid messages will be application-specific.
+                %% Ignored here.
                 _ ->
                     {false, State}
             end;
+
+        %% Default no-op handlers for the dataflow protocol.  These
+        %% should be overridden by another handler or mixin.
+        {epid_app, _, _} ->
+            {true, State};
+        {epid_kill, _} ->
+            {true, State};
+        {Caller, {epid_compile, _}} ->
+            obj:reply(Caller, ok),
+            {true, State};
+
         _ ->
             {false, State}
     end.
