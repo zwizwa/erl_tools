@@ -526,10 +526,7 @@ decode_info(Msg, State = #{ line_buf := Buf }) ->
 %%    [tag_u32(U32List), BinaryTail];
 
 tag_u32(Tag,U32List,Data) ->
-    Nr = 0, %% For RPC, later
-    N = length(U32List),
-    [[<<Tag:16, Nr, N>> | [<<W:32>> || W<-U32List]],
-     Data].
+    tag_u32:tag_u32(Tag,U32List,Data).
 tag_u32(U32List,Data) ->
     tag_u32(16#FFF5, U32List, Data).
 tag_u32(U32List) ->

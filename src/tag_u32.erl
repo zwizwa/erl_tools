@@ -7,6 +7,7 @@
          apply/3,
          mixin/3,
          %% Uses pid-to-path encoding.
+         tag_u32/3,
          req_u32/3, req_u32_reply/3
 
 ]).
@@ -305,4 +306,9 @@ req_u32_indirect_reply(ID, Rest, BTail, State) ->
     obj:reply(Pid, {Rest,BTail}),
     maps:remove({tag_u32,ID}, State).
     
-    
+
+tag_u32(Tag,U32List,Data) ->
+    Nr = 0, %% For RPC, later
+    N = length(U32List),
+    [[<<Tag:16, Nr, N>> | [<<W:32>> || W<-U32List]],
+     Data].
