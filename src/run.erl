@@ -163,7 +163,9 @@ shell_command(Cmd,ArgList) ->
 
 %% Convert Erlang map to a sequence of variable assignments separated with ';'
 with_vars(Map, Cmd) when is_map(Map) ->
-    Sep = " ; ",
+    %% Sep = " ; ",
+    Sep = " ;\n",
+
     with_vars(Map, Cmd, Sep).
 
 with_vars(Map, Cmd, Sep) when is_map(Map) ->

@@ -26,7 +26,7 @@
          binary_concat/1,
          mask_bits/1,
          maps_apply/4, maps_append/3, maps_count/2, maps_inverse/1, maps_inverse_partition/1,
-         maps_update_path/4, maps_find_path/2,
+         maps_update_path/4, maps_find_path/2, maps_merge_paths/2,
          tagged_index/2,
          map_to_list/1,
          pop_tail/1,
@@ -905,6 +905,17 @@ maps_update_path([Top|Path], Fun, Map, Default) ->
       fun(SubMap) -> maps_update_path(Path, Fun, SubMap, Default) end,
       Map,
       #{}).
+
+maps_merge_paths(Map, PathMap) ->
+    maps:fold(
+      fun(Path,Val,M) ->
+              maps_update_path(
+                Path, 
+                fun(_) -> Val end,
+                M,
+                default_ignored)
+      end,
+      Map, PathMap).
 
 
 

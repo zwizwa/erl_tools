@@ -69,7 +69,7 @@ handle(<<?TAG_U32:16, _NbFrom:8, NbArgs:8, Bin/binary>>=_Msg, State) ->
         [Tag|Rest] ->
             case Tag >= 16#FFFFFF00 of
                 true ->
-                    gdbstub_hub:req_u32_reply(Tag, Rest, BTail);
+                    tag_u32:req_u32_reply(Tag, Rest, BTail);
                 false ->
                     %% log:info("TAG_U32 dispatch ~p\n", [{Tag,Rest}]),
                     epid:dispatch(Tag, Rest, State)

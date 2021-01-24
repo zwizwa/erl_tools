@@ -287,7 +287,7 @@ down({'DOWN', _Ref, process, Pid, _Reason}=_Msg, State) ->
 mixin(_Handled=true, _Msg, State) ->
     {false, State};
 mixin(_Handled=false, Msg, State) ->
-    log:info("epid:mixin: ~p~n", [Msg]),
+    %% log:info("epid:mixin: ~p~n", [Msg]),
     case Msg of
         {epid_send, Tag, EMsg} ->
             case EMsg of

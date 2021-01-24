@@ -85,7 +85,7 @@
 
 
 %% So what is the trick here?  What makes the redo approach different
-%% from generic FRP?  Redo is aptly named: it produces dependency
+%% from generic FRP?  Redo is aptly naed: it produces dependency
 %% information as part of the first "do".
 %%
 %% This dependency structure is then updated on every product update.
@@ -1133,11 +1133,15 @@ from_filename(IOList) ->
     [BaseName|BinDotNames] = re:split(FileName,"\\."),
     %% debug("BinDotNames ~p~n",[BinDotNames]),
     DotNames =  [type:decode({pterm,Bin}) || Bin <- BinDotNames],
-    {case DotNames of
-         [DotName] -> DotName;
-         _ -> list_to_tuple(lists:reverse(DotNames))
-     end,
-     BaseName,RPath}.
+    Target =
+        {case DotNames of
+             [DotName] -> DotName;
+             _ -> list_to_tuple(lists:reverse(DotNames))
+         end,
+         BaseName,RPath},
+    %% log:info("from_filename ~999p~n",[Target]),
+    %% _ = to_filename(Target),  %% type check
+    Target.
 
 
 %% Do type checks to avoid weird issues with target name aliasing
