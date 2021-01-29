@@ -91,7 +91,17 @@ handle({_,dump}=Msg, State) ->
 handle({Caller, {all_proxies, Msg}}, State) ->
     Timeout = 3000, %% FIXME
     Rv = tools:pmap(
-           fun(Proxy) -> catch obj:call(Proxy, Msg, Timeout) end,
+           fun(Proxy) ->
+                   %% log:info("Proxy=~p~n",[Proxy]),
+                   try obj:call(Proxy, Msg, Timeout)
+                   catch C:E ->
+                           Error = {dead_proxy,Proxy,{C,E},State},
+                           throw(Error)
+                           %%log:info("WARNING: ~p~n", [Error]),
+                           %%Error
+                   end
+
+           end,
            proxies(State)),
     obj:reply(Caller, Rv),
     State;
@@ -225,7 +235,8 @@ update(Pid, MakeEpid, Dag) ->
 
     %% FIXME: union proxy before and after!
 
-    obj:call(Pid, {all_proxies, {epid_compile, commit}}, Timeout),
-    %%log:info("exo_patch memo table:~n~p~n",[call(dump)]),
-    ok.
+    Rv = obj:call(Pid, {all_proxies, {epid_compile, commit}}, Timeout),
+    %% log:info("all_proxies epid_compile:~n~p~n",[Rv]),
+    %% log:info("exo_patch memo table:~n~p~n",[call(dump)]),
+    Rv.
     

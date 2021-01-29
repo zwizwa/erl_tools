@@ -148,7 +148,7 @@ handle(<<16#FFF30000:32, OK:8, RH:16, T:16, _/binary>>=_Msg, State = #{name := N
 %%
 handle(Msg={_, {epid_app, _, _}},  State) -> epid_dag:handle_epid_app(Msg, State);
 handle(Msg={_, {epid_kill, _}},    State) -> epid_dag:handle_epid_kill(Msg, State);
-handle(Msg={_, {epid_compile, _}}, State) -> update_plugin(epid_cproc:handle_epid_compile(Msg, State));
+handle(Msg={_, {epid_compile, _}}, State) -> update_plugin(Msg, epid_cproc:handle_epid_compile(Msg, State));
 %% To bootstreap epid_cprim work: this uses the same internal data
 %% structures as as epid_cproc, but a different C code generator.
 %%handle(Msg={_, {epid_compile, _}}, State) -> epid_cprim:handle_epid_compile(Msg, State);
@@ -207,8 +207,11 @@ handle_to_port(PortName, {_EcatPortType, _Arg}=Spec, <<Tag:16,Data/binary>>, Sta
 
 %% Generate the source code.  The rest of the propagation is done by
 %% redo, which is run after exo_patch graph update.
-update_plugin(#{ code := CodeIOL, dag := #{ inputs := _Inputs} = _DAG, name := Name} = State) ->
-    FileName = tools:format("/i/exo/uc_tools/gdb/~s_plugin.c", [Name]),
+update_plugin({Caller, _},
+              #{ code := CodeIOL, dag := #{ inputs := _Inputs} = _DAG, name := Name} = State) ->
+    BN = tools:format_binary("~s_plugin", [Name]),
+    Target = {c,BN,[<<"gdb">>,<<"uc_tools">>]},
+    FileName = "/i/exo/" ++ redo:to_filename(Target),
     Code = iolist_to_binary(CodeIOL),
     case file:read_file(FileName) of
         {ok, Code} ->
@@ -218,6 +221,12 @@ update_plugin(#{ code := CodeIOL, dag := #{ inputs := _Inputs} = _DAG, name := N
             log:info("Code:~n~s", [Code]),
             file:write_file(FileName, Code)
     end,
+    %% Reply only after the file is written.
+
+    %% It's not the generated file that downstream redo rule is
+    %% interested in.  It is the eventual target that depends on this
+    %% rule.
+    obj:reply(Caller, {ok,[{bp_plugin_loaded, bp5}]}),
+
+    %% obj:reply(Caller, {ok,[Target]}),
     State.
-
-

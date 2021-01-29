@@ -6,7 +6,6 @@
 -module(epid_cproc).
 -export([example/0, code/3, handle_epid_compile/2]).
 
-
 example() ->
     LocalPid = local_pid,
     Env = #{
@@ -152,10 +151,10 @@ let_clause(W, OutNode, ProcMeta = #{name :=ProcName}, InNodes, InputIndex, SubGr
 %% See example in lab_board.erl, it uses delegates like this:
 %% handle(Msg={_, {epid_app, _, _}},  State) -> epid_app:handle_epid_app(Msg, State);
 %% handle(Msg={_, {epid_kill, _}},    State) -> epid_app:handle_epid_kill(Msg, State);
-%% handle(Msg={_, {epid_compile, _}}, State) -> update_plugin(epid_cproc:handle_epid_compile(Msg, State));
+%% handle(Msg={Caller, {epid_compile, _}}, State) -> update_plugin(Caller, epid_cproc:epid_compile(Msg, State));
+%% Where in the latter, update_plugin performs the obj:reply/2
 
-handle_epid_compile({Caller, {epid_compile, Cmd}}, State = #{ epid_env := Env }) ->
-    obj:reply(Caller, ok),
+handle_epid_compile({_, {epid_compile, Cmd}}, State = #{ epid_env := Env }) ->
     case Cmd of
         clear ->
             State;

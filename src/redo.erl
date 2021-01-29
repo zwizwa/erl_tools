@@ -21,7 +21,10 @@
          run/2, run/3,
          gcc_deps/1, need_gcc_deps/2,
          import/1,
+
+         %% FIXME: Clear up the confusion between pull_valls, need_vals and get_vals.
          need_vals/2, find_vals/2, get_vals/2, %% retrieval is always parallel
+
          put_val/3, put_val_changed/3,         %% put is sequential
          no_update/1,
          default_script_log/1,
