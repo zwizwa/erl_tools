@@ -59,8 +59,8 @@ start_link(Config) ->
 %% Add a TTY device, most likely USB.  DevPath is used to uniquely
 %% identify the device, based on the physical USB port location.  It
 %% is assumed the device is still in gdbstub mode (app not running).
-hub_handle({add_tty,Host,TTYDev,DevPath}, State) ->
-    hub_handle({add_tty,Host,TTYDev,DevPath,
+hub_handle({add_tty,HostSpec,TTYDev,DevPath}, State) ->
+    hub_handle({add_tty,HostSpec,TTYDev,DevPath,
                 false,                 %% App is not running
                 fun(_Pid) -> ok end},  %% No notification
                State);
@@ -191,10 +191,12 @@ dev_start(#{ tty        := Dev,
                Port = tools:apply(
                         SpawnPort,
                         [maps:merge(
-                           SpawnSpec,
                            #{ cmd  => "gdbstub_connect",
                               args => [Dev],
-                              opts => [use_stdio, binary, exit_status] })]),
+                              opts => [use_stdio, binary, exit_status] },
+                           %% Allow SpawnSpec to override cmd.
+                           SpawnSpec
+                          )]),
                log:info("connected ~p~n",[Port]),
                Gdb = gdb_start(maps:merge(Init, #{ pid => self() })),
                Pid = self(),
