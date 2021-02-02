@@ -41,7 +41,10 @@
 -module(tag_u32).
 -export([call/2, call/3, send/3,
          find/3, resolve/2,
-         dir/2, dir/1,
+         dir/3, dir/2, dir/1,
+         foldl/3,
+         get/1, get/2,
+         save/1, save/2, 
          apply/3,
          mixin/3,
          %% Uses pid-to-path encoding.
@@ -54,6 +57,7 @@
 
 
 %% 1. Generic RPC + Name Resolution
+%% --------------------------------
 %%
 %% In this module we use reverse path notation, bottom-to-tom,
 %% i.e. zipper or stack view, which is easier to work with.  TAG_U32
@@ -129,46 +133,163 @@ type_rev(Pid, RPath) -> maybe_named_rev(Pid, RPath, ?TAG_U32_CTRL_ID_TYPE).
 
 %% Retreive the whole dictionary.
 
-%% Old style.  Currently just using name/2.
-%% dict(Pid) ->
-%%     fold:to_list(
-%%       fold:map(
-%%         fun(Idx) ->
-%%                 Id = atom_index_to_id(Pid, Idx),
-%%                 {Id, name(Pid, Id)} end,
-%%         fold:range(nb_atoms(Pid)))).
-
 %% Directory is represented as lists, where index in list corresponds
-%% to the id used in the protocol.
+%% to the id used in the protocol.  The core routine has a Sink to
+%% observe the node sequence.  E.g. to perform save.
     
 dir(Pid) ->
     dir(Pid,[]).
 dir(Pid, Path) ->
-    dir_rev(Pid, lists:reverse(Path)).
-dir_rev(Pid, RPath) ->
-    dict_list_rev(Pid, 0, RPath).
-dict_list_rev(Pid,N,RPath) ->
+    dir(Pid, Path, fun(_) -> ok end).
+dir(Pid, Path, Sink) ->
+    Rv = dir_rev(Pid, lists:reverse(Path), Sink),
+    Sink(eof),
+    Rv.
+
+dir_rev(Pid, RPath, Sink) ->
+    dict_list_rev(Pid, 0, RPath, Sink).
+dict_list_rev(Pid, N, RPath, Sink) ->
     RPath1 = [N|RPath],
     case name_rev(Pid,RPath1) of
         error -> [];
         {ok, Name} -> 
             {ok, Type} = type_rev(Pid,RPath1),
+            Sink({data,{RPath1,Name,Type}}),
             Sub =
                 case Type of
                     map ->
                         %% Recurse.
-                        dir_rev(Pid, RPath1);
+                        dir_rev(Pid, RPath1, Sink);
                     _ ->
                         %% Atoms don't have substructure, just a type.
                         Type
                 end,
             [{Name,Sub} 
-             |dict_list_rev(Pid, N+1, RPath)]
+             |dict_list_rev(Pid, N+1, RPath, Sink)]
     end.
 
-%% 2. High level RPC protocols
+%% Iterate over the path structure produced by dir/1.  The fold
+%% routine is pure.  If bindings to the object are necessary this can
+%% be hidden in the folded function.
 
-%% 2.1 Object Instantiation
+%% Inner routine has path, represented as a stack (zipper).  It seems
+%% more convenient to keep the symbolic and numeric stacks separate.
+
+%% Two variants: only recurse over leaf nodes
+foldl(Fun, State, Node) ->
+    foldl(Fun, false, State, Node, [], []).
+
+%% Or also include the maps.
+foldl_rec(Fun, State, Node) ->
+    foldl(Fun, true, State, Node, [], []).
+
+foldl(Fun, Recursive, State, Node, KeyStack, TagStack) ->
+    %% The recursive type contains two variants:
+    case Node of
+        Type when is_atom(Type) ->
+            %% A leaf node is an atom describing the type of the node.
+            Fun({KeyStack,TagStack,Type},State);
+        Dir ->
+            State0 =
+                case Recursive of
+                    true  -> Fun({KeyStack,TagStack,map},State);
+                    false -> State
+                end,
+
+            %% A directory is a list of atom to node pairs.  We
+            %% perform a zip step here, moving the current key to the
+            %% stack.
+            lists:foldl(
+              fun({Index,{Key1,Node1}}, State1) ->
+                      foldl(Fun, Recursive, State1, Node1, [Key1|KeyStack], [Index|TagStack])
+              end,
+              State0,
+              tools:enumerate(Dir))
+    end.
+
+
+%% 2. High level RPC protocols
+%% ---------------------------
+
+%% 2.1 Serialization
+%% -----------------
+%%
+%% Given a directory tree, every node that has both get and set is
+%% serializable.
+%%
+%% Two methods are provided here.  One performs get for all nodes that
+%% expose a get method and collects the results in a dictionary.  This
+%% serves as an example for using foldl/2.
+
+get(Pid) ->
+    get(Pid, dir(Pid)).
+    
+get(Pid, Dir) ->
+    Fun =
+        fun(_Env={[get|RSym],RTags,Type}, AList) ->
+                {[0],Bin} = call_rev(Pid, RTags),
+                Sym = lists:reverse(RSym),
+                [{Sym,{Type,Bin}} | AList];
+           (_, State) ->
+                State
+        end,
+    foldl(Fun, [], Dir).
+
+%% The save/1 method is easier to implement as a side effect of name
+%% resolution.  This way we can just interpret save as a cache of all
+%% rpc calls that get metadata + values.
+
+%% Implementation detail: the dir/3 function uses a "loging sink" to
+%% not have to write the recursion in CPS.  We can use that directly
+%% as a save sink.
+
+%% Basically, the data structure is a representation of a fold over
+%% the tree, where each 'get' node is also annotated with data.
+
+%% To encode the file on disk, it seems that using the actual name
+%% resolution protocol is too cumbersome.  Instead, each node is
+%% annotated with Name, Type and optionally val.
+
+%% To encode this, a different format is necessary.  The tags could be
+%% self-deliniating, but the Name, Type and payload need size
+%% prefixes.  Let's just use LEB128 for everything, since a decoder
+%% will be necessary, and that will make the file format simple.
+%% So, format is:
+%% - LEB128 size prefix for message
+%% - LEB128 path size
+%% - Path as array of LEB128
+%% - Tuple size
+%% - Array of LEB128 size + payload
+
+%% So basically, a nested LEB128 s-expression representation, where
+%% nodes are binaries.  FIXME: Think about this some more.
+
+save_conv(Pid, {RPath, Name, Type}) ->
+    Node = 
+        case Name of
+            get ->
+                {[0],Val} = call_rev(Pid, RPath),
+                {Name,Type,Val};
+            _ ->
+                {Name,Type}
+        end,
+    {RPath,Node}.
+
+save(Pid) ->
+    save(Pid, fun(X) -> log:info("~p~n",[X]) end).
+
+save(Pid, DstSink) ->
+    Sink = sink:map(fun(Data) -> save_conv(Pid, Data) end, DstSink),
+    _ = dir(Pid, [], Sink),
+    ok.
+
+
+%% The corresponding load is implemented by exposing the file as a fold.
+%% load(Fold) -> Fold(Fun,nostate) end.
+
+    
+%% 2.2 Object Instantiation
+%% ------------------------
 %%
 %% This is uses for dataflow graph construction.  The input arguments are node IDs previously
 
@@ -180,6 +301,12 @@ apply(Pid, Proc, Nodes) ->
     {[Node],<<>>} = call(Pid,[class,Proc,apply] ++ Nodes),
     Node.
 
+
+
+
+
+%% 3. Erlang mixin + low level tools
+%% ---------------------------------
 
 %% Mixing wrapper over the handle/2 form.
 %% For now just ignore messages that are already handled.
