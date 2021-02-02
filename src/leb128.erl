@@ -1,20 +1,22 @@
 -module(leb128).
 -export([test/1]).
 
-%% Erlang reference implementation of LEB128 parser/printer + tree
-%% structure extension.
+%% Erlang reference implementation of LEB128 parser/printer +
+%% recursive data structure extension.
 
-%% Companion to tag_u32.
-%% Consider tag_u32 "path message" to be the zipper of a leb128 tree traversal.
+%% Consider tag_u32 "path message" to be the zipper of a leb128 tree
+%% traversal.
 %%
-%% leb128 can be used to represent transactions, with state dump being
-%% one of the special cases (machine load/save).
+%% This formwat can serve as an alternative encoding of tag_u32, and
+%% as a transaction format, e.g. containing multiple messages in an
+%% array.
 
-%% The array type consists of two variant: typed arrays, where every
-%% element is the same and only one type tag is used per array, and
-%% uples, where every element can be any type and is prefixed by its
-%% own type tag.  This is necessary to avoid lots of type tags in
-%% situations where data structure are statically typed.
+%% There are two composite types.  Tuples can contain sequences of
+%% arbitrary types and are the main nesting structure.
+
+%% Arrays are an optimization to represent sequences of values of the
+%% same type.  This keeps the representation of lists of small
+%% integers very efficient.
 
 
 %% base type tags  %% mnemonics
@@ -30,14 +32,22 @@
 
 
 %% Data is self-delimiting, so eof is always an error.
+
+read_bytes(_Env = #{ file := File }, N) ->
+    {ok, Bin} = file:read(File, N),
+    Bin;
+read_bytes(Env, N) ->   
+    iolist_to_binary(
+      [read_byte(Env) || _ <- lists:seq(1,N)]).
+
+read_byte(Env = #{ file := _ }) ->
+    <<Byte>> = read_bytes(Env, 1),
+    Byte;
 read_byte(_Env=#{igen := Gen}) ->
     case igen:read(Gen) of
         {data, Data} -> Data;
         eof -> throw(eof)
     end.
-read_bytes(Env, N) ->
-    iolist_to_binary(
-      [read_byte(Env) || _ <- lists:seq(1,N)]).
 
 shift({Val, N}, NewVal) ->
     {Val + (NewVal bsl N), N+7}.
@@ -103,11 +113,18 @@ read_tag(Env) ->
     NB = read_int(Env), Bin  = read_bytes(Env, NB),
     {tag,{From,To,Bin}}.
 
-write_byte(_Env = #{sink := Sink }, Byte) ->
-    Sink({data,Byte}).
+write_bytes(_Env = #{ file := File }, Bytes) ->
+    ok = file:write(File, Bytes);
 write_bytes(Env, Bytes) ->
     List = binary_to_list(Bytes),
     lists:foreach(fun(B) -> write_byte(Env, B) end, List).
+
+write_byte(Env = #{ file := _ }, Byte) ->
+    write_bytes(Env, [Byte]);
+write_byte(_Env = #{sink := Sink }, Byte) ->
+    Sink({data,Byte}).
+
+
 write_int(Env, N) ->
     case N =< 127 of
         true ->
@@ -202,7 +219,24 @@ test(loop) ->
             {tag,[],[1,2,3],<<"bin">>}},
     List = test({write, Term}),
     Nops = [0,0,0,0,0],
-    true = (Term == test({read, Nops ++ List ++ Nops})).
+    true = (Term == test({read, Nops ++ List ++ Nops}));
+
+test({write_file,FileName,Term}) ->
+    {ok, File} = file:open(FileName, [write]),
+    Env = #{ file => File },
+    write(Env, Term),
+    file:close(File);
+
+test({read_file,FileName}) ->
+    {ok, File} = file:open(FileName, [read,binary]),
+    Env = #{ file => File },
+    Term = read(Env),
+    ok = file:close(File),
+    Term.
+
+    
+    
+
 
                              
 
