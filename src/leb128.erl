@@ -6,18 +6,21 @@
 
 %% Consider tag_u32 "path message" to be the zipper of a leb128 tree
 %% traversal.
-%%
-%% This formwat can serve as an alternative encoding of tag_u32, and
-%% as a transaction format, e.g. containing multiple messages in an
+
+%% This format can serve as an alternative encoding of the tag_u32
+%% message container, and as a extension that can represent
+%% transactions, e.g. as lists containing multiple messages in an
 %% array.
 
-%% There are two composite types.  Tuples can contain sequences of
-%% arbitrary types and are the main nesting structure.
+%% Tuples are the main composite type.  Tuples can contain sequences
+%% of arbitrary types and can be nested.
 
 %% Arrays are an optimization to represent sequences of values of the
-%% same type.  This keeps the representation of lists of small
-%% integers very efficient.
+%% same type.  This allows for efficient representation of sequences
+%% of small integer, such as tag_u32 paths.
 
+%% The tags used in this protocol are allocated according to the
+%% following mnemonic schema, to facilitate debugging.
 
 %% base type tags  %% mnemonics
 -define(T_NOP,0).  %% n0p, padding
