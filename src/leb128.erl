@@ -17,13 +17,17 @@
 %% situations where data structure are statically typed.
 
 
-%% type tags       %% mnemonics
--define(T_BIN,0).  %% zero: type unknown
+%% base type tags  %% mnemonics
+-define(T_NOP,0).  %% n0p, padding
 -define(T_INT,1).  %% 1 = I
--define(T_TUP,2).  %% twople / tuple
--define(T_TRE,3).  %% 3 = tree node / path encoded
+-define(T_TUP,2).  %% 2ple
+-define(T_BIN,3).  %% 3 = B
 -define(T_ARR,4).  %% 4 = A 
 -define(T_SYM,5).  %% 5 = S
+%% 6
+-define(T_TAG,7).  %% 7 = T
+
+
 
 %% Data is self-delimiting, so eof is always an error.
 read_byte(_Env=#{igen := Gen}) ->
@@ -59,6 +63,9 @@ read_tup(Env) ->
 read_arr(Env) ->
     N = read_int(Env),
     Type = read_int(Env),
+    read_elements(Env, Type, N).
+
+read_elements(Env, Type, N) ->
     [read_type(Env, Type) || _ <- lists:seq(1,N)].
 
 read_bin(Env) ->
@@ -68,6 +75,7 @@ read_bin(Env) ->
 read_sym(Env) ->
     binary_to_atom(read_bin(Env), utf8).
 
+
 read_type(Env, Type) ->
     case Type of
         %% Type tags.
@@ -76,12 +84,24 @@ read_type(Env, Type) ->
         ?T_ARR -> read_arr(Env);
         ?T_BIN -> read_bin(Env);
         ?T_SYM -> read_sym(Env);
+        ?T_TAG -> read_tag(Env);
         Tag -> throw({type,Tag})
     end.
 
 read(Env) ->
-    read_type(Env, read_int(Env)).
+    Type = read_int(Env),
+    case Type of
+        %% Nop is special: it is completely ignored and is just there
+        %% for padding/aligning.
+        ?T_NOP -> read(Env);
+        _ -> read_type(Env, Type)
+    end.
 
+read_tag(Env) ->
+    NF = read_int(Env), From = read_elements(Env, ?T_INT, NF),
+    NT = read_int(Env), To   = read_elements(Env, ?T_INT, NT),
+    NB = read_int(Env), Bin  = read_bytes(Env, NB),
+    {tag,{From,To,Bin}}.
 
 write_byte(_Env = #{sink := Sink }, Byte) ->
     Sink({data,Byte}).
@@ -115,6 +135,11 @@ write_type(Env, Type, Term) ->
             write_int(Env, length(List)),
             lists:foreach(
               fun(El) -> write(Env, El) end, List);
+        %% Special "static" types that have structural properties.
+        %%
+        %% Arrays structure: all elements are the same type.  Type is
+        %% stored once.
+        %%
         %% FIXME: Nested arrays are not encoded properly.  The types
         %% need to propagate all the way up.  Currently nested arrays
         %% can have inner arrays that are of different types (but
@@ -127,16 +152,28 @@ write_type(Env, Type, Term) ->
                 end,
             write_int(Env, length(Term)),
             write_int(Env, Type1),
-            lists:foreach(
-              fun(E) -> write_type(Env, Type1, E) end,
-              Term)
+            write_elements(Env, Type1, Term);
+
+        %% leb128-encoded tag_u32.
+        ?T_TAG ->
+            {tag,{From,To,Bin}} = Term,
+            write_int(Env, length(From)), write_elements(Env, ?T_INT, From),
+            write_int(Env, length(To)),   write_elements(Env, ?T_INT, To),
+            write_int(Env, size(Bin)),    write_bytes(Env, Bin)
     end.
+
+write_elements(Env, Type, List) ->
+    lists:foreach(
+      fun(E) -> write_type(Env, Type, E) end,
+      List).
+
 
 write(Env, Term) ->
     Type = type(Term),
     write_int(Env, Type),
     write_type(Env, Type, Term).
 
+type({tag,_})             -> ?T_TAG;
 type(N) when is_number(N) -> ?T_INT;
 type(B) when is_binary(B) -> ?T_BIN;
 type(T) when is_tuple(T)  -> ?T_TUP;
@@ -156,7 +193,17 @@ test({read,List}) ->
 test({write,Term}) ->
     to_list(Term);
 test({loop,Term}) ->
-    test({read,test({write,Term})}).
+    test({read,test({write,Term})});
+test(loop) ->
+    Term = {abc,<<"def">>,
+            1,10,100,1000,10000,100000,
+            10000000000000000000000000,
+            [],[123],[1,2,3],[[4,5],[6,7]],
+            {tag,[],[1,2,3],<<"bin">>}},
+    List = test({write, Term}),
+    Nops = [0,0,0,0,0],
+    true = (Term == test({read, Nops ++ List ++ Nops})).
+
                              
 
 
