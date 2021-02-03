@@ -1,5 +1,7 @@
 -module(leb128).
--export([test/1]).
+-export([write_file/2, read_file/1,
+         test/1
+        ]).
 
 %% Erlang reference implementation of LEB128 parser/printer +
 %% recursive data structure extension.
@@ -106,8 +108,12 @@ read(Env) ->
     case Type of
         %% Nop is special: it is completely ignored and is just there
         %% for padding/aligning.
-        ?T_NOP -> read(Env);
-        _ -> read_type(Env, Type)
+        ?T_NOP ->
+            read(Env);
+        _ ->
+            Term = read_type(Env, Type),
+            %% log:info("~p~n",[Term]),
+            Term
     end.
 
 read_tag(Env) ->
@@ -176,12 +182,17 @@ write_type(Env, Type, Term) ->
 
         %% leb128-encoded tag_u32.
         ?T_TAG ->
-            {tag,{From,To,Bin}} = Term,
-            write_int(Env, length(From)), write_elements(Env, ?T_INT, From),
-            write_int(Env, length(To)),   write_elements(Env, ?T_INT, To),
-            write_int(Env, size(Bin)),    write_bytes(Env, Bin)
+            write_tag(Env, Term)
     end.
 
+%% This might be useful in isolation, e.g. to be used as a message
+%% protocol all by itself.
+write_tag(Env, {tag,{From,To,Bin}}) ->
+    write_int(Env, length(From)), write_elements(Env, ?T_INT, From),
+    write_int(Env, length(To)),   write_elements(Env, ?T_INT, To),
+    write_int(Env, size(Bin)),    write_bytes(Env, Bin),
+    o.
+        
 write_elements(Env, Type, List) ->
     lists:foreach(
       fun(E) -> write_type(Env, Type, E) end,
@@ -207,6 +218,24 @@ to_list(Term) ->
               Sink(eof)
       end).
 
+write_file(FileName,Term) ->
+    {ok, File} = file:open(FileName, [write]),
+    Env = #{ file => File },
+    write(Env, Term),
+    ok = file:close(File).    
+
+read_file(FileName) ->
+    {ok, File} = file:open(FileName, [read,binary]),
+    Env = #{ file => File },
+    Term = read(Env),
+    ok = file:close(File),
+    Term.
+
+
+
+
+
+
 test({read,List}) ->
     Env = #{ igen => igen:from_list(List) },
     read(Env);
@@ -225,17 +254,11 @@ test(loop) ->
     true = (Term == test({read, Nops ++ List ++ Nops}));
 
 test({write_file,FileName,Term}) ->
-    {ok, File} = file:open(FileName, [write]),
-    Env = #{ file => File },
-    write(Env, Term),
-    file:close(File);
+    write_file(FileName,Term);
 
 test({read_file,FileName}) ->
-    {ok, File} = file:open(FileName, [read,binary]),
-    Env = #{ file => File },
-    Term = read(Env),
-    ok = file:close(File),
-    Term.
+    read_file(FileName).
+
 
     
     

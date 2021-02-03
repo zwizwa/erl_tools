@@ -276,7 +276,8 @@ save_conv(Pid, {RPath, Name, Type}) ->
     {RPath,Node}.
 
 save(Pid) ->
-    save(Pid, fun(X) -> log:info("~p~n",[X]) end).
+    sink:gen_to_list(
+      fun(Sink) -> save(Pid, Sink) end).
 
 save(Pid, DstSink) ->
     Sink = sink:map(fun(Data) -> save_conv(Pid, Data) end, DstSink),
