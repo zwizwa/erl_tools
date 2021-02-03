@@ -149,81 +149,79 @@ type_rev(Pid, RPath) -> maybe_named_rev(Pid, RPath, ?TAG_U32_CTRL_ID_TYPE).
 %% to the id used in the protocol.  The core routine has a logging
 %% sink to observe the node sequence and perform some side effect.
 
+%% Memoization is used to gather shared structure, which is also used
+%% in fold to expand that structure again.
+
     
 dir(Pid) ->
     dir(Pid,[]).
 dir(Pid, Path) ->
     dir(Pid, Path, fun(_) -> ok end).
 dir(Pid, Path, Log) ->
-   Types =
+   Meta =
        case find(Pid, [], type) of
            {ok, Tag} ->
-               {Dir,_} = dir_memo(Pid, [Tag], Log, #{}),
+               {Dir,_} = dir(Pid, [Tag], Log, #{}),
                maps:from_list(Dir);
            _ ->
                #{}
        end,
-    dir_memo(Pid, Path, Log, Types).
+    dir(Pid, Path, Log, Meta).
 
-dir_memo(Pid, Path, Log, Types) ->
+dir(Pid, Path, Log, Types) ->
     %% FIXME: Later support typed maps.  For now only one type is supported.
     Env = #{ pid => Pid, sink => Log, types => Types },
-    {Rv, State} = dir_list_rev(Env, 0, lists:reverse(Path), #{}),
+    {Rv, Meta} = dir_list_rev(Env, 0, lists:reverse(Path), #{}),
     Log(eof),
-    {Rv, State}.
+    {Rv, Meta}.
 
 
 
 dir_list_rev(Env = #{pid := Pid, sink := Log, types := Types},
-              N, RPath, State0) ->
+              N, RPath, Meta0) ->
     RPath1 = [N|RPath],
     MaybeName = name_rev(Pid,RPath1),
     case MaybeName of
         {error, bad_map_ref} ->
             %% It is a directory, but the subpath does not exist.
-            {[], State0};
+            {[], Meta0};
         {error, Error} ->
             throw({Error, RPath1, Error});
         {ok, Name} -> 
             {ok, Type} = type_rev(Pid,RPath1),
             Log({data,{RPath1,Name,Type}}),
-            {SubDir, State2} =
-                case Type of 
-                    %% Explicit maps always get expanded.  Structure
-                    %% is arbitrary.
+
+            %% The intention is to recurse into concrete maps and
+            %% return the substructure, not recurse into abstract
+            %% maps, but still gather their substrcuture in Meta.
+            {SubDir, Meta2} =
+                case Type of
                     map ->
-                        dir_list_rev(Env, 0, RPath1, State0);
+                        dir_list_rev(Env, 0, RPath1, Meta0);
                     _ ->
-                        case maps:find(Type, State0) of
-                            %% Abstract maps get queried, but only
-                            %% once.  Return just the type if we
-                            %% already have it.
-                            {ok, _} ->
-                                {Type, State0};
-                            error ->
+                        SKey = {interface, Type},
+                        case maps:is_key(SKey, Meta0) of
+                            true ->
+                                {Type, Meta0};
+                            false ->
                                 case maps:find(Type, Types) of
-                                    %% Non-map type are always opaque.
-                                    error ->
-                                        {Type, State0};
-                                    %% Map types are queried and
-                                    %% tracked if we didn't have it
-                                    %% yet, but represented by type
-                                    %% tag.
                                     {ok, interface} ->
-                                        {Sub, State1} =
-                                            dir_list_rev(Env, 0, RPath1, State0),
+                                        {Sub, Meta1} =
+                                            dir_list_rev(Env, 0, RPath1, Meta0),
                                         {Type,
-                                         maps:put(Type, Sub, State1)}
+                                         maps:put(SKey, Sub, Meta1)};
+                                    _ ->
+                                        {Type, Meta0}
                                 end
                         end
                 end,
 
             %% The other leg recursively handles elements at this
             %% level.  Continue inside this directory.
-            {RestDir, State3} = dir_list_rev(Env, N+1, RPath, State2),
+            {RestDir, Meta3} = dir_list_rev(Env, N+1, RPath, Meta2),
 
             %% Return complete tree upstream.
-            {[{Name,SubDir} | RestDir], State3}
+            {[{Name,SubDir} | RestDir], Meta3}
     end.
 
 %% Iterate over the path structure produced by dir/1.  The fold
@@ -235,20 +233,20 @@ dir_list_rev(Env = #{pid := Pid, sink := Log, types := Types},
 
 foldl(Fun, State, Node) ->
     foldl(Fun, State, Node, #{}).
-foldl(Fun, State, Node, Types) ->
-    Env = #{ function => Fun, recursive => false, interface => Types },
+foldl(Fun, State, Node, Meta) ->
+    Env = #{ function => Fun, recursive => false, meta => Meta },
     foldl_env(Env, State, Node, [], []).
 
 foldl_env(Env = #{ function  := Fun,
                    recursive := Recursive,
-                   interface  := Types },
+                   meta  := Meta },
           State, Node0, KeyStack, TagStack) ->
 
-    %% Possibly expand substructure if it's in interface.
+    %% Possibly expand substructure if it's in env.
     Node1 =
         case is_atom(Node0) of
             true ->
-                case maps:find(Node0, Types) of
+                case maps:find({interface,Node0}, Meta) of
                     {ok, Sub} -> Sub;
                     error -> Node0
                 end;
