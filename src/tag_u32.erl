@@ -156,12 +156,12 @@ dir(Pid) ->
 dir(Pid, Path) ->
     dir(Pid, Path, fun(_) -> ok end).
 dir(Pid, Path, Log) ->
-    dir(Pid, Path, Log, #{ map => true }).
+    dir(Pid, Path, Log, #{ }).
 
 dir(Pid, Path, Log, MapTypes) ->
     %% FIXME: Later support typed maps.  For now only one type is supported.
     Env = #{ pid => Pid, sink => Log, map_types => MapTypes },
-    Rv = dir_list_rev(Env, 0, lists:reverse(Path)),
+    {Rv, _State} = dir_list_rev(Env, 0, lists:reverse(Path), #{}),
     Log(eof),
     Rv.
 
@@ -172,41 +172,54 @@ dir(Pid, Path, Log, MapTypes) ->
 dir_deep(Pid) ->
     dir_deep(Pid, fun(_) -> ok end).
 dir_deep(Pid, Log) ->
-    MapTypes = maps:merge(
-                 maps:from_list(dir(Pid,[type])),
-                 #{ map => map_type }),
+    MapTypes =maps:from_list(dir(Pid,[type])),
     dir(Pid, [], Log, MapTypes).
     
     
     
 
 dir_list_rev(Env = #{pid := Pid, sink := Log, map_types := MapTypes},
-              N, RPath) ->
+              N, RPath, State0) ->
     RPath1 = [N|RPath],
     MaybeName = name_rev(Pid,RPath1),
     case MaybeName of
         {error, bad_map_ref} ->
             %% It is a directory, but the subpath does not exist.
-            [];
+            {[], State0};
         {error, Error} ->
             throw({Error, RPath1, Error});
         {ok, Name} -> 
             {ok, Type} = type_rev(Pid,RPath1),
             Log({data,{RPath1,Name,Type}}),
-            SubDir =
-                case maps:find(Type, MapTypes) of
-                    {ok, _} ->
-                        dir_list_rev(Env, 0, RPath1);
-                    error ->
-                        Type
+            IsMap = (Type == map) or ({ok,map_type} == maps:find(Type, MapTypes)),
+            {SubDir, State3} =
+                case IsMap of
+                    false ->
+                        {Type, State0};
+                    true ->
+                        case maps:find(Type, State0) of
+                            {ok, Sub} ->
+                                %% Return substructure from memo table.
+                                {Sub, State0};
+                            error ->
+                                %% Query and store in memo table.
+                                {Sub, State1} =
+                                    dir_list_rev(Env, 0, RPath1, State0),
+                                State2 =
+                                    case Type of
+                                        map -> State1;
+                                        _ -> maps:put(Type, Sub, State1)
+                                    end,
+                                {Sub, State2}
+                        end
                 end,
             %% The other leg recursively handles elements at this
             %% level.  This should now succeed, because if we got this
             %% far, we know that RPath is a directory.
-            RestDir = dir_list_rev(Env, N+1, RPath),
+            {RestDir, State4} = dir_list_rev(Env, N+1, RPath, State3),
 
             %% Return complete tree upstream.
-            [{Name,SubDir} | RestDir]
+            {[{Name,SubDir} | RestDir], State4}
     end.
 
 %% Iterate over the path structure produced by dir/1.  The fold
