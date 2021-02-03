@@ -31,6 +31,16 @@
 %%   compile time in a dictionary.  The important part here is that
 %%   the dictionary can be placed where it makes most sense, and that
 %%   the protocol specification can be kept symbolic.
+%%
+%% - The structure can only represent trees.  However, sometimes you
+%%   do want an acyclic graph structure.  E.g. for "classes".  There
+%%   might be more reasons to have shared nodes later.
+%%
+%% - Any "classes" that appear in the directory tree (i.e. duplicated
+%%   method interfaces), can be abstracted by exposing them under
+%%   [type].  This allows two kinds of directory queries: shallow,
+%%   which exposes those nodes as abstract types, and deep, which
+%%   expands all methods.
 
 %% This module provides functionality to binary to/from symbolic
 %% mapping of the basic message protocol in Erlang, and also defines
@@ -41,15 +51,17 @@
 -module(tag_u32).
 -export([call/2, call/3, send/3,
          find/3, resolve/2,
+         dir_deep/1,
          dir/3, dir/2, dir/1,
-         foldl/3,
-         get/1, get/2,
-         save/1, save/2, 
+         foldl/3, foldl_rec/3,
+         dump/1, dump/2,
          apply/3,
          mixin/3,
          %% Uses pid-to-path encoding.
          tag_u32/3,
-         req_u32/3, req_u32_reply/3
+         req_u32/3, req_u32_reply/3,
+         %% Optionally expose low level code for debugging
+         name_rev/2, type_rev/2
 
 ]).
 
@@ -114,15 +126,16 @@ resolve(Pid, Upper, [X|Rest]) ->
 
 %% Metadata commands
 maybe_named_rev(Pid, [N|RPath0], Cmd) ->
-    case call_rev(Pid, [N, Cmd, ?TAG_U32_CTRL | RPath0]) of
+    Ctrl = [N, Cmd, ?TAG_U32_CTRL | RPath0],
+    case call_rev(Pid, Ctrl) of
         {[0], <<>>} ->
             %% Empty string means the node is there, but doesn't have
             %% a name.  So we return the number instead.
             {ok, N};
         {[0], Name} ->
             {ok, binary_to_atom(Name,utf8)};
-        _ ->
-            error
+        {[1], ErrorName} ->
+            {error, binary_to_atom(ErrorName,utf8)}
     end.
 
 %% Map identifier to name string.
@@ -134,38 +147,66 @@ type_rev(Pid, RPath) -> maybe_named_rev(Pid, RPath, ?TAG_U32_CTRL_ID_TYPE).
 %% Retreive the whole dictionary.
 
 %% Directory is represented as lists, where index in list corresponds
-%% to the id used in the protocol.  The core routine has a Sink to
-%% observe the node sequence.  E.g. to perform save.
+%% to the id used in the protocol.  The core routine has a logging
+%% sink to observe the node sequence and perform some side effect.
+
     
 dir(Pid) ->
     dir(Pid,[]).
 dir(Pid, Path) ->
     dir(Pid, Path, fun(_) -> ok end).
-dir(Pid, Path, Sink) ->
-    Rv = dir_rev(Pid, lists:reverse(Path), Sink),
-    Sink(eof),
+dir(Pid, Path, Log) ->
+    dir(Pid, Path, Log, #{ map => true }).
+
+dir(Pid, Path, Log, MapTypes) ->
+    %% FIXME: Later support typed maps.  For now only one type is supported.
+    Env = #{ pid => Pid, sink => Log, map_types => MapTypes },
+    Rv = dir_list_rev(Env, 0, lists:reverse(Path)),
+    Log(eof),
     Rv.
 
-dir_rev(Pid, RPath, Sink) ->
-    dict_list_rev(Pid, 0, RPath, Sink).
-dict_list_rev(Pid, N, RPath, Sink) ->
+%% Note that deep listing can be memoized by only looking it up once.
+%% That requires this to be turned into a fold, or to use a second
+%% dictionary process.
+
+dir_deep(Pid) ->
+    dir_deep(Pid, fun(_) -> ok end).
+dir_deep(Pid, Log) ->
+    MapTypes = maps:merge(
+                 maps:from_list(dir(Pid,[type])),
+                 #{ map => map_type }),
+    dir(Pid, [], Log, MapTypes).
+    
+    
+    
+
+dir_list_rev(Env = #{pid := Pid, sink := Log, map_types := MapTypes},
+              N, RPath) ->
     RPath1 = [N|RPath],
-    case name_rev(Pid,RPath1) of
-        error -> [];
+    MaybeName = name_rev(Pid,RPath1),
+    case MaybeName of
+        {error, bad_map_ref} ->
+            %% It is a directory, but the subpath does not exist.
+            [];
+        {error, Error} ->
+            throw({Error, RPath1, Error});
         {ok, Name} -> 
             {ok, Type} = type_rev(Pid,RPath1),
-            Sink({data,{RPath1,Name,Type}}),
-            Sub =
-                case Type of
-                    map ->
-                        %% Recurse.
-                        dir_rev(Pid, RPath1, Sink);
-                    _ ->
-                        %% Atoms don't have substructure, just a type.
+            Log({data,{RPath1,Name,Type}}),
+            SubDir =
+                case maps:find(Type, MapTypes) of
+                    {ok, _} ->
+                        dir_list_rev(Env, 0, RPath1);
+                    error ->
                         Type
                 end,
-            [{Name,Sub} 
-             |dict_list_rev(Pid, N+1, RPath, Sink)]
+            %% The other leg recursively handles elements at this
+            %% level.  This should now succeed, because if we got this
+            %% far, we know that RPath is a directory.
+            RestDir = dir_list_rev(Env, N+1, RPath),
+
+            %% Return complete tree upstream.
+            [{Name,SubDir} | RestDir]
     end.
 
 %% Iterate over the path structure produced by dir/1.  The fold
@@ -175,15 +216,19 @@ dict_list_rev(Pid, N, RPath, Sink) ->
 %% Inner routine has path, represented as a stack (zipper).  It seems
 %% more convenient to keep the symbolic and numeric stacks separate.
 
-%% Two variants: only recurse over leaf nodes
+%% A couple of variants:
+%% 1. only recurse over leaf nodes
 foldl(Fun, State, Node) ->
-    foldl(Fun, false, State, Node, [], []).
+    Env = #{ function => Fun, recursive => false },
+    foldl_env(Env, State, Node, [], []).
 
-%% Or also include the maps.
+%% 2. include the maps.
 foldl_rec(Fun, State, Node) ->
-    foldl(Fun, true, State, Node, [], []).
+    Env = #{ function => Fun, recursive => true },
+    foldl_env(Env, State, Node, [], []).
 
-foldl(Fun, Recursive, State, Node, KeyStack, TagStack) ->
+foldl_env(Env = #{ function := Fun, recursive := Recursive },
+          State, Node, KeyStack, TagStack) ->
     %% The recursive type contains two variants:
     case Node of
         Type when is_atom(Type) ->
@@ -201,7 +246,7 @@ foldl(Fun, Recursive, State, Node, KeyStack, TagStack) ->
             %% stack.
             lists:foldl(
               fun({Index,{Key1,Node1}}, State1) ->
-                      foldl(Fun, Recursive, State1, Node1, [Key1|KeyStack], [Index|TagStack])
+                      foldl_env(Env, State1, Node1, [Key1|KeyStack], [Index|TagStack])
               end,
               State0,
               tools:enumerate(Dir))
@@ -221,68 +266,23 @@ foldl(Fun, Recursive, State, Node, KeyStack, TagStack) ->
 %% expose a get method and collects the results in a dictionary.  This
 %% serves as an example for using foldl/2.
 
-get(Pid) ->
-    get(Pid, dir(Pid)).
-    
-get(Pid, Dir) ->
+dump(Pid) ->
+    %% A deep directory is necessary to expose all abstract map_type
+    %% nodes.
+    dump(Pid, dir_deep(Pid)).
+dump(Pid, Node) ->
     Fun =
-        fun(_Env={[get|RSym],RTags,Type}, AList) ->
-                {[0],Bin} = call_rev(Pid, RTags),
-                Sym = lists:reverse(RSym),
-                [{Sym,{Type,Bin}} | AList];
+        fun(_Env={[set|_],RTags=[_|RTags1],_Type}, List) ->
+                %% The corresponding set is on the same level.
+                {[0],Bin} = call_rev(Pid, [get|RTags1]),
+                %% Save it in the form that is needed to send back to
+                %% the device.
+                [{tag,{[],lists:reverse(RTags),Bin}} | List];
            (_, State) ->
                 State
         end,
-    foldl(Fun, [], Dir).
+    foldl(Fun, [], Node).
 
-%% The save/1 method is easier to implement as a side effect of name
-%% resolution.  This way we can just interpret save as a cache of all
-%% rpc calls that get metadata + values.
-
-%% Implementation detail: the dir/3 function uses a "loging sink" to
-%% not have to write the recursion in CPS.  We can use that directly
-%% as a save sink.
-
-%% Basically, the data structure is a representation of a fold over
-%% the tree, where each 'get' node is also annotated with data.
-
-%% To encode the file on disk, it seems that using the actual name
-%% resolution protocol is too cumbersome.  Instead, each node is
-%% annotated with Name, Type and optionally val.
-
-%% To encode this, a different format is necessary.  The tags could be
-%% self-deliniating, but the Name, Type and payload need size
-%% prefixes.  Let's just use LEB128 for everything, since a decoder
-%% will be necessary, and that will make the file format simple.
-%% So, format is:
-%% - LEB128 size prefix for message
-%% - LEB128 path size
-%% - Path as array of LEB128
-%% - Tuple size
-%% - Array of LEB128 size + payload
-
-%% So basically, a nested LEB128 s-expression representation, where
-%% nodes are binaries.  FIXME: Think about this some more.
-
-save_conv(Pid, {RPath, Name, Type}) ->
-    Node = 
-        case Name of
-            get ->
-                {[0],Val} = call_rev(Pid, RPath),
-                {Name,Type,Val};
-            _ ->
-                {Name,Type}
-        end,
-    {RPath,Node}.
-
-save(Pid) ->
-    sink:gen_to_list(
-      fun(Sink) -> save(Pid, Sink) end).
-
-save(Pid, DstSink) ->
-    Sink = sink:map(fun(Data) -> save_conv(Pid, Data) end, DstSink),
-    _ = dir(Pid, [], Sink),
-    ok.
 
 
 %% The corresponding load is implemented by exposing the file as a fold.
