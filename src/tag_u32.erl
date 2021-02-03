@@ -155,7 +155,7 @@ dir(Pid) ->
 dir(Pid, Path) ->
     dir(Pid, Path, fun(_) -> ok end).
 dir(Pid, Path, Log) ->
-   MapTypes =
+   Types =
        case find(Pid, [], type) of
            {ok, Tag} ->
                {Dir,_} = dir_memo(Pid, [Tag], Log, #{}),
@@ -163,18 +163,18 @@ dir(Pid, Path, Log) ->
            _ ->
                #{}
        end,
-    dir_memo(Pid, Path, Log, MapTypes).
+    dir_memo(Pid, Path, Log, Types).
 
-dir_memo(Pid, Path, Log, MapTypes) ->
+dir_memo(Pid, Path, Log, Types) ->
     %% FIXME: Later support typed maps.  For now only one type is supported.
-    Env = #{ pid => Pid, sink => Log, map_types => MapTypes },
+    Env = #{ pid => Pid, sink => Log, types => Types },
     {Rv, State} = dir_list_rev(Env, 0, lists:reverse(Path), #{}),
     Log(eof),
     {Rv, State}.
 
 
 
-dir_list_rev(Env = #{pid := Pid, sink := Log, map_types := MapTypes},
+dir_list_rev(Env = #{pid := Pid, sink := Log, types := Types},
               N, RPath, State0) ->
     RPath1 = [N|RPath],
     MaybeName = name_rev(Pid,RPath1),
@@ -201,7 +201,7 @@ dir_list_rev(Env = #{pid := Pid, sink := Log, map_types := MapTypes},
                             {ok, _} ->
                                 {Type, State0};
                             error ->
-                                case maps:find(Type, MapTypes) of
+                                case maps:find(Type, Types) of
                                     %% Non-map type are always opaque.
                                     error ->
                                         {Type, State0};
@@ -209,7 +209,7 @@ dir_list_rev(Env = #{pid := Pid, sink := Log, map_types := MapTypes},
                                     %% tracked if we didn't have it
                                     %% yet, but represented by type
                                     %% tag.
-                                    {ok, _} ->
+                                    {ok, interface} ->
                                         {Sub, State1} =
                                             dir_list_rev(Env, 0, RPath1, State0),
                                         {Type,
@@ -236,15 +236,15 @@ dir_list_rev(Env = #{pid := Pid, sink := Log, map_types := MapTypes},
 foldl(Fun, State, Node) ->
     foldl(Fun, State, Node, #{}).
 foldl(Fun, State, Node, Types) ->
-    Env = #{ function => Fun, recursive => false, map_type => Types },
+    Env = #{ function => Fun, recursive => false, interface => Types },
     foldl_env(Env, State, Node, [], []).
 
 foldl_env(Env = #{ function  := Fun,
                    recursive := Recursive,
-                   map_type  := Types },
+                   interface  := Types },
           State, Node0, KeyStack, TagStack) ->
 
-    %% Possibly expand substructure if it's in map_type.
+    %% Possibly expand substructure if it's in interface.
     Node1 =
         case is_atom(Node0) of
             true ->
@@ -293,7 +293,7 @@ foldl_env(Env = #{ function  := Fun,
 %% serves as an example for using foldl/2.
 
 dump(Pid) ->
-    %% A deep directory is necessary to expose all abstract map_type
+    %% A deep directory is necessary to expose all abstract interface
     %% nodes.
     {Dir, Types} = dir(Pid), 
     dump(Pid, Dir, Types).
