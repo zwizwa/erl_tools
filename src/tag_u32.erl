@@ -51,7 +51,6 @@
 -module(tag_u32).
 -export([call/2, call/3, send/3,
          find/3, resolve/2,
-         dir_deep/1,
          dir/3, dir/2, dir/1,
          foldl/3,
          dump/1,
@@ -156,8 +155,15 @@ dir(Pid) ->
 dir(Pid, Path) ->
     dir(Pid, Path, fun(_) -> ok end).
 dir(Pid, Path, Log) ->
-    {Rv,_} = dir_memo(Pid, Path, Log, #{ }),
-    Rv.
+   MapTypes =
+       case find(Pid, [], type) of
+           {ok, Tag} ->
+               {Dir,_} = dir_memo(Pid, [Tag], Log, #{}),
+               maps:from_list(Dir);
+           _ ->
+               #{}
+       end,
+    dir_memo(Pid, Path, Log, MapTypes).
 
 dir_memo(Pid, Path, Log, MapTypes) ->
     %% FIXME: Later support typed maps.  For now only one type is supported.
@@ -166,15 +172,6 @@ dir_memo(Pid, Path, Log, MapTypes) ->
     Log(eof),
     {Rv, State}.
 
-%% Note that deep listing can be memoized by only looking it up once.
-%% That requires this to be turned into a fold, or to use a second
-%% dictionary process.
-
-dir_deep(Pid) ->
-    dir_deep(Pid, fun(_) -> ok end).
-dir_deep(Pid, Log) ->
-    MapTypes = maps:from_list(dir(Pid,[type])),
-    dir_memo(Pid, [], Log, MapTypes).
 
 
 dir_list_rev(Env = #{pid := Pid, sink := Log, map_types := MapTypes},
@@ -190,43 +187,43 @@ dir_list_rev(Env = #{pid := Pid, sink := Log, map_types := MapTypes},
         {ok, Name} -> 
             {ok, Type} = type_rev(Pid,RPath1),
             Log({data,{RPath1,Name,Type}}),
-            IsMap = (Type == map) or ({ok,map_type} == maps:find(Type, MapTypes)),
-            {SubDir, State3} =
-                %% FIXME: This got a bit convoluted.
-                case IsMap of
-                    false ->
-                        {Type, State0};
-                    true ->
-                        {Sub1, State2} =
-                            case maps:find(Type, State0) of
-                                {ok, Sub} ->
-                                    %% Return substructure from memo table.
-                                    {Sub, State0};
-                                error ->
-                                    %% Query and store in memo table.
-                                    {Sub, State1} =
-                                        dir_list_rev(Env, 0, RPath1, State0),
-                                    {Sub,
-                                     case Type of
-                                         map -> State1;
-                                         _ -> maps:put(Type, Sub, State1)
-                                     end}
-                            end,
-                        %% Don't expand subtypes.  Fold will use memo
-                        %% table.
-                        {case Type of
-                             map -> Sub1;
-                             _   -> Type
-                         end,
-                         State2}
+            {SubDir, State2} =
+                case Type of 
+                    %% Explicit maps always get expanded.  Structure
+                    %% is arbitrary.
+                    map ->
+                        dir_list_rev(Env, 0, RPath1, State0);
+                    _ ->
+                        case maps:find(Type, State0) of
+                            %% Abstract maps get queried, but only
+                            %% once.  Return just the type if we
+                            %% already have it.
+                            {ok, _} ->
+                                {Type, State0};
+                            error ->
+                                case maps:find(Type, MapTypes) of
+                                    %% Non-map type are always opaque.
+                                    error ->
+                                        {Type, State0};
+                                    %% Map types are queried and
+                                    %% tracked if we didn't have it
+                                    %% yet, but represented by type
+                                    %% tag.
+                                    {ok, _} ->
+                                        {Sub, State1} =
+                                            dir_list_rev(Env, 0, RPath1, State0),
+                                        {Type,
+                                         maps:put(Type, Sub, State1)}
+                                end
+                        end
                 end,
+
             %% The other leg recursively handles elements at this
-            %% level.  This should now succeed, because if we got this
-            %% far, we know that RPath is a directory.
-            {RestDir, State4} = dir_list_rev(Env, N+1, RPath, State3),
+            %% level.  Continue inside this directory.
+            {RestDir, State3} = dir_list_rev(Env, N+1, RPath, State2),
 
             %% Return complete tree upstream.
-            {[{Name,SubDir} | RestDir], State4}
+            {[{Name,SubDir} | RestDir], State3}
     end.
 
 %% Iterate over the path structure produced by dir/1.  The fold
@@ -238,20 +235,20 @@ dir_list_rev(Env = #{pid := Pid, sink := Log, map_types := MapTypes},
 
 foldl(Fun, State, Node) ->
     foldl(Fun, State, Node, #{}).
-foldl(Fun, State, Node, Memo) ->
-    Env = #{ function => Fun, recursive => false, map_type => Memo },
+foldl(Fun, State, Node, Types) ->
+    Env = #{ function => Fun, recursive => false, map_type => Types },
     foldl_env(Env, State, Node, [], []).
 
 foldl_env(Env = #{ function  := Fun,
                    recursive := Recursive,
-                   map_type  := Memo },
+                   map_type  := Types },
           State, Node0, KeyStack, TagStack) ->
 
     %% Possibly expand substructure if it's in map_type.
     Node1 =
         case is_atom(Node0) of
             true ->
-                case maps:find(Node0, Memo) of
+                case maps:find(Node0, Types) of
                     {ok, Sub} -> Sub;
                     error -> Node0
                 end;
@@ -298,9 +295,9 @@ foldl_env(Env = #{ function  := Fun,
 dump(Pid) ->
     %% A deep directory is necessary to expose all abstract map_type
     %% nodes.
-    {Dir,Memo} = dir_deep(Pid), 
-    dump(Pid, Dir, Memo).
-dump(Pid, Node, Memo) ->
+    {Dir, Types} = dir(Pid), 
+    dump(Pid, Dir, Types).
+dump(Pid, Node, Types) ->
     Fun =
         fun(_Env={[set|_],RTags=[_|RTags1],_Type}, List) ->
                 %% The corresponding set is on the same level.
@@ -312,7 +309,7 @@ dump(Pid, Node, Memo) ->
                 State
         end,
     lists:reverse(
-      foldl(Fun, [], Node, Memo)).
+      foldl(Fun, [], Node, Types)).
 
 
 
