@@ -164,7 +164,7 @@ alternative files system <-> opaque state
 ** Idiosyncratic structure
 
 Since I had to start somewhere, and my problem domain is fairly niche
-(distributed embedded software), I will be un unapologetically
+(distributed embedded software), I will be unapologetically
 idiosyncratic.
 
 The system has had a lot of evolutionary pressure based on how my
@@ -238,6 +238,7 @@ feature creep and feature duplications are problems to be avoided at
 all cost.  This ties into the idea that subcomponents need to be built
 while being part of an integrated system.
 
+
 ** Dependencies are a liability
 
 As part of the focus on simplicity is the realization that code reuse
@@ -264,6 +265,7 @@ their own inevitable path of feature creep on an as-needed basis.
 This approach is also used for contract work: I start out integrating
 a client's system into Exo, and then gradually cut the umbilical
 towards a simple, self-contained system.
+
 
 ** Functions and Processes
 
@@ -413,7 +415,7 @@ source routing tag to it, i.e. a "wrapper".  Is it possible to solve
 this problem by assuming it is impossible to create a root in the
 first place?
 
-This hints at the diea that the naming topology we want is a network,
+This hints at the idea that the naming topology we want is a network,
 not a tree.  Each node can still have it's local spanning tree view of
 the network, i.e. where the local naming node is picked as the naming
 root.
@@ -459,16 +461,16 @@ similar ideas expressed by others.  There is something about human
 cognition that makes it easier to manipulate concepts that have a
 physical analogy as opposed to ideas.  It's as if more of the
 hard-wired part of the brain can be used if you can translate a
-problem into something that has a special / mechanical analogy.
+problem into something that has a spacial / mechanical analogy.
 
 I was reminded of this once I started reassembling my analog music
 studio, taking a long break from a very long period of just doing
 programming work at the keyboard.  Thinking about signal routing
-became so obvious once it was became tangible.
+became so obvious once it became tangible.
 
-Manipulating objects in an abstract space seems is seems to somehow
-still be mediated through a spacial / mechanical view of the universe.
-The typical example is manipulation of code or algebraic expressions
+Manipulating objects in an abstract space seems to somehow still be
+mediated through a spacial / mechanical view of the world.  The
+typical example is manipulation of code or algebraic expressions
 through the proxy of seeing them as a physical object with degrees of
 freedom.
 
@@ -491,9 +493,33 @@ world on the inside can be kept simple and malleable.
 ** Erlang as a backbone
 
 Why does this work so well?  Erlang is at a sweet spot.  Its data
-structures are fixed, yet powerful enough to embed almost any
-protocol.  The data structure are a base line that enable hot code
-reload, straightforward serialization and distribution, and structured
-routing based on pattern matching, both for message dispatch (epids)
-and for e.g. build rule dispatch as used in the redo abstraction that
-takes center stage in Exo.
+structures are fixed, yet powerful enough to embed almost any protocol
+without looking contrived.  The data structure are a base line that
+enable hot code reload, straightforward serialization and
+distribution, and structured routing based on pattern matching, both
+for message dispatch (epids) and for e.g. build rule dispatch as used
+in the redo abstraction that takes center stage in Exo.
+
+** Data Flow Programming
+
+Let data flow programming (DFP) mean the construction of computations
+from smaller computations where the computation unit is a stream
+processor: a piece of software that takes input data streams and
+produces output data streams.  The important properties are:
+
+- Structure of the computation does not change apart from
+  reconfiguration by the operator.
+
+- The structure itself is "pure" when observed at the stream level,
+  while individual event processing steps might still be stateful.
+
+The purity makes it possible to move code around, e.g. dataflow is
+inherently suited to be run on a parallel, distributed system.
+
+The focus in exo is to implement distributed data flow network
+composition on top of the epid mechanism, which allows abstraction
+over internal and external communication.
+
+
+
+
