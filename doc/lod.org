@@ -1,5 +1,4 @@
-Language-Oriented Design
-========================
+* Language-Oriented Design
 
 If you want to learn "full stack" software, going from the very low
 levels (machine code, assembly) to the very high (esoteric programming
@@ -28,8 +27,7 @@ it will give you guidance about how to structure your code.
 
 
 
-OS-Oriented Design
-==================
+* OS-Oriented Design
 
 Some for operating systems (multitaskers).
 
