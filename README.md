@@ -3,7 +3,7 @@ erl_tools
 
 Misc Erlang Tools
 
-Sequences / Iteratores:
+Sequences / Iterators:
 
 * fold:       folds
 * pfold:      partial folds
@@ -24,9 +24,8 @@ Core abstractions and algorihtms
 
 Distributed systems:
 
-* epid:       multi-hop pids for fine grained objects / processes
+* epid:       multi-hop pids for fine grained objects / processes + dataflow abstraction
 * throttle:   data throttling
-
 
 TCP
 
@@ -66,7 +65,10 @@ Microcontroller development, See also uc_tools/gdb
 * gdbstub_hub: server for gdbstubs
 * gdb:         gdb MI access
 * lab_board:   driver for uc_tools/gdb based lab control boards
-
+* tag_u32:     Simple structured binary message format + directory structure
+* leb128:      Efficient storage format for tag_u32 structures based on LEB128 integers
+* epid_cproc:  C code generation for cproc.h dataflow networks
+* epid_dag:    Erlang-embedded higher order abstract syntax for distributed dataflow networks
 
 Logging
 
