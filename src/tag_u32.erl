@@ -106,7 +106,14 @@ resolve(Pid, Path) ->
     resolve(Pid,[],Path).
 resolve(_,_,[]) -> [];
 resolve(Pid, Upper, [X|Rest]) ->
-    Id = if is_number(X) -> X; true -> {ok, N} = find(Pid, Upper, X), N end,
+    Id = 
+        if is_number(X) -> X;
+           true ->
+                case find(Pid, Upper, X) of
+                    {ok, N} -> N;
+                    error -> throw({tag_u32_resolve,Upper,[X|Rest]})
+                end
+        end,
     [Id|resolve(Pid, Upper++[Id], Rest)].
 
 
@@ -176,6 +183,13 @@ dir(Pid, Path, Log, Types) ->
     {Rv, Meta}.
 
 
+%% The server exposes a full tree that might contain duplicated
+%% structure.  It can give hints that some of the substructure is
+%% duplicated by providing interface types.
+
+%% The intention here is to recurse into concrete maps and return the
+%% substructure, but not recurse into those interface maps, and
+%% instead to gather their substructure in Meta.
 
 dir_list_rev(Env = #{pid := Pid, sink := Log, types := Types},
               N, RPath, Meta0) ->
@@ -191,21 +205,18 @@ dir_list_rev(Env = #{pid := Pid, sink := Log, types := Types},
             {ok, Type} = type_rev(Pid,RPath1),
             Log({data,{RPath1,Name,Type}}),
 
-            %% The intention is to recurse into concrete maps and
-            %% return the substructure, not recurse into abstract
-            %% maps, but still gather their substrcuture in Meta.
             {SubDir, Meta2} =
                 case Type of
                     map ->
                         dir_list_rev(Env, 0, RPath1, Meta0);
                     _ ->
-                        SKey = {interface, Type},
+                        SKey = {sub, Type},
                         case maps:is_key(SKey, Meta0) of
                             true ->
                                 {Type, Meta0};
                             false ->
                                 case maps:find(Type, Types) of
-                                    {ok, interface} ->
+                                    {ok, sub} ->
                                         {Sub, Meta1} =
                                             dir_list_rev(Env, 0, RPath1, Meta0),
                                         {Type,
@@ -246,7 +257,7 @@ foldl_env(Env = #{ function  := Fun,
     Node1 =
         case is_atom(Node0) of
             true ->
-                case maps:find({interface,Node0}, Meta) of
+                case maps:find({sub,Node0}, Meta) of
                     {ok, Sub} -> Sub;
                     error -> Node0
                 end;

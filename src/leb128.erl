@@ -31,6 +31,9 @@
 -define(T_BIN,3).  %% 3 = B
 -define(T_ARR,4).  %% 4 = A 
 -define(T_SYM,5).  %% 5 = S
+
+%% Comment.  Parses until end-of-line.
+-define(T_CMT,16#23).
 %% 6
 -define(T_TAG,7).  %% 7 = T
 
@@ -103,12 +106,24 @@ read_type(Env, Type) ->
         Tag -> throw({type,Tag})
     end.
 
+%% Comments are mainly to support #! shebang.
+skip_comment(Env) ->
+    case read_byte(Env) of
+        16#0A ->
+            ok;
+        _ ->
+            skip_comment(Env)
+    end.
+
 read(Env) ->
     Type = read_int(Env),
     case Type of
         %% Nop is special: it is completely ignored and is just there
         %% for padding/aligning.
         ?T_NOP ->
+            read(Env);
+        ?T_CMT ->
+            skip_comment(Env),
             read(Env);
         _ ->
             Term = read_type(Env, Type),
