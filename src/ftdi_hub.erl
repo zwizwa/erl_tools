@@ -62,22 +62,16 @@ up(_Hub, Pid) ->
     log:info("~p~n",[Pid]),
     log:info("FIXME: Map board to firmware.~n"),
 
-    Dir = "/home/tom/exo/ghcid/fpga",
-    try
+    Dir = "/i/exo/ghci/fpga",
 
-        ftdi:push_bin(Pid, Dir, "f_soc.breakout.ice40.bin"),
-        %% FIXME: First time doesn't work, so do it twice.
-        ftdi:push_bin(Pid, Dir, "f_soc.prog3.ram.bin"),
-        ftdi:push_bin(Pid, Dir, "f_soc.prog3.ram.bin"),
-        ok
-    catch C:E ->
-            Rv = {error,{C,E}},
-            %% How to avoid these long error messages that just mess
-            %% up emacs?
-            %% log:info("ftdi_hub: up: ~p~n", [Rv]),
-            log:info("push_bin error~n"),
-            Rv
-    end.
+    ftdi:push_bin(Pid, Dir, "f_soc.breakout.ice40.bin"),
+    %% ftdi:push_bin(Pid, Dir, "f_soc.breakout.bin"),
+
+
+    %% FIXME: First time doesn't work, so do it twice.
+    ftdi:push_bin(Pid, Dir, "f_soc.prog3.ram.bin"),
+    ftdi:push_bin(Pid, Dir, "f_soc.prog3.ram.bin"),
+    ok.
 
 %% <<"/devices/pci0000:00/0000:00:14.0/usb2/2-2/2-2.3/2-2.3.2">>
 devpath_usb_port(Bin) ->

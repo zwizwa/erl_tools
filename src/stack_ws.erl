@@ -81,7 +81,7 @@ handle_({data, #{ data := Data }}, State = #{ key := Key }) ->
         end
     catch
         C:E ->
-            log:info("stack_ws: can't parse: ~p: ~p~n", [Data,{C,E}]),
+            log:info("stack_ws: can't parse: ~p:~n~p~n", [Data,{C,E}]),
             State
     end;
 

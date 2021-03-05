@@ -78,7 +78,8 @@ handle(clear, State) ->
     LogBuf(clear),  %% FIXME: this seems to have no effect with exo config
     State;
 
-handle({cmds, Cmds}, #{ port := Port } = State) ->
+handle(_Msg={cmds, Cmds}, #{ port := Port } = State) ->
+    %% log:info("~999p~n", [_Msg]),
     port_command(Port, [[Cmd, "\n"] || Cmd <- Cmds]),
     State;
 
@@ -107,6 +108,7 @@ handle({run,Module,Function,Arg,SyncString}, State0 = #{module := CurrentModule}
     handle(
       {cmds,
        [":reload",
+        %% ":show modules",
         tools:format(
           "~s.~s ~s",
           [Module, Function, Arg]),
@@ -125,6 +127,7 @@ handle({run_cont,Module,Function,Arg,Cont}, State) ->
 %% + buffer clear.  Line framing is used to be able to easily encode
 %% some in-band data.
 handle({Port, {data, Data}}, #{ port := Port } = State) ->
+    %% log:info("Data = ~999p~n", [Data]),
     LogBuf = maps:get(log_buf, State, fun log_buf/1),
     Buf = maps:get(buf, State, []),
     Buf1 = log_lines(LogBuf, Data, Buf),

@@ -58,12 +58,14 @@ wait_ack(Port) ->
 %% Change the extensions to reflect only the necessary information.
 
 push_bin(Pid,Path,File) ->
-    log:info("ftdi: push_bin: ~999p~n", [{Path,File}]),
+    log:info("ftdi: push_bin: Path=~p, File=~p~n", [Path,File]),
     Load =
         fun() ->
                 F = tools:format("~s/~s", [Path, File]),
-                {ok, Bin} = file:read_file(F),
-                Bin
+                case file:read_file(F) of
+                    {ok, Bin} -> Bin;
+                    Error -> throw({ftdi_push_bin, {Error, {Path, File}}})
+                end
         end,
 
     case lists:reverse(re:split(File,"\\.")) of

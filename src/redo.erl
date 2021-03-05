@@ -141,7 +141,10 @@ pull(Redo, Products0) when is_list(Products0) ->
               %% Log({line,tools:format("pull: ~p~n~p",[Rv,Products])}),
               Log({line,tools:format("pull: ~p",[Rv])}),
               Rv
-      end).
+      end);
+pull(_Redo, Other) ->
+    throw({redo_pull_not_list, Other}).
+
 
 %% Interpret strings as filenames and map them to the canonical tuple
 %% representation.
