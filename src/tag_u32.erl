@@ -87,8 +87,9 @@ call(Pid, Path, Bin) ->
 
 %% This is mostly to plug into epid, so we do some automatic wrapping
 %% here in case of single numbers.
-send(Pid, Path, Thing) ->
-    Msg = case is_number(Thing) of true -> [Thing]; false -> Thing end,
+send(Pid, Path, Num) when is_number(Num) ->
+    send(Pid, Path, [Num]);
+send(Pid, Path, Msg) when is_list(Msg) ->
     %% Just use synchronous calls for now.  It crashes earlier...
     Path1 = Path ++ Msg,
     %% log:info("tag_u32:send ~p~n", [Path1]),
