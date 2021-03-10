@@ -64,8 +64,8 @@ up(_Hub, Pid) ->
 
     Dir = "/i/exo/ghci/fpga",
 
-    ftdi:push_bin(Pid, Dir, "f_soc.breakout.ice40.bin"),
-    %% ftdi:push_bin(Pid, Dir, "f_soc.breakout.bin"),
+    %% ftdi:push_bin(Pid, Dir, "f_soc.breakout.ice40.bin"),
+    ftdi:push_bin(Pid, Dir, "f_soc.breakout.bin"),
 
 
     %% FIXME: First time doesn't work, so do it twice.

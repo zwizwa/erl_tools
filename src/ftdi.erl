@@ -68,11 +68,12 @@ push_bin(Pid,Path,File) ->
                 end
         end,
 
+    %% FIXME: Find a better scheme to name the binaries.
     case lists:reverse(re:split(File,"\\.")) of
-        [<<"bin">>,<<"ram">>|_]   -> obj:call(Pid, {send_spi, Load()}, 3000);
-        [<<"bin">>,<<"ice40">>|_] -> obj:call(Pid, {send_ice40, Load()}, 3000);
-        Unknown ->
-            log:info("ftdi:push_bin: unknown: ~p~n", [Unknown])
+        [<<"bin">>,<<"ram">>|_]      -> obj:call(Pid, {send_spi, Load()}, 3000);
+        [<<"bin">>,<<"breakout">>|_] -> obj:call(Pid, {send_ice40, Load()}, 3000);
+        _Unknown ->
+            log:info("ftdi:push_bin: don't know how to push binary type: ~p~n", [File])
     end.
 
 
