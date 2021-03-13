@@ -3,6 +3,8 @@
          test/1
         ]).
 
+%% FIXME: Make the default encoding int32_t
+
 %% Erlang reference implementation of LEB128 parser/printer +
 %% recursive data structure extension.
 
@@ -61,16 +63,36 @@ shift({Val, N}, NewVal) ->
     {Val + (NewVal bsl N), N+7}.
 val({Val,_N}) ->
     Val.
+
+val_signed({Val,N}) ->
+    Sign = Val bsr (N-1),
+    Offset = case Sign of 0 -> 0; 1 -> 1 bsl N end,
+    val({Val,N}) - Offset.
+
 read_int(Env) ->
-    read_int(Env, {0,0}).
-read_int(Env, Accu) ->
+    read_sint(Env).
+
+read_sint(Env) ->
+    read_sint(Env, {0,0}).
+read_sint(Env, Accu) ->
     Byte = read_byte(Env),
     <<More:1, Int:7>> = <<Byte>>,
     Accu1 = shift(Accu, Int),
     case More of
-        0 -> val(Accu1);
-        1 -> read_int(Env, Accu1)
+        0 -> val_signed(Accu1);
+        1 -> read_sint(Env, Accu1)
     end.
+
+%% read_uint(Env) ->
+%%     read_int(Env, {0,0}).
+%% read_uint(Env, Accu) ->
+%%     Byte = read_byte(Env),
+%%     <<More:1, Int:7>> = <<Byte>>,
+%%     Accu1 = shift(Accu, Int),
+%%     case More of
+%%         0 -> val(Accu1);
+%%         1 -> read_uint(Env, Accu1)
+%%     end.
 
 %% Tuples are arrays that contain any combination of types.
 read_tup(Env) ->
@@ -138,6 +160,7 @@ read_tag(Env) ->
     {tag,{From,To,Bin}}.
 
 write_bytes(_Env = #{ file := File }, Bytes) ->
+    %% log:info("Bytes = ~p~n", [Bytes]),
     ok = file:write(File, Bytes);
 write_bytes(Env, Bytes) ->
     List = binary_to_list(Bytes),
@@ -148,15 +171,27 @@ write_byte(Env = #{ file := _ }, Byte) ->
 write_byte(_Env = #{sink := Sink }, Byte) ->
     Sink({data,Byte}).
 
+%% We use signed integer encoding for everything.
 
-write_int(Env, N) ->
-    case N =< 127 of
+%% write_uint(Env, N) ->
+%%     case N =< 127 of
+%%         true ->
+%%             write_byte(Env, N);
+%%         false ->
+%%             write_byte(Env, 128 bor (N band 127)),
+%%             write_uint(Env, N bsr 7)
+%%     end.
+
+write_sint(Env, N) ->
+    case (N > 63) or (N < -64) of
         true ->
-            write_byte(Env, N);
-        false ->
             write_byte(Env, 128 bor (N band 127)),
-            write_int(Env, N bsr 7)
+            write_sint(Env, N bsr 7);
+        false ->
+            write_byte(Env, N band 127)
     end.
+write_int(Env, I) ->
+    write_sint(Env, I).
 
 write_type(Env, Type, Term) ->
     %% Assert.  This is necessary for arrays.
@@ -267,6 +302,9 @@ test(loop) ->
     List = test({write, Term}),
     Nops = [0,0,0,0,0],
     true = (Term == test({read, Nops ++ List ++ Nops}));
+
+test({val_signed,{V,N}}) ->
+    val_signed({V,N});
 
 test({write_file,FileName,Term}) ->
     write_file(FileName,Term);
