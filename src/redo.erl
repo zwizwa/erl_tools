@@ -1138,7 +1138,12 @@ from_filename(IOList) ->
     [FileName|RPath] = lists:reverse(re:split(IOList,"/")),
     [BaseName|BinDotNames] = re:split(FileName,"\\."),
     %% debug("BinDotNames ~p~n",[BinDotNames]),
-    DotNames =  [type:decode({pterm,Bin}) || Bin <- BinDotNames],
+    DotNames =
+        try
+            [binary_to_atom(Bin, utf8) || Bin <- BinDotNames]
+        catch C:E ->
+                throw({type_decode,C,E,BinDotNames})
+        end,
     Target =
         {case DotNames of
              [DotName] -> DotName;
@@ -1175,7 +1180,7 @@ to_filename({Type,BaseName,Dirs}=Product) ->
                {_,false} -> [Type]
            end,
     Path = to_directory(Dirs),
-    Ext  = [[".",type:encode({pterm,Tag})] || Tag <- Tags],
+    Ext  = [[".",atom_to_binary(Tag,utf8)] || Tag <- Tags],
     tools:format("~s",[[Path,BaseName,Ext]]).
 to_filename_binary(F) ->
     iolist_to_binary(to_filename(F)).
