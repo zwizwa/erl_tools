@@ -762,6 +762,11 @@ handle({Pid, script_log}, State) ->
     obj:reply(Pid, maps:find(script_log, State)),
     State;
 
+handle({Pid, make_script_log}, State) ->
+    obj:reply(Pid, maps:find(make_script_log, State)),
+    State;
+
+
 %% Allow some read only access for internal use.
 handle({_,{find,_}}=Msg, State)  -> obj:handle(Msg, State);
 handle({_,dump}=Msg, State)      -> obj:handle(Msg, State);
@@ -1347,37 +1352,52 @@ stamp_hash(Eval, Product, Filename) ->
 %% Generic build command dispatch.
 
 
-%% run/2 will run external commands.  The reason to abstract it is to
-%% be able to reconstruct build scripts from trace logs.
+%% run/2 will run external commands.
+%% Two things are abstracted here:
+%% - OS command execution, e.g. to be able to construct traces (i.e. "JIT" it)
+%% - Logging.
+%%
 
-%% FIXME: Also add throttling here, e.g. to limit parallellism.
-
-%% Provide a console logging mechanism if there is none.
-run(Eval, Thing) ->
+%% run/2 has no logging specification so it will use the logger
+%% function stored in script_log or the default black hole.
+run(Eval, CommandSpec) ->
     Log =
         case obj:call(Eval, script_log) of
-            {ok, L} -> L;
+            {ok, L} when is_function(L) -> L;
             _ -> fun ?MODULE:default_script_log/1
         end,
-    run(Eval, Thing, Log).
+    run(Eval, CommandSpec, Log).
+
+%% Allow the logger to be abstracted, i.e. created from a LogSpec.
+run(Eval, CommandSpec, LogSpec = #{ target := _Target }) ->
+    case obj:call(Eval, make_script_log) of
+        {ok, MakeScriptLog} ->
+            Log = MakeScriptLog(LogSpec),
+            %% Assert it's the base case so we don't create a loop in
+            %% the matcher.
+            true = is_function(Log),
+            run(Eval, CommandSpec, Log);
+        error ->
+            %% If there is no log constructor, use the default case.
+            run(Eval, CommandSpec)
+    end;
 
 %% This step records the specification of the external command to the
 %% trace log, before interpreting the command specification.  Note
 %% that the trace log is different from the console log, which records
 %% command output.
-run(Eval, CommandSpec, ConsoleLog) ->
+run(Eval, CommandSpec, ConsoleLog) when is_function(ConsoleLog) ->
     obj:call(Eval, {log, run, CommandSpec}),
     run_(Eval, CommandSpec, ConsoleLog).
 
 
 %% Implementation.
 %% 1. Some erlang command that generates a new spec.
-run_(Eval, {mfa, {M,F,A}}, ConsoleLog) ->
+run_(Eval, {mfa, {M,F,A}}, ConsoleLog) when is_function(ConsoleLog) ->
     run_(Eval, apply(M,F,A), ConsoleLog);
 
 %% 2. Bash command with environment.
-run_(Eval, {bash_with_vars, EnvMap0, Cmds}, ConsoleLog) ->
-
+run_(Eval, {bash_with_vars, EnvMap0, Cmds}, ConsoleLog) when is_function(ConsoleLog) ->
     Compile = #{
       root => root(Eval),
       to_filename  => fun to_filename/1,
@@ -1388,7 +1408,7 @@ run_(Eval, {bash_with_vars, EnvMap0, Cmds}, ConsoleLog) ->
     run_(Eval, {bash, run:with_vars(EnvMap, Cmds)}, ConsoleLog);
 
 %% 3. Raw bash command
-run_(Eval, {bash, Cmds}, ConsoleLog) ->
+run_(Eval, {bash, Cmds}, ConsoleLog) when is_function(ConsoleLog) ->
     {ok, Dir} = obj:call(Eval, {find_file, ""}),
     run:bash(Dir, Cmds, ConsoleLog);
 
