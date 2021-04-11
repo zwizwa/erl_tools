@@ -15,7 +15,7 @@
          enter/1,
          %% For OTP supervisors
          supervisor_init/2,
-         start_child/1,
+         start_link/1,
 
          %% queue flush + synchronous call based batch processing
          batch_processor/2, flush/0, receive_batch/0,
@@ -253,7 +253,8 @@ start({spawner, Spawn}) ->
 
 
 %% For use in supervisor child_spec().
-start_child(Spec) ->
+%% This was renamed from start_child/1.
+start_link(Spec) ->
     try {ok, start(Spec)}
     catch C:E -> {error, {C,E}} end.
 
@@ -268,7 +269,7 @@ supervisor_init(Modules, Specs) ->
     Type = worker,
     ChildSpecs = 
         [{ID, 
-          {serv, start_child, [StartSpec]},
+          {serv, start_link, [StartSpec]},
           Restart,
           ShutDown,
           Type,

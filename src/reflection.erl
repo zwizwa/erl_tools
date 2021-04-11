@@ -7,6 +7,7 @@
          load_erl/3, run_erl/1, run_beam/3, run_module/3,
          push_change/2, push_change/3,
          describe_build_product/2, push_build_product/4,
+         module_info_source/1,
          find_parent/2, redo/2, redo/3, copy/2, clone_module/2]).
 
 %% 2019-03-08 This code has been in substantial flux in recent weeks,
