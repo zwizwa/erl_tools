@@ -477,10 +477,10 @@ default_handle_packet(<<?TAG_REPLY:16,L,Ack/binary>>=Msg, State) ->
         %% log:info("reply: ~p~n",[Rpl]),
         obj:reply(Pid, Rpl),
         State1
-    catch _:_ ->
+    catch C:E ->
             %% This case is for acks that are generated outside of
             %% the {call,Packet} mechanism above.
-            log:info("bad ack in TAG_REPLY message: ~p~n",[Msg]),
+            log:info("bad ack in TAG_REPLY message: ~p~n",[{Msg,C,E}]),
             State
     end;
 
