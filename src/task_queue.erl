@@ -40,7 +40,7 @@ handle(task_next, State) ->
         [] ->
             ok;
         [{_Pid, {task, Task}} | _] ->
-            spawn_link(
+            _ = spawn_link(
               fun() ->
                       log:info("task: ~p~n", [Task]),
                       Rv =
@@ -48,7 +48,8 @@ handle(task_next, State) ->
                           catch C:E -> {error,{C,E,erlang:get_stacktrace()}}
                           end,
                       Hub ! {task_done, Rv}
-              end)
+              end),
+            ok
     end,
     State;
 

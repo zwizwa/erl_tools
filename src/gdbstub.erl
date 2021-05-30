@@ -264,7 +264,7 @@ elf2config_bin(Elf) ->
     {ok, []} = run:script_output(Cmd, infinity),
     %% log:info("Cmd = ~p~n",[Cmd]),
     {ok, Bin} = file:read_file(Tmp),
-    file:delete(Tmp),
+    _ = file:delete(Tmp),
     {ok, Bin}.
                
 

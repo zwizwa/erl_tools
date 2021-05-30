@@ -60,7 +60,7 @@ handle({Port, Msg}, #{ port := Port, bc := BC } = State) ->
             %% using stats/1 function.
             BC ! {broadcast, {v4l, self(), {stats, Stats}}},
             State;
-        {data, <<Data>>} ->
+        {data, Data} ->
             log:info("invalid, size ~p~n", [size(Data)]),
             State;
         {exit_status, _}=E ->

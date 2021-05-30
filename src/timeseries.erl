@@ -20,7 +20,7 @@ start_link(#{}=Init) ->
         fun ?MODULE:handle/2})}.
     
 handle({_,dump}=Msg, State) ->    
-    obj:dump(Msg, State);
+    obj:handle(Msg, State);
 
 %% Delegate to mixins at tail end.
 handle(Msg, State) -> 

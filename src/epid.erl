@@ -85,7 +85,7 @@ send({epid_filter, Fn, Epid}, Msg) ->
 %% request protocol in terms of epids only.  Any concrete hub will
 %% need to implement the other end of this.
 connect({epid,_,_}=Src, Sink) ->
-    send(Src, {epid_subscribe, Sink}),
+    _ = send(Src, {epid_subscribe, Sink}),
     ok;
 
 %% connect/2 also supports {epid_filter,_,_} extension, but to
@@ -96,7 +96,7 @@ connect({epid_filter, Fn, Src}, Sink) ->
 
 %% Disconnect is analogous.
 disconnect({epid,_,_}=Src, Sink) ->    
-    send(Src, {epid_unsubscribe, Sink}),
+    _ = send(Src, {epid_unsubscribe, Sink}),
     ok;
 disconnect({epid_filter, Fn, Src}, Sink) ->
     disconnect(Src, {epid_filter, Fn, Sink}).
@@ -127,7 +127,7 @@ disconnect_bidir(Src, Dst) ->
 %% Erlang process.
 call(Dst = {epid, Pid, _}, Request, Timeout) ->
     Ref = erlang:monitor(process, Pid),
-    send(Dst, {call, self(), Ref, Request}),
+    _ = send(Dst, {call, self(), Ref, Request}),
     Rv = 
         receive 
             {'DOWN',Ref,process,Pid,Reason} ->

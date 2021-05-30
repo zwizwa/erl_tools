@@ -89,7 +89,7 @@ sink_handle(Msg, State = #{ws := Ws, path := Path, map := Map}) ->
         {epid_send, Tag, Val} ->
             Map1 = maps:put(Tag, Val, Map),
             Epid = {epid, Ws, {Path, set, pterm}},
-            epid:send(Epid, Map1),
+            _ = epid:send(Epid, Map1),
             maps:put(map, Map1, State);
         _ ->
             log:info("ws_widget:sink_handle: ~p~n", [Msg]),

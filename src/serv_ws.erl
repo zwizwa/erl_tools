@@ -52,7 +52,7 @@ handle({http,Sock,{http_request,'GET',{abs_path,"/ws"}=_Path,{1,1}}},
            "Sec-WebSocket-Accept: ">>, KeyOut, <<"\r\n">>,
          <<"\r\n">>],
     %% log:info("resp:~n~s", [Resp]),
-    inet:setopts(Sock, [{packet, raw}, {active, true}]),
+    ok = inet:setopts(Sock, [{packet, raw}, {active, true}]),
     ok = gen_tcp:send(Sock, Resp),
 
 
@@ -132,7 +132,7 @@ handle({send, Data}, #{ sock := Sock}=State) when is_binary(Data)->
                %% Key, xorkey(Key,0,Data)
                Data
               ],
-    gen_tcp:send(Sock, Encoded),
+   ok = gen_tcp:send(Sock, Encoded),
     State;
 
 handle({tcp_closed,_Sock}=Msg, _State) ->

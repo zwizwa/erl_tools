@@ -145,7 +145,7 @@ handle(TopMsg, State) ->
                     remove_subscriber(Spec, DstEpid, State);
 
                 {epid_unsubscribe_bidir, DstEpid} ->
-                    epid:send(DstEpid, {epid_unsubscribe, {epid,self(),Spec}}),
+                    _ = epid:send(DstEpid, {epid_unsubscribe, {epid,self(),Spec}}),
                     remove_subscriber(Spec, DstEpid, State);
 
                 %% Any other case needs to have a live port.
@@ -158,7 +158,7 @@ handle(TopMsg, State) ->
                         {epid_subscribe_bidir, DstEpid} ->
                             %% Guarantee that epid_subscribe arrives
                             %% before the first data message.
-                            epid:send(DstEpid, {epid_subscribe, {epid,self(),Spec}}),
+                            _ = epid:send(DstEpid, {epid_subscribe, {epid,self(),Spec}}),
                             epid:subscribe(Spec, DstEpid, State1);
 
                         %% Raw binary data

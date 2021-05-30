@@ -144,7 +144,7 @@ test(compile) ->
            A(select, [in3, in4])]),
 
     %% Pull once to do initial render
-    Render = redo:get(Redo, Body),
+    [Render] = redo:pull_vals(Redo, [Body]),
     log:info("render:~n~p~n", [Render]),
     
     %% Push a variable to awake side effect channel.

@@ -42,7 +42,7 @@ create(DB, Schema, Table) ->
             "create table if not exists '~p' (~s,primary key(~s))",
             [Table, commas(Columns), commas(KeyCols)]),
     log:info("~s~n", [SQL]),
-    sql(DB, [{SQL,[]}]),
+    _ = sql(DB, [{SQL,[]}]),
     ok.
 
 %% Tables are created on demand, as long as they are in the schema.

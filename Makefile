@@ -2,7 +2,7 @@
 
 .PHONY: all test clean dialyzer eunit accept
 
-REBAR = ~/devtools/rebar3/rebar3
+REBAR = ../rebar3/rebar3
 
 all: $(REBAR)
 	$(REBAR) compile

@@ -110,7 +110,7 @@ success(Logfile) ->
         {ok, F} = file:open(Logfile,[read]),
         {ok, Head} = file:read_line(F),
         %% log:info("~p~n", [Head]),
-        file:close(F),
+        _ = file:close(F),
         Ok=tools:re_case(
              Head,
              [{"^All good", fun(_) -> true  end},

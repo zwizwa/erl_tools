@@ -219,7 +219,8 @@ update_plugin({Caller, _},
             ok;
         _ ->
             log:info("Code:~n~s", [Code]),
-            file:write_file(FileName, Code)
+            ok = file:write_file(FileName, Code),
+            ok
     end,
     %% Reply only after the file is written.
 

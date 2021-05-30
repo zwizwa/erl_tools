@@ -812,7 +812,8 @@ spawn_port(Env = #{ spawn_port := SpawnPort }, Program={_Cmd,_ArgList}, Opts) ->
 spawn_port(_Env = #{ port_dir := PortDir }, {Cmd,ArgList}, Opts) ->
     log:info("~p~n", [_Env]),
     CmdLine = run:shell_command(tools:format("~s/~s",[PortDir,Cmd]), ArgList),
-    open_port({spawn, CmdLine}, Opts);
+    CmdLineBin = iolist_to_binary(CmdLine),
+    open_port({spawn, CmdLineBin}, Opts);
 
 %% case: If the port belongs to an app, we can find the port dir.
 spawn_port(_Env = #{ app := App }, Program, Opts) ->

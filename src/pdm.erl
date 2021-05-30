@@ -54,7 +54,7 @@ handle(start, State) ->
             base := Base,
             time := Time} = Loop} ->
             self() ! {note, Base + First},
-            timer:send_after(Time, start),
+            {ok,_} = timer:send_after(Time, start),
             maps:put(loop,
                      maps:put(sequence,
                               Rest ++ [First],
@@ -301,7 +301,7 @@ test({note,Note}) ->
 test({seq,Base,Seq,Ms}) ->
     lists:foreach(
       fun(N) ->
-              test({note, Base+N}),
+              _ = test({note, Base+N}),
               timer:sleep(Ms)
       end,
       Seq);

@@ -296,10 +296,12 @@ html_var(Deps,Var,Val) ->
 
 %% Factored out.
 invert_deps(Procs) ->
-    depgraph:invert_deps(Procs).
+    depgraph:invert(Procs).
 need_update(DepMap, Inputs) ->
-    depgraph:need_update(DepMap, Inputs).
-    
+    depgraph:affected(DepMap, Inputs).
+
+test(test) ->
+    ok;
 test(Spec) ->
     throw({test,?MODULE,Spec}).
 

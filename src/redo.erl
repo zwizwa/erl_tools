@@ -547,9 +547,9 @@ handle({CallPid, {eval, Product}}, State) ->
                     %% properly later.
                     ST = erlang:get_stacktrace(),
                     log_error(State, {error, Product, eval, {C, E, ST}}),
-                    maps:put({phase, Product}, {changed, error}, State),
+                    State1 = maps:put({phase, Product}, {changed, error}, State),
                     obj:reply(CallPid, error),
-                    State
+                    State1
             end
     end;
 
@@ -726,7 +726,7 @@ handle({Pid, {make_var,Fun,VarTag}}, State) ->
                  next_var => N+1 });
         _ ->
             obj:reply(Pid, {var, VarTag}),
-            case is_pid(VarTag) of
+            _ = case is_pid(VarTag) of
                 true -> erlang:monitor(process, VarTag);
                 false -> ok
             end,
@@ -1025,8 +1025,9 @@ get_vals(Eval, Tags) ->
       find_vals(Eval, Tags)).
 need_vals(Eval, Tags) ->
     case need(Eval, Tags) of
-        error -> throw({need_val_error, Tags});
-        _ -> get_vals(Eval, Tags)
+        %% error -> throw({need_val_error, Tags});
+        true  -> get_vals(Eval, Tags);
+        false -> get_vals(Eval, Tags)
     end.
 
 put_val(Eval, Tag, Val) ->
@@ -1192,7 +1193,7 @@ to_filename_binary(F) ->
 
 
 to_includes(Paths) ->
-    to_includes(fun to_directory/1, Paths).
+    to_includes(#{ to_directory => fun to_directory/1}, Paths).
 to_includes(_Compile = #{ to_directory := ToDirectory}, Paths) ->
     [[" -I",ToDirectory(P)] || P <- Paths].
 
@@ -1504,7 +1505,7 @@ u2(Eval) ->
     %% straightforward to embed pure functions in this
     %% framework.
     Deps = [ex1],
-    need_vals(Eval, Deps),
+    _ = need_vals(Eval, Deps),
     put_val(Eval, ex2, #{}),
     true.
 

@@ -24,7 +24,7 @@ handle({Pid, {M,F,A}}=Msg, State) ->
     case maps:find(sock, State) of
         {ok, Sock} ->
             %% log:info("bert_rpc: ~p~n", [Msg]),
-            gen_tcp:send(Sock, term_to_binary({call,M,F,A})),
+            ok = gen_tcp:send(Sock, term_to_binary({call,M,F,A})),
             receive
                 {tcp,Sock,Data} ->
                     case binary_to_term(Data) of

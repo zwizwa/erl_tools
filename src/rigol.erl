@@ -64,7 +64,7 @@ run_prim(Spec, _, 0) ->
 run_prim(Spec, State=#{sock := Sock}, Retry) ->
     Write =
         fun(IOList) ->
-                gen_tcp:send(Sock, IOList),
+                ok = gen_tcp:send(Sock, IOList),
                 %% FIXME: Is there proper flow control?
                 DelayMS = 200,  
                 timer:sleep(DelayMS)

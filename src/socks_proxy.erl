@@ -100,7 +100,7 @@ on_accept_5(State, From, Send, Recv) ->
 
     <<NbAuths>> = Recv(1),
     _Auths = Recv(NbAuths),
-    Send(<<5, 0>>),
+    ok = Send(<<5, 0>>),
 
     <<5,1,0,Kind>> = Recv(4),
 
@@ -164,22 +164,22 @@ on_accept_finish(State = #{sock := Sock}, From, Host, Port, Ack, Nack) ->
           From, Host, Port,
           [{active,true},{packet,raw},binary,{send_timeout,3000}]) of
         {ok, DstSock} ->
-            Ack(),
-            inet:setopts(Sock, [{active, true}]),
+            ok = Ack(),
+            ok = inet:setopts(Sock, [{active, true}]),
             maps:merge(
               State,
               #{ dst => {Host,Port},
                  dst_sock => DstSock });
         Error ->
             log:info("socks_proxy:on_accept_finish: ~p~n", [Error]),
-            Nack(),
+            ok = Nack(),
             {exit, {socks_proxy, Error}}
     end.
 
 %% Note: Something is blocking..  Not sure what.
 handle({tcp,Sock,Data},
        #{ sock := Src, dst_sock := Dst } = State) ->
-    case Sock of
+    _ = case Sock of
         Src -> gen_tcp:send(Dst, Data);
         Dst -> gen_tcp:send(Src, Data)
     end,
@@ -221,9 +221,9 @@ connect_via_socks(ProxyHost,ProxyPort,
         {ok, Sock} ->
             {Send,Recv} = io(Sock),
 
-            Send(<<5,1,0>>),
+            ok = Send(<<5,1,0>>),
             <<5,0>> = Recv(2),
-            case Host of
+            ok = case Host of
                 {A,B,C,D} ->
                     Send([<<5,1,0,1,A,B,C,D,Port:16>>]);
                 _ ->
@@ -231,7 +231,7 @@ connect_via_socks(ProxyHost,ProxyPort,
             end,
             <<5,0,0,1,_:32,_:16>> = Recv(10),
             
-            inet:setopts(Sock, Opts),
+            ok = inet:setopts(Sock, Opts),
             {ok, Sock};
         Error ->
             throw({?MODULE,connect_via_socks,

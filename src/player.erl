@@ -55,11 +55,11 @@ handle(scan, State = #{ dir := Dir }) ->
     end;
  
 handle({open, N}, #{ dir := Dir } = State) ->
-    case maps:find(data, State) of
+    _ = case maps:find(data, State) of
         {ok, OldDataFile} -> _ = file:close(OldDataFile);
         _ -> ok
     end,
-    case maps:find(data, State) of
+    _ = case maps:find(data, State) of
         {ok, OldIndexFile} -> _ = file:close(OldIndexFile);
         _ -> ok
     end,
@@ -366,7 +366,7 @@ read_scan(DataFile, Offset, OffsetEndx) ->
             end
     end.
 read_verify(DataFile, Pos) ->
-    file:position(DataFile, Pos),
+    {ok, _} = file:position(DataFile, Pos),
     {ok, <<Size:32>>} = file:read(DataFile, 4),
     case {file:position(DataFile, Pos+4+Size),
           file:read(DataFile, 4)} of
@@ -488,8 +488,8 @@ convert(I, O, N, Stack) ->
                 E -> E
             end;
         E ->
-            file:close(I),
-            file:close(O),
+            _ = file:close(I),
+            _ = file:close(O),
             E
     end.
 

@@ -273,7 +273,7 @@ foldl_env(Env = #{ function  := Fun,
         Dir ->
             State0 =
                 case Recursive of
-                    true  -> Fun({KeyStack,TagStack,map},State);
+                    %% true  -> Fun({KeyStack,TagStack,map},State);
                     false -> State
                 end,
 
@@ -369,11 +369,12 @@ handle(_Msg={Caller,{req_u32, U32List, Data}}, State) ->
         0 ->
             %% Use pid-to-path encoding
             Bin = req_u32(Caller, U32List, Data),
-            send_packet(Bin, State);
-        1 ->
-            %% Use broker encoding
-            {Bin, State1} = req_u32_indirect(Caller, U32List, Data, State),
-            send_packet(Bin, State1)
+            send_packet(Bin, State)
+        %% Dialyzer doesn't like this.
+        %% 1 ->
+        %%     %% Use broker encoding
+        %%     {Bin, State1} = req_u32_indirect(Caller, U32List, Data, State),
+        %%     send_packet(Bin, State1)
     end;
 
 handle({Caller,{req_u32, U32List}}, State) ->
@@ -495,22 +496,23 @@ term_to_binary_u32(Term) ->
 %% translation.  This is a bit easier to debug since it doesn't
 %% involve digging into binary messages, and it keeps a record of
 %% calls that are in-flight.
-req_u32_indirect(Pid, U32List, Data, State) ->
-    ID = maps:get({tag_u32,next}, State, 0),
-    State1 = maps:merge(
-               State,
-               #{{tag_u32,next} => ID+1,
-                 {tag_u32,ID}   => Pid}),
-    NbFromArgs = 2,
-    From = <<?TAG_U32_INDIRECT:32, ID:32>>,
-    NbArgs = length(U32List),
-    Tag = ?TAG_U32,
-    %% log:info("indirect ~p~n", [From]),
-    IOL = [<<Tag:16, NbFromArgs, NbArgs>>,
-           From,
-           [<<W:32>> || W<-U32List],
-           Data],
-    {IOL,State1}.
+
+%% req_u32_indirect(Pid, U32List, Data, State) ->
+%%     ID = maps:get({tag_u32,next}, State, 0),
+%%     State1 = maps:merge(
+%%                State,
+%%                #{{tag_u32,next} => ID+1,
+%%                  {tag_u32,ID}   => Pid}),
+%%     NbFromArgs = 2,
+%%     From = <<?TAG_U32_INDIRECT:32, ID:32>>,
+%%     NbArgs = length(U32List),
+%%     Tag = ?TAG_U32,
+%%     %% log:info("indirect ~p~n", [From]),
+%%     IOL = [<<Tag:16, NbFromArgs, NbArgs>>,
+%%            From,
+%%            [<<W:32>> || W<-U32List],
+%%            Data],
+%%     {IOL,State1}.
 
 req_u32_indirect_reply(ID, Rest, BTail, State) ->
     Pid = maps:get({tag_u32,ID}, State),

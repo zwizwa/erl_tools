@@ -25,7 +25,7 @@ send_lisp(Lisp) ->
     %% The default here is to use distel, as it is better contained,
     %% and we don't have to serialize s-expressions to textual form.
     %%
-    distel_send_lisp(Lisp),
+    _ = distel_send_lisp(Lisp),
     %% emacsclient_send_lisp(Lisp).
     ok.
 
@@ -184,7 +184,8 @@ lisp(Bin) when is_binary(Bin) ->
 lisp(Any) -> 
     io_lib:format("~p", [Any]).
 
-
+test(test) ->
+    ok;
 test(Spec) ->
      throw(Spec).
 

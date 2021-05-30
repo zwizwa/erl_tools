@@ -60,7 +60,7 @@ handle({Port, {data,{eol,Line}}}, State = #{gdb := Port}) ->
     State;
 
 handle({_, dump}=Msg, State) ->
-    obj:dump(Msg, State);
+    obj:handle(Msg, State);
 handle(Msg, State) ->
     log:info("unknown: ~p~n", [Msg]),
     State.

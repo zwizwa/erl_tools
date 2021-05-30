@@ -28,11 +28,11 @@ recv_headers(Sock, Headers) ->
     end.
 
 recv_data(Sock, Len) when is_number(Len) ->
-    inet:setopts(Sock, [{packet, raw}]),
+    ok = inet:setopts(Sock, [{packet, raw}]),
     case gen_tcp:recv(Sock, Len) of
         {ok, Data} ->
             %% log:info("Data: ~p~n", [Data]),
-            inet:setopts(Sock, [{packet, http}, {active, once}]),
+            ok = inet:setopts(Sock, [{packet, http}, {active, once}]),
             Data;
         {error, closed} ->
             ""
@@ -83,7 +83,7 @@ get({Host,Port,Path}) ->
             {<<"Connection">>,<<"keepalive">>}
            ])],
     %% log:info("~n~s",[Req]),
-    gen_tcp:send(Sock, Req),
+    ok = gen_tcp:send(Sock, Req),
     Rv =
         receive 
             {http, Sock, {http_response,{1,1},Status,_}} ->
@@ -113,7 +113,7 @@ post({Host,Port,Path},ExtraHeaders,Bin) when is_binary(Bin)->
            ] ++ ExtraHeaders),
          Bin],
     %% log:info("~n~s",[Req]),
-    gen_tcp:send(Sock, Req),
+    ok = gen_tcp:send(Sock, Req),
     Rv =
         receive 
             {http, Sock, {http_response,{1,1},Status,_}} ->

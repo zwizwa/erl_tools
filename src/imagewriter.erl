@@ -46,7 +46,7 @@ start_link() ->
 
 handle({epid_send, DstSubId, {pull, Src}}, State) ->
     Dst = {epid, self(), DstSubId},
-    epid:push(Src, Dst),
+    _ = epid:send(Src, Dst),
     State;
 
 handle({epid_send, {SrcType, SrcLoc} = _SrcSubId,

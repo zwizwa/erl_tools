@@ -450,7 +450,7 @@ handle_packet(Msg, State) ->
 %% To print, assume first that the message supports the 2-byte type
 %% tags which are used to transport generic system-level messages.
 default_handle_packet(<<?TAG_GDB:16, Msg/binary>>, State) ->
-    case maps:find(rsp_call_waiting, State) of
+    _ = case maps:find(rsp_call_waiting, State) of
         {ok, {WaiterPid,_}} ->
             %% There is a waiting RSP call.  Pass all the chunks
             %% there.  The waiter will finish once a complete message
@@ -771,7 +771,7 @@ test(messages) ->
 test({messages,Line}) ->
     parse_syslog_ttyACM(Line);
 test(board) ->
-    run:bash(
+    _ = run:bash(
       ".", "ssh root@10.1.3.123 cat /tmp/messages",
       fun({line,Line}) -> 
               case test({messages,Line}) of

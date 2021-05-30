@@ -21,7 +21,7 @@ reload(Pid) ->
     Pid ! clear,
     %% Enqueue before stopping.  If reload fails, start will be undefined.
     Pid ! {cmds, [":reload","start"]},
-    Call(control,stop,[]),
+    _ = Call(control,stop,[]),
     %% Make sure it is up.
     case wait_bert_up(20, Call) of
         ok -> {ok,{Host,Port}};
