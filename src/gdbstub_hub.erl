@@ -12,6 +12,8 @@
          tag_u32/3,
          command/1,
 
+         load_bin_file/3, load_bin/4,
+
          %% Internal, for reloads
          ignore/2, print_etf/2,
          dev_start/1, dev_handle/2,
@@ -21,13 +23,16 @@
          decode_packet/3,
          decode_info/2,
 
+         reload_cycle/3,
+
          test/1
 ]).
 
 -include("slip.hrl").
 
-%% This module is a hub for uc_tools gdbstub-based devices.  See also
-%% gdbstub.erl for GDB RSP protocol code.
+%% This module is a hub for STM32F103 firmware based on uc_tools
+%% gdbstub loader/mainloop.  See also gdbstub.erl for GDB RSP protocol
+%% code.
 
 %% Singal flow:
 %% - gdbstub_hub board gets enumerated on some host
@@ -46,17 +51,16 @@
 %% The host name + devpath is enough to uniquely identify the location
 %% of the device.
 
-start_link(Config) ->
-    %% Optional extension point: user can override main message
-    %% handling function.  Should delegate to gdbstub_hub:handle/2
-    HubHandle =
-        maps:get(
-          hub_handle, Config,
-          fun gdbstub_hub:hub_handle/2),
+%%-define(TAG_FLASH_ERASE,   16#FFF6).
+-define(TAG_FLASH_WRITE,   16#FFF7).
+%%-define(TAG_PLUGCTL,       16#FFF8).
+
+
+start_link(Config = #{ registry := _Registry }) ->
     serv:start_link(
-       {handler,
-        fun() -> process_flag(trap_exit, true), Config end,
-        HubHandle}).
+      {handler,
+       fun() -> process_flag(trap_exit, true), Config end,
+       fun ?MODULE:hub_handle/2}).
 
 %% Udev events will eventuall propagate to here.
 
@@ -95,6 +99,7 @@ hub_handle({add_tty,HostSpec,TTYDev,DevPath,AppRunning,RegisterPid}=_Msg, State)
     TcpPort = 10000 + Offset,
     Pid = ?MODULE:dev_start(
              #{ hub => Hub,
+                registry => maps:get(registry, State),
                 spawn_port => maps:get(spawn_port, State),
                 spawn_spec => SpawnSpec,
                 host => maps:get(host, SpawnSpec),
@@ -111,9 +116,47 @@ hub_handle({add_tty,HostSpec,TTYDev,DevPath,AppRunning,RegisterPid}=_Msg, State)
     _Ref = erlang:monitor(process, Pid),
     maps:put({dev,Pid}, true, State);
 
-hub_handle({up, Pid}, State) when is_pid(Pid) ->
-    %% Ignore here.  Useful for Handle override.
+
+hub_handle({up, Pid}, State = #{registry := _Registry}) when is_pid(Pid) ->
+    Hub = self(),
+    spawn(
+      fun() ->
+              #{ host := Host,
+                 tty  := TTY,
+                 uid  := UID 
+               } = obj:dump(Pid),
+              log:set_info_name({up,{Host,TTY}}),
+              Status =
+                  try
+                      up(Pid),
+                      ok
+                  catch C:E ->
+                          log:info("bluepill:up: ERROR:~n~p~n",
+                                   [{C,E,erlang:get_stacktrace()}]),
+                          {error, {C,E}}
+                  end,
+              Hub ! {post_up, Pid, UID, Status}
+      end),
     State;
+
+hub_handle({post_up, _DevPid, UID, Status}=_Msg, State) ->
+    Tag = {post_up_waitpids, UID},
+    case maps:find(Tag, State) of
+        {ok, WaitPids} ->
+            lists:foreach(
+              fun(P) -> obj:reply(P, Status) end,
+              WaitPids),
+            maps:remove(Tag, State);
+        _ ->
+            log:info("no post_up_waitpids for: ~999p~n",[_Msg]),
+            State
+    end;
+
+hub_handle({WaitPid, {post_up_wait, UID}}, State) ->
+    Key = {post_up_waitpids, UID},
+    WaitPids = maps:get(Key, State, []),
+    maps:put(Key, [WaitPid|WaitPids], State);
+
 
 hub_handle({'DOWN',_,_,Pid,_}=_Msg, State) ->
     log:info("~999p~n", [_Msg]),
@@ -142,6 +185,344 @@ hub_handle(Msg, State) ->
 
 hub_remove_pid(Pid, State) ->
     maps:remove({dev, Pid}, State).
+
+%% apps/erl_tools/src/gdbstub_hub.erl:187: function uid_to_name/2 undefined
+%% apps/erl_tools/src/gdbstub_hub.erl:206: function name_to_elf/1 undefined
+
+%% apps/erl_tools/src/gdbstub_hub.erl:204: function save/2 undefined
+%% apps/erl_tools/src/gdbstub_hub.erl:208: function elf_path/1 undefined
+%% apps/erl_tools/src/gdbstub_hub.erl:223: function up_start/2 undefined
+%% apps/erl_tools/src/gdbstub_hub.erl:238: function up_start/2 undefined
+%% apps/erl_tools/src/gdbstub_hub.erl:240: function load_bin_file/3 undefined
+%% apps/erl_tools/src/gdbstub_hub.erl:244: function up_start/2 undefined
+%% apps/erl_tools/src/gdbstub_hub.erl:252: function name_to_post/1 undefined
+%% apps/erl_tools/src/gdbstub_hub.erl:276: function load/2 undefined
+%% apps/erl_tools/src/gdbstub_hub.erl:283: function load/2 undefined
+
+
+%% Called once gdbstub has registered to gdbstub_hub.    
+up(Pid) ->
+    Info = obj:dump(Pid),
+    #{ uid      := UID,
+       app      := AppRunning,
+       tcp_port := TargetPort,
+       registry   := Registry
+     } = Info,
+
+    Name = Registry:uid_to_name(UID, {uid, UID}),
+    if is_atom(Name) ->
+            try
+                register(Name, Pid),
+                Pid ! {set_name, Name},
+                log:info("registered dev process ~p as ~p~n", [Pid, Name])
+            catch
+                _:_ ->
+                    log:info("registered failed for dev process ~p as ~p~n", [Pid, Name])
+            end;
+       true ->
+            ok
+    end,
+
+    %% Keep track of what we see appearing on the usb bus to allow
+    %% reconnecting to a device later without power cycling and
+    %% re-enumerating.
+    spawn(fun() -> Registry:save(Name, Info) end),
+
+    case Registry:name_to_elf(Name) of
+        {ok, Firmware} ->
+            FirmwarePath = Registry:elf_path(Firmware),
+            Ext = tools:filename_extension(Firmware),
+            case Ext of
+                elf ->
+                    case AppRunning of
+                        false ->
+                            %% log:info("load_if_changed ~p~n", [Info]),
+                            log:info("Loading ~p~n", [Firmware]),
+                            load_if_changed(Info, TargetPort, FirmwarePath),
+                            ok;
+                        true ->
+                            log:info("Not loading ~p: already running~n", [Firmware]),
+                            ok
+                    end,
+                    Proto  = gdbstub:protocol(Pid),
+                    up_start(Pid,Proto),
+                    log:info("~999p started~n", [{Name,Firmware}]);
+                bin ->
+                    %% FIXME: This path is unlikely to be still used,
+                    %% as plugins are now defined per device in
+                    %% ~/exo/env.sh
+
+                    %% Not loading main app here, which is practically
+                    %% the thing we want.  However, the build system
+                    %% should be aware of this, i.e. it should link
+                    %% against the .elf that is actually loaded, not
+                    %% the one that is up-to-date with sources.  There
+                    %% are a lot of corner cases that are essentially
+                    %% quite hard to handle.
+                    Proto = gdbstub:protocol(Pid),
+                    up_start(Pid,Proto),
+                    log:info("Loading ~p~n", [Firmware]),
+                    load_bin_file(Pid, FirmwarePath, 0)
+            end;
+        _ ->
+            Proto = gdbstub:protocol(Pid),
+            up_start(Pid,Proto),
+
+            %% log:info("~p has no associated ELF file~n", [{Name,NameToElf}])
+            log:info("no ELF file to load for ~p~n", [Name])
+
+    end,
+
+    %% Boards can be configured to be handed over afer startup.
+    case Registry:name_to_post(Name) of
+        {ok, Fun} ->
+            log:info("post ~p ~p~n", [Pid, Fun]),
+            Fun(Pid);
+        error ->
+            log:info("no post for ~p~n", [Pid]),
+            ok
+    end.
+
+%% FIXME: Split this up into raw load (e.g. for data files) and FFF8
+%% PLUGCTL call.
+
+load_bin_file(Pid, BinFile, Addr) ->
+    load_bin_file(Pid, BinFile, Addr, plugctl).
+
+%% FIXME: Don't load it at 0!  It will overwrite bootloader.
+%% bluepill:load_bin_file(bb1,"/home/tom/exo/uc_tools/gdb/forth_plugin.plugin.f103.bin",0). 
+
+%% This supports Method=plugctl or Method=raw
+load_bin_file(Pid, BinFile, Addr, Method) ->
+    log:info("bluepill:load_bin_file ~p~n", [{Pid,Addr}]),
+    case file:read_file(BinFile) of
+        {ok, Bin} ->
+            load_bin(Pid, Bin, Addr, Method);
+        Error ->
+            log:info("load_bin_file: error: ~p~n", [Error]),
+            Error
+    end.
+
+load_bin(Pid, IOList, Addr, Method) ->
+    Bin = iolist_to_binary(IOList),
+    Size = size(Bin),
+    BlockSizeLog = 10, %% 1024
+    BlockSize = 1 bsl BlockSizeLog,
+    case Method of
+        raw ->
+            Pid ! {send_packet,
+                   <<?TAG_FLASH_ERASE:16, Addr:32, Size:32, BlockSizeLog:32>>},
+            <<>> = gdbstub_hub:ping(Pid),
+            ok;
+        _ ->
+            ok
+    end,
+    lists:foreach(
+      fun({Start,N}) ->
+              ChunkAddr = Addr+ Start,
+              log:info("load ~p ~p~n", [ChunkAddr, N]),
+              Chunk = binary:part(Bin, Start, N),
+              Msg = 
+                  case Method of
+                      plugctl ->
+                          <<?TAG_PLUGCTL:16,
+                            1:16, %% Write Block
+                            ChunkAddr:32, BlockSizeLog:32,
+                            Chunk/binary>>;
+                      raw ->
+                          <<?TAG_FLASH_WRITE:16,
+                            ChunkAddr:32,
+                            Chunk/binary>>
+                  end,
+              Pid ! {send_packet, Msg}
+      end,
+      tools:nchunks(0, Size, BlockSize)),
+    
+    <<>> = gdbstub_hub:ping(Pid),
+    case Method of
+        raw ->
+            ok;
+        plugctl ->
+            Pid ! {send_packet, <<?TAG_PLUGCTL:16,0:16>>},  %% Start
+            <<>> = gdbstub_hub:ping(Pid),
+            ok
+    end.
+
+
+%% %% This supports only Method=raw since it makes no sense for plugctl.
+%% %% Don't implement this for files.  Let caller mess witht that.
+%% load_bin_list(Pid, Bins, Addr) ->
+%%     load_bin(
+%%       Pid,
+%%       lists:map(
+%%         fun(Bin) ->
+%%                 Size = size(Bin),
+%%                 [<<Size:32>>,Bin]
+%%         end,
+%%         Bins),
+%%       Addr,
+%%       raw).
+
+
+load_if_changed(#{uid := _UID, registry := Registry}=Info, TargetPort, FirmwarePath) ->
+    case file:read_file(FirmwarePath) of
+        {error, enoent} ->
+            throw({bluepill_missing_firmware, FirmwarePath, Info});
+        {ok, _Bin} -> 
+            ElfConfig = gdbstub:elf2config(FirmwarePath),
+            %% log:info("ElfConfig = ~p~n", [ElfConfig]),
+            %% log:info("Info = ~p~n", [Info]),
+            New = {maps:get(firmware, ElfConfig), maps:get(version, ElfConfig)},
+            Old = {maps:get(firmware, Info),      maps:get(version, Info)},
+
+            case New of
+                %% FIXME: workaround to always reload
+                {_, "current"} ->
+                    log:info("old: ~999p, new: ~999p~n",[Old, New]),
+                    Registry:load(TargetPort, FirmwarePath);
+                Old ->
+                    %% log:info("~s already has ~s:~999p~n",[UID,FirmwarePath,Hash]),
+                    log:info("already loaded: ~999p~n",[New]),
+                    ok;
+                _ ->
+                    log:info("old: ~999p, new: ~999p~n",[Old, New]),
+                    Registry:load(TargetPort, FirmwarePath),
+                    ok
+            end
+    end.
+
+up_start(Pid,Proto) ->
+    %% Send it an empty packet to start the application.  This
+    %% won't do anything in raw mode, but all packet protocols
+    %% allow for empty packets and will ignore them.  The
+    %% gdbstub loader starts the application when it sees a
+    %% packet it cant' parse as GDB RSP.  This uses the
+    %% correct protocol based on what the firmware indicates.
+    Pid ! {send_packet, <<>>},
+    
+    %% Set up this end of the communication.
+    case Proto of
+        %% FIXME: Move this into a module.
+        {driver, ethernet, _} ->
+            log:info("Enabling ethernet briding~n"),
+            {ok, Peer} =
+                rpc:call('exo@10.1.3.2', udpbridge, br1,
+                         [#{peer => {send_packet, Pid}}]),
+            Pid ! {set_peer, Peer},
+            ok;
+        %% Protocols can be specified in a module.
+        {driver, Mod, PacketProto} ->
+            Mod:init(Pid,PacketProto);
+        _ ->
+            ok
+    end.
+
+
+%% Specific gdbstub/bluepill setup.  This handles
+%% Board identification based on STM32 UUID
+%% Map board to startup action (e.g. firmware load, test exec).
+%% Manage exo functionality implemented on bluepill boards (relays)
+
+%% Synchronous restart.
+
+%% reload_cycle(uvc1, _Timeout) -> ok;
+
+reload_cycle(Hub, Name, Timeout) ->
+    Registry = registry(Hub),
+    case {Registry:name_to_relay(Name),
+          Registry:name_to_uid(Name)} of
+        {{ok, Relay},
+         {ok, Uid}} ->
+            %% FIXME: Technically this races, but in practice cycling will
+            %% take quite long.  Proper sequencing is install reply handler,
+            %% cycle, receive.
+            case Relay of
+                {need, NeedSpec} ->
+                    %% Not connected to a relay.  Just call need on
+                    %% the board name.
+                    _ = Registry:need(Hub, NeedSpec),
+                    ok;
+
+                {restart, _} ->
+                    %% Virtual relay.
+                    log:info("WARNING: ~p not implemented.~n", [Relay]),
+                    ok;
+                _ ->
+                    %% Actual relay
+                    cycle(Hub, Relay),
+                    obj:call(Hub, {post_up_wait, Uid}, Timeout)
+            end;
+        Error ->
+            log:info("reload_cycle: ~p: ~p~n", [Name,Error]),
+            Error
+    end.
+
+
+%% Power cycling boards.
+%% Relays are wired with 5V on NC.
+
+registry(Hub) ->
+    #{ registry := Registry } = obj:dump(Hub),
+    Registry.
+
+cycle(Hub, Relay) ->
+    relay(Hub, Relay, {cycle, 500}).
+
+
+%% Special case: not a relay, but device can reset itself.  We connect
+%% and send the reset tag.
+relay(Hub, {reset, Dst}, {cycle, _}) ->
+    Registry = registry(Hub),
+    %% Use self-reset.  Blue pill boards need the usb
+    %% pullup mod for this to work.
+    log:info("cycle: using device reset on device ~p~n", [Dst]),
+    Registry:need(Hub, Dst) ! {send_packet, <<16#FFF4:16>>},
+    ok;
+
+relay(Hub, Name, Cmd) when is_atom(Name) ->
+    Registry = registry(Hub),
+    case Registry:name_to_relay(Name) of
+        {ok, Relay} ->
+            relay(Hub, Relay, Cmd);
+        error ->
+            throw({?MODULE,name_to_relay,Name})
+    end;
+
+relay(Hub, {RelayBoard,RelayID}, Cmd) when
+      is_atom(RelayBoard) and is_atom(RelayID) ->
+    Registry = registry(Hub),
+    log:info("cycle: device ~p is on relay ~p~n", [RelayBoard, RelayID]),
+    Pid = Registry:need(Hub, RelayBoard),
+    RelayIDLst = atom_to_list(RelayID),
+    relay(Hub, {raw_cmd,Pid,RelayIDLst}, Cmd);
+
+relay(_Hub, {raw_cmd,Pid,[RelayID]}, Cmd) ->
+    %% See uc_tools/gdb/relay_board.c
+    true = lists:member(RelayID, "ABCDEFGH"),
+    Off = RelayID + $\a - $\A,
+    On  = RelayID,
+    %% Use explicit slip wrapper in case we are not running via
+    %% gdbstub and don't have automatic slip conversion.  As ack we
+    %% just have the command code echoed back.
+    %%
+    %% A note on timeouts: 1000 ms is not enough, because it might be
+    %% necessary to boot the relay controller.
+
+    Call = fun(C) -> gdbstub_hub:call(Pid, <<0,0,C>>, 10567) end, 
+    case Cmd of
+        {cycle, T} ->
+            Call(Off),
+            timer:sleep(T),
+            Call(On);
+        0 ->
+            Call(Off);
+        1 ->
+            Call(On)
+    end,
+    ok.
+
+
+
 
 
 %% Start a process as a companion to the device, communicating over
@@ -763,6 +1144,9 @@ call(Pid, Msg, Timeout) ->
     obj:call(Pid, {call,Msg}, Timeout).
 
 
+%% MISC
+
+
 %% If udev is not available, do something like this:
 %% ssh root@$IP tail -n0 -f /tmp/messages
 %% And watch the output
@@ -772,6 +1156,12 @@ parse_syslog_ttyACM(Line) ->
         {match,[_,UsbAddr,Dev]} -> {ok, {UsbAddr, Dev}};
         _ -> error
     end.    
+
+
+
+
+
+%% TEST
 
 test(messages) ->
     Line = <<"Oct  6 15:28:44 buildroot kern.info kernel: "
