@@ -47,12 +47,16 @@
 %% of the device.
 
 start_link(Config) ->
-    HubHandle = maps:get(hub_handle, Config, fun gdbstub_hub:hub_handle/2),
-    {ok,
-     serv:start(
+    %% Optional extension point: user can override main message
+    %% handling function.  Should delegate to gdbstub_hub:handle/2
+    HubHandle =
+        maps:get(
+          hub_handle, Config,
+          fun gdbstub_hub:hub_handle/2),
+    serv:start_link(
        {handler,
         fun() -> process_flag(trap_exit, true), Config end,
-        HubHandle})}.
+        HubHandle}).
 
 %% Udev events will eventuall propagate to here.
 
@@ -715,6 +719,8 @@ unwait(N, State) ->
 
 %% Export encode/decode as well.
 
+-spec slip_encode(binary()) -> binary().
+
 slip_encode(IOList) ->
     Bin = iolist_to_binary(IOList),     %% log:info("Bin ~p~n",[Bin]),
     Lst = binary_to_list(Bin),          %% log:info("List ~p~n",[Lst]),
@@ -726,10 +732,13 @@ slip_body([]) -> [];
 slip_body([192|Tail])  -> [219,220|slip_body(Tail)];
 slip_body([219|Tail])  -> [219,221|slip_body(Tail)];
 slip_body([Head|Tail]) -> [Head|slip_body(Tail)].
-    
-                
+
+
+-spec slip_decode(binary()) -> {'more','undefined'} | {'ok',binary(),binary()}.
+
 slip_decode(Bin) when is_binary(Bin) ->
     slip_decode(binary_to_list(Bin),[]).
+
 slip_decode([192|Rest],    Stack) ->
     {ok, list_to_binary(lists:reverse(Stack)), list_to_binary(Rest)};
 slip_decode([219,220|Rest],Stack) -> slip_decode(Rest, [192|Stack]);
