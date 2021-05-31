@@ -35,6 +35,8 @@
          name_to_elf/2,
          name_to_relay/2,
          name_to_pid/2,
+         last_tty_devpath/2,
+         currently_loaded/2,
 
          test/1
 ]).
@@ -77,7 +79,7 @@ elf_path(Hub, Rel) ->
 %% save/3  called with device location after device up
 %% need/2  on-demand instantiation / connect
 
-start_link(Config = #{ registry := _Registry, query := _Query }) ->
+start_link(Config = #{ registry := _Registry, db := _DB }) ->
     serv:start_link(
       {handler,
        fun() -> process_flag(trap_exit, true), Config end,
@@ -1229,8 +1231,10 @@ release(Pid) ->
 %% To keep things simple, we require a specific schema in the sql
 %% database, but allow the database itself to be parameterized.  All
 %% access goes through these functions.
-query(Hub) ->
-    obj:get(Hub, query).
+-spec query(pid(), [sqlite3:query()]) -> [sqlite3:result_table()].
+query(Hub, Qs) ->
+    DB = obj:get(Hub, db),
+    sqlite3:sql(DB, Qs).
 
 %% Name resolution for stubhub
 %% Data is in distributed exo_db store
@@ -1240,17 +1244,16 @@ uid_to_name(Hub, UID, Default) ->
         error -> Default
     end.
 uid_to_name(Hub, UID) ->
-    Q = query(Hub),
     Sql = <<"select bp_name from bp_name where bp_uid = ?">>,
-    case Q([{Sql,[list_to_binary(UID)]}]) of
+    case query(Hub, [{Sql,[{text,list_to_binary(UID)}]}]) of
         [[[BName]]] -> {ok, type:decode({pterm,BName})};
         _ -> error
     end.
 name_to_uid(_Hub, {uid, UID}) ->
     {ok, UID};
-name_to_uid(_Hub, Name) when is_atom(Name) ->
+name_to_uid(Hub, Name) when is_atom(Name) ->
     Sql = <<"select bp_uid from bp_name where bp_name = ?">>,
-    Result = exo_db:local_sql([{Sql,[atom_to_binary(Name, utf8)]}]),
+    Result = query(Hub, [{Sql,[{text,atom_to_binary(Name, utf8)}]}]),
     case Result of
         [[[BUid]]] -> {ok, binary_to_list(BUid)};
         _ ->
@@ -1259,9 +1262,9 @@ name_to_uid(_Hub, Name) when is_atom(Name) ->
     end;
 name_to_uid(_Hub, Other) ->
     throw({name_to_uid,Other}).
-name_to_relay(_Hub, Name) ->
+name_to_relay(Hub, Name) ->
     Sql = <<"select relay_name,relay_slot from bp_relay where bp_name = ?">>,
-    case exo_db:local_sql([{Sql,[atom_to_binary(Name, utf8)]}]) of
+    case query(Hub, [{Sql,[{text,atom_to_binary(Name, utf8)}]}]) of
         [[[BRelay, BSlot]]] -> 
             {ok,{type:decode({pterm,BRelay}),
                  type:decode({pterm,BSlot})}};
@@ -1271,9 +1274,9 @@ name_to_relay(_Hub, Name) ->
 name_to_elf(Hub, Name) when is_atom(Name) ->
     {ok, Uid} = name_to_uid(Hub, Name),
     name_to_elf(Hub, {uid, Uid});
-name_to_elf(_Hub, {uid, Uid}) ->
+name_to_elf(Hub, {uid, Uid}) ->
     Sql = <<"select load,bp_elf from bp_elf where bp_uid = ?">>,
-    case exo_db:local_sql([{Sql,[list_to_binary(Uid)]}]) of
+    case query(Hub, [{Sql,[{text,list_to_binary(Uid)}]}]) of
         %% Most common case: elf is defined and it should be loaded.
         [[[<<"true">>,Elf]]] ->
             {ok, Elf};
@@ -1290,7 +1293,7 @@ name_to_elf(_Hub, {uid, Uid}) ->
 
 %% elf_to_names(File) when is_binary(File) ->
 %%     Sql = <<"select bp_name from bp_elf where bp_elf = ?">>,
-%%     case exo_db:local_sql([{Sql,[File]}]) of
+%%     case query(Hub, [{Sql,[File]}]) of
 %%         [Rows] -> 
 %%             {ok, 
 %%              lists:map(
@@ -1300,9 +1303,9 @@ name_to_elf(_Hub, {uid, Uid}) ->
 %%             error
 %%     end.
 
-uid_to_post(UID) ->
+uid_to_post(Hub, UID) ->
     Sql = <<"select bp_post from bp_post where bp_uid = ?">>,
-    case exo_db:local_sql([{Sql,[list_to_binary(UID)]}]) of
+    case query(Hub, [{Sql,[{text,list_to_binary(UID)}]}]) of
         [[[BPost]]] ->
             case type:decode({pterm,BPost}) of
                 release -> {ok, fun ?MODULE:release/1};
@@ -1313,7 +1316,7 @@ uid_to_post(UID) ->
     end.
 name_to_post(Hub, Name) ->
     {ok, UID} = name_to_uid(Hub, Name),
-    uid_to_post(UID).
+    uid_to_post(Hub, UID).
 name_to_pid(Hub, Name) ->
     case name_to_uid(Hub, Name) of
         {ok, UID} -> ?MODULE:find_uid(Hub, UID);
@@ -1324,6 +1327,35 @@ name_to_pid(Hub, Name) ->
 %%         #{ uid := UID } ->
 %%             uid_to_name(Hub, UID, {uid, UID})
 %%     end.
+
+last_tty_devpath(Hub, Name) ->
+    BName = atom_to_binary(Name,utf8),
+    Sql = <<"select host_name, devpath "
+            "from bp_name inner join bp_loc "
+            "on bp_name.bp_uid = bp_loc.bp_uid "
+            "where bp_name = ?">>,
+    case query(Hub, [{Sql,[{text,BName}]}]) of
+        [[[BHost,DevPath]]]=_Match ->
+            {type:decode({pterm,BHost}),
+             linux:devpath_to_dev(DevPath),
+             DevPath};
+        Other ->
+            throw({?MODULE,last_tty_devpath,Name,Other})
+    end.
+
+currently_loaded(Hub, UID) when is_pid(Hub) ->
+    BpUID = iolist_to_binary(UID),
+    Sql = <<"select sha256 "
+            "from bp_app "
+            "where bp_uid = ?">>,
+    case query(Hub, [{Sql,[{text,BpUID}]}]) of
+        [[[Hash]]] ->
+            {ok, Hash};
+        _Other ->
+            error
+    end.
+
+
 
 
 

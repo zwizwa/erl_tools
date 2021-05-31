@@ -15,15 +15,16 @@
          db_handle/2
         ]).
 
--export_type([binding/0]).
+-export_type([binding/0, query/0, result_tables/0, db_spec/0]).
 
 -type binding() :: {text,binary()} | {blob,binary()}.
 -type query() :: {binary(),[binding()]}.
 
 %% Queries return values, or raise exceptions.
--type result_cell()  :: binary().
--type result_row()   :: [result_cell()].
--type result_table() :: [result_row()].
+-type result_cell()   :: binary().
+-type result_row()    :: [result_cell()].
+-type result_table()  :: [result_row()].
+-type result_tables() :: [result_table()].
 
 -type query_error()   :: {sqlite3_errmsg,binary()} | {sqlite3_abort,any()}.
 -type query_ok()      :: [result_table()].
@@ -225,7 +226,8 @@ queries(DbPid, Queries, Timeout, State) ->
     obj:call(DbPid, {queries, Queries, State}, Timeout).
 
 
--spec sql(db_spec(), [{binary(), [binding()]}]) -> [result_table()].
+%% Note that explicit 'text' and 'blob' tags are necessary.
+-spec sql(db_spec(), [query()]) -> [result_table()].
 sql(DB, Queries) ->
     sql(DB, Queries, no_state).
 sql(#{pid := Pid, timeout := Timeout}, Queries, State) ->
