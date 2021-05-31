@@ -1,6 +1,6 @@
--module(gdbstub_hub).
+-module(stubhub).
 -export([start_link/1,
-         dev/2, devs/1,
+         pid/2, pids/1,
          %% Some high level calls
          info/2,
          find_uid/2, uids/1,
@@ -23,21 +23,42 @@
          decode_packet/3,
          decode_info/2,
 
+         cycle/2,
          reload_cycle/3,
+         reload_cycle_par/3,
+
+         relay/3,
+
+         release/1,
+
+         elf_path/2,
+         name_to_elf/2,
+         name_to_relay/2,
+         name_to_pid/2,
 
          test/1
 ]).
 
 -include("slip.hrl").
 
+%% FIXME:
+
+
+%% Relative to absolute path.
+%% DB contains relative paths.
+elf_path(Hub, Rel) ->    
+    Path = obj:get(Hub, elf_path, "/i/exo"),
+    tools:format("~s/~s",[Path,Rel]).
+
+
 %% This module is a hub for STM32F103 firmware based on uc_tools
 %% gdbstub loader/mainloop.  See also gdbstub.erl for GDB RSP protocol
 %% code.
 
 %% Singal flow:
-%% - gdbstub_hub board gets enumerated on some host
+%% - stubhub board gets enumerated on some host
 %% - hosts's udev config connects to exo_notify
-%% - gdbstub_hub hub gets an 'add_tty' message
+%% - stubhub hub gets an 'add_tty' message
 %% - dev_start/1 will start a process for this device
 %% - this process starts a GDB server process for GDBRSP over TCP
 %% - the server supports multiple connections
@@ -51,12 +72,12 @@
 %% The host name + devpath is enough to uniquely identify the location
 %% of the device.
 
-%%-define(TAG_FLASH_ERASE,   16#FFF6).
--define(TAG_FLASH_WRITE,   16#FFF7).
-%%-define(TAG_PLUGCTL,       16#FFF8).
 
+%% Registry module exposes
+%% save/3  called with device location after device up
+%% need/2  on-demand instantiation / connect
 
-start_link(Config = #{ registry := _Registry }) ->
+start_link(Config = #{ registry := _Registry, query := _Query }) ->
     serv:start_link(
       {handler,
        fun() -> process_flag(trap_exit, true), Config end,
@@ -103,7 +124,7 @@ hub_handle({add_tty,HostSpec,TTYDev,DevPath,AppRunning,RegisterPid}=_Msg, State)
                 spawn_port => maps:get(spawn_port, State),
                 spawn_spec => SpawnSpec,
                 host => maps:get(host, SpawnSpec),
-                log => fun gdbstub_hub:ignore/2,
+                log => fun ?MODULE:ignore/2,
                 %% log => fun(Msg,S) -> log:info("~p~n",[Msg]),S end,
                 tty => TTYDev,
                 devpath => DevPath,
@@ -128,7 +149,7 @@ hub_handle({up, Pid}, State = #{registry := _Registry}) when is_pid(Pid) ->
               log:set_info_name({up,{Host,TTY}}),
               Status =
                   try
-                      up(Pid),
+                      up(Hub, Pid),
                       ok
                   catch C:E ->
                           log:info("bluepill:up: ERROR:~n~p~n",
@@ -186,22 +207,8 @@ hub_handle(Msg, State) ->
 hub_remove_pid(Pid, State) ->
     maps:remove({dev, Pid}, State).
 
-%% apps/erl_tools/src/gdbstub_hub.erl:187: function uid_to_name/2 undefined
-%% apps/erl_tools/src/gdbstub_hub.erl:206: function name_to_elf/1 undefined
-
-%% apps/erl_tools/src/gdbstub_hub.erl:204: function save/2 undefined
-%% apps/erl_tools/src/gdbstub_hub.erl:208: function elf_path/1 undefined
-%% apps/erl_tools/src/gdbstub_hub.erl:223: function up_start/2 undefined
-%% apps/erl_tools/src/gdbstub_hub.erl:238: function up_start/2 undefined
-%% apps/erl_tools/src/gdbstub_hub.erl:240: function load_bin_file/3 undefined
-%% apps/erl_tools/src/gdbstub_hub.erl:244: function up_start/2 undefined
-%% apps/erl_tools/src/gdbstub_hub.erl:252: function name_to_post/1 undefined
-%% apps/erl_tools/src/gdbstub_hub.erl:276: function load/2 undefined
-%% apps/erl_tools/src/gdbstub_hub.erl:283: function load/2 undefined
-
-
-%% Called once gdbstub has registered to gdbstub_hub.    
-up(Pid) ->
+%% Called once gdbstub has registered to stubhub.    
+up(Hub, Pid) ->
     Info = obj:dump(Pid),
     #{ uid      := UID,
        app      := AppRunning,
@@ -209,7 +216,7 @@ up(Pid) ->
        registry   := Registry
      } = Info,
 
-    Name = Registry:uid_to_name(UID, {uid, UID}),
+    Name = uid_to_name(Hub, UID, {uid, UID}),
     if is_atom(Name) ->
             try
                 register(Name, Pid),
@@ -226,11 +233,11 @@ up(Pid) ->
     %% Keep track of what we see appearing on the usb bus to allow
     %% reconnecting to a device later without power cycling and
     %% re-enumerating.
-    spawn(fun() -> Registry:save(Name, Info) end),
+    spawn(fun() -> Registry:save(Hub, Name, Info) end),
 
-    case Registry:name_to_elf(Name) of
+    case name_to_elf(Hub, Name) of
         {ok, Firmware} ->
-            FirmwarePath = Registry:elf_path(Firmware),
+            FirmwarePath = elf_path(Hub, Firmware),
             Ext = tools:filename_extension(Firmware),
             case Ext of
                 elf ->
@@ -274,7 +281,7 @@ up(Pid) ->
     end,
 
     %% Boards can be configured to be handed over afer startup.
-    case Registry:name_to_post(Name) of
+    case name_to_post(Hub, Name) of
         {ok, Fun} ->
             log:info("post ~p ~p~n", [Pid, Fun]),
             Fun(Pid);
@@ -312,7 +319,7 @@ load_bin(Pid, IOList, Addr, Method) ->
         raw ->
             Pid ! {send_packet,
                    <<?TAG_FLASH_ERASE:16, Addr:32, Size:32, BlockSizeLog:32>>},
-            <<>> = gdbstub_hub:ping(Pid),
+            <<>> = ?MODULE:ping(Pid),
             ok;
         _ ->
             ok
@@ -338,13 +345,13 @@ load_bin(Pid, IOList, Addr, Method) ->
       end,
       tools:nchunks(0, Size, BlockSize)),
     
-    <<>> = gdbstub_hub:ping(Pid),
+    <<>> = ?MODULE:ping(Pid),
     case Method of
         raw ->
             ok;
         plugctl ->
             Pid ! {send_packet, <<?TAG_PLUGCTL:16,0:16>>},  %% Start
-            <<>> = gdbstub_hub:ping(Pid),
+            <<>> = ?MODULE:ping(Pid),
             ok
     end.
 
@@ -364,7 +371,9 @@ load_bin(Pid, IOList, Addr, Method) ->
 %%       raw).
 
 
-load_if_changed(#{uid := _UID, registry := Registry}=Info, TargetPort, FirmwarePath) ->
+load_if_changed(#{uid      := _UID,
+                  registry := _Registry}=Info,
+                TargetPort, FirmwarePath) ->
     case file:read_file(FirmwarePath) of
         {error, enoent} ->
             throw({bluepill_missing_firmware, FirmwarePath, Info});
@@ -379,17 +388,53 @@ load_if_changed(#{uid := _UID, registry := Registry}=Info, TargetPort, FirmwareP
                 %% FIXME: workaround to always reload
                 {_, "current"} ->
                     log:info("old: ~999p, new: ~999p~n",[Old, New]),
-                    Registry:load(TargetPort, FirmwarePath);
+                    load(TargetPort, FirmwarePath);
                 Old ->
                     %% log:info("~s already has ~s:~999p~n",[UID,FirmwarePath,Hash]),
                     log:info("already loaded: ~999p~n",[New]),
                     ok;
                 _ ->
                     log:info("old: ~999p, new: ~999p~n",[Old, New]),
-                    Registry:load(TargetPort, FirmwarePath),
+                    load(TargetPort, FirmwarePath),
                     ok
             end
     end.
+
+load(TCPPort, ElfPath) ->
+    Sink = 
+        fun({data,{Tag,Data}}) ->
+                case lists:member(Tag, [log,status]) of
+                    true -> log:info("~s~n",[Data]);
+                    false -> ok
+                end;
+           (_) -> ok
+        end,
+    Load =
+        fun(Elf) ->
+                gdb:upload(
+                  "localhost", "arm-eabi-gdb -q -i=mi 2>/dev/null",
+                  TCPPort, Elf, Sink)
+        end,
+
+    %% FIXME: Dirty transition hack, but I really need to move on.
+    %% Uncomment after use?
+    %% log:info("load ElfPath=~p~n", [ElfPath]),
+    case ElfPath of
+        "/i/exo/constell8/src/stm32f103/dmx_node.x8a.f103.fw.elf" ->
+            log:info("WARNING: trampoline load hack\n"),
+            %% Load("/i/exo/uc_tools/gdb/trampoline.x8.f103.elf"),
+            %% Also load the second partition to avoid lingering state.
+            %% Load("/i/exo/constell8/src/stm32f103/dmx_node.x8b.f103.fw.elf"),
+            ok;
+        _ ->
+            ok
+    end,
+
+    Load(ElfPath),
+    %% FIXME: Make sure that gdb is fully detached at this point.
+    %% log:info("load done: ~p ~s~n", [TCPPort, ElfPath]),
+    ok.
+
 
 up_start(Pid,Proto) ->
     %% Send it an empty packet to start the application.  This
@@ -429,8 +474,8 @@ up_start(Pid,Proto) ->
 
 reload_cycle(Hub, Name, Timeout) ->
     Registry = registry(Hub),
-    case {Registry:name_to_relay(Name),
-          Registry:name_to_uid(Name)} of
+    case {name_to_relay(Hub, Name),
+          name_to_uid(Hub, Name)} of
         {{ok, Relay},
          {ok, Uid}} ->
             %% FIXME: Technically this races, but in practice cycling will
@@ -457,13 +502,29 @@ reload_cycle(Hub, Name, Timeout) ->
             Error
     end.
 
+%% Restart in parallel.  Due to the large delay (1 second), this will
+%% effectively "merge" restarts if the boards are behind the same
+%% relay.  But really this is not good design...  It's a workaround.
+
+reload_cycle_par(Hub, Names, Timeout) ->
+    maps:fold(
+      fun(_,ok,A) -> A; (_,_,_) -> error end, ok,
+      tools:pmap(
+        fun(Name) ->
+                try reload_cycle(Hub, Name, Timeout)
+                catch C:E ->
+                        log:info("reload_cycle ~p: ERROR: ~999p~n", [Name, {C,E}]),
+                        false
+                end
+        end,
+        Names)).
+
 
 %% Power cycling boards.
 %% Relays are wired with 5V on NC.
 
 registry(Hub) ->
-    #{ registry := Registry } = obj:dump(Hub),
-    Registry.
+    obj:get(Hub, registry).
 
 cycle(Hub, Relay) ->
     relay(Hub, Relay, {cycle, 500}).
@@ -480,8 +541,7 @@ relay(Hub, {reset, Dst}, {cycle, _}) ->
     ok;
 
 relay(Hub, Name, Cmd) when is_atom(Name) ->
-    Registry = registry(Hub),
-    case Registry:name_to_relay(Name) of
+    case name_to_relay(Hub, Name) of
         {ok, Relay} ->
             relay(Hub, Relay, Cmd);
         error ->
@@ -508,7 +568,7 @@ relay(_Hub, {raw_cmd,Pid,[RelayID]}, Cmd) ->
     %% A note on timeouts: 1000 ms is not enough, because it might be
     %% necessary to boot the relay controller.
 
-    Call = fun(C) -> gdbstub_hub:call(Pid, <<0,0,C>>, 10567) end, 
+    Call = fun(C) -> ?MODULE:call(Pid, <<0,0,C>>, 10567) end, 
     case Cmd of
         {cycle, T} ->
             Call(Off),
@@ -520,8 +580,6 @@ relay(_Hub, {raw_cmd,Pid,[RelayID]}, Cmd) ->
             Call(On)
     end,
     ok.
-
-
 
 
 
@@ -780,6 +838,8 @@ dev_handle_(Msg, #{ forward := Forward } = State) ->
 ignore(_Msg, State) ->
     State.
 
+
+
 %% This is stateful.  See also ?TAG_REPLY where the registered pid is
 %% removed from State.
 pid_to_continuation(Pid, State) ->
@@ -878,7 +938,7 @@ default_handle_packet(<<Tag,_/binary>>=Msg, State) ->
     end.
 
 print_packet(Msg, State) -> 
-    log:info("gdbstub_hub: packet: ~p~n", [Msg]),
+    log:info("stubhub: packet: ~p~n", [Msg]),
     State.
 print_etf(Msg, State) -> 
     try
@@ -1003,8 +1063,8 @@ gdb_dispatch(#{ pid := Pid}, Request) ->
 %%send(Hub, Msg) -> Hub ! Msg.
 call(Hub, Msg) -> obj:call(Hub, Msg, 6003).
 
-dev(_Hub, Pid) when is_pid(Pid) -> Pid;
-dev(Hub, ID) -> {ok, Pid} = call(Hub, {dev_pid, ID}), Pid.
+pid(_Hub, Pid) when is_pid(Pid) -> Pid;
+pid(Hub, ID) -> {ok, Pid} = call(Hub, {dev_pid, ID}), Pid.
 
 
 info(Hub, ID) ->
@@ -1015,7 +1075,7 @@ info(Hub, ID) ->
 
 find_uid(Hub, UID) ->
     maps:find(UID, uids(Hub)).
-devs(Hub) ->
+pids(Hub) ->
     [Pid || {{dev,Pid},_} <- maps:to_list(obj:dump(Hub))].
     
 uids(Hub) ->
@@ -1029,7 +1089,7 @@ uids(Hub) ->
               end
       end,
       #{},
-      devs(Hub)).
+      pids(Hub)).
 
 
 
@@ -1157,7 +1217,113 @@ parse_syslog_ttyACM(Line) ->
         _ -> error
     end.    
 
+%% FIXME: Replace this by DB access.
+release(Pid) ->
+    #{ name := Name, tty := TTY } = obj:dump(Pid),
+    log:info("releasing ~p ~s~n", [Name, TTY]),
+    exit(Pid, kill),
+    ok.
 
+%% DATABASE
+
+%% To keep things simple, we require a specific schema in the sql
+%% database, but allow the database itself to be parameterized.  All
+%% access goes through these functions.
+query(Hub) ->
+    obj:get(Hub, query).
+
+%% Name resolution for stubhub
+%% Data is in distributed exo_db store
+uid_to_name(Hub, UID, Default) ->
+    case uid_to_name(Hub, UID) of
+        {ok, Found} -> Found;
+        error -> Default
+    end.
+uid_to_name(Hub, UID) ->
+    Q = query(Hub),
+    Sql = <<"select bp_name from bp_name where bp_uid = ?">>,
+    case Q([{Sql,[list_to_binary(UID)]}]) of
+        [[[BName]]] -> {ok, type:decode({pterm,BName})};
+        _ -> error
+    end.
+name_to_uid(_Hub, {uid, UID}) ->
+    {ok, UID};
+name_to_uid(_Hub, Name) when is_atom(Name) ->
+    Sql = <<"select bp_uid from bp_name where bp_name = ?">>,
+    Result = exo_db:local_sql([{Sql,[atom_to_binary(Name, utf8)]}]),
+    case Result of
+        [[[BUid]]] -> {ok, binary_to_list(BUid)};
+        _ ->
+            log:info("WARNING: name_to_uid: ~p~n~p~n", [Name, Result]),
+            error
+    end;
+name_to_uid(_Hub, Other) ->
+    throw({name_to_uid,Other}).
+name_to_relay(_Hub, Name) ->
+    Sql = <<"select relay_name,relay_slot from bp_relay where bp_name = ?">>,
+    case exo_db:local_sql([{Sql,[atom_to_binary(Name, utf8)]}]) of
+        [[[BRelay, BSlot]]] -> 
+            {ok,{type:decode({pterm,BRelay}),
+                 type:decode({pterm,BSlot})}};
+        _ -> error
+    end.
+%% Note: if load=false, this returns an error.
+name_to_elf(Hub, Name) when is_atom(Name) ->
+    {ok, Uid} = name_to_uid(Hub, Name),
+    name_to_elf(Hub, {uid, Uid});
+name_to_elf(_Hub, {uid, Uid}) ->
+    Sql = <<"select load,bp_elf from bp_elf where bp_uid = ?">>,
+    case exo_db:local_sql([{Sql,[list_to_binary(Uid)]}]) of
+        %% Most common case: elf is defined and it should be loaded.
+        [[[<<"true">>,Elf]]] ->
+            {ok, Elf};
+        %% Not so common case: elf is defined, but it should not be
+        %% loaded.  Note that we do _not_ explicitly distinguish this
+        %% from error, which indicates that there is no elf file.
+        %% This is very confusing, so print a warning.
+        [[[<<"false">>,Elf]]] ->
+            log:info("load disabled for ~p ~p~n", [Uid,Elf]),
+            error;
+        _ ->
+            error
+    end.
+
+%% elf_to_names(File) when is_binary(File) ->
+%%     Sql = <<"select bp_name from bp_elf where bp_elf = ?">>,
+%%     case exo_db:local_sql([{Sql,[File]}]) of
+%%         [Rows] -> 
+%%             {ok, 
+%%              lists:map(
+%%                fun([BName]) -> binary_to_atom(BName, utf8) end,
+%%                Rows)};
+%%         _ ->
+%%             error
+%%     end.
+
+uid_to_post(UID) ->
+    Sql = <<"select bp_post from bp_post where bp_uid = ?">>,
+    case exo_db:local_sql([{Sql,[list_to_binary(UID)]}]) of
+        [[[BPost]]] ->
+            case type:decode({pterm,BPost}) of
+                release -> {ok, fun ?MODULE:release/1};
+                _ -> error
+            end;
+        _ ->
+            error
+    end.
+name_to_post(Hub, Name) ->
+    {ok, UID} = name_to_uid(Hub, Name),
+    uid_to_post(UID).
+name_to_pid(Hub, Name) ->
+    case name_to_uid(Hub, Name) of
+        {ok, UID} -> ?MODULE:find_uid(Hub, UID);
+        E -> E
+    end.
+%% pid_to_name(Hub, Pid) ->
+%%     case obj:dump(Pid) of
+%%         #{ uid := UID } ->
+%%             uid_to_name(Hub, UID, {uid, UID})
+%%     end.
 
 
 

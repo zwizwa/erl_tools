@@ -1,6 +1,6 @@
 %% System tags: move elswhere
 -define(TAG_FLASH_ERASE,   16#FFF6).
--define(TAG_FLASH_PROGRAM, 16#FFF7).
+-define(TAG_FLASH_WRITE,   16#FFF7).
 -define(TAG_PLUGCTL,       16#FFF8).
 
 -define(TAG_U32,     16#FFF5).
