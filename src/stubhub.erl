@@ -38,6 +38,12 @@
          last_tty_devpath/2,
          currently_loaded/2,
 
+         tty_wait/4,
+         task/2,
+         takeover/2,
+         mem_top/2,
+         connect_task/4,
+
          test/1
 ]).
 
@@ -295,6 +301,16 @@ up(Hub, Pid) ->
 %% FIXME: Split this up into raw load (e.g. for data files) and FFF8
 %% PLUGCTL call.
 
+%% bluepill:load_bin_file(bp4, "/home/tom/uc_tools/gdb/plugin_example.custom.f103.bin", 16#08005000).
+%% bluepill:load_bin_file(bp4, "/home/tom/uc_tools/gdb/plugin_forth.custom.f103.bin", 0).
+
+%% Note that if Addr is below the flash address 08000000 it is assumed
+%% to be a relative offset into the available flash memory starting at
+%% _eflash, which is known by the target program but is not stored in
+%% the bin file.  Since a bin file only has meaning relative to the
+%% host elf file it is supposed to link to, this is ok.
+
+
 load_bin_file(Pid, BinFile, Addr) ->
     load_bin_file(Pid, BinFile, Addr, plugctl).
 
@@ -534,12 +550,19 @@ cycle(Hub, Relay) ->
 
 %% Special case: not a relay, but device can reset itself.  We connect
 %% and send the reset tag.
-relay(Hub, {reset, Dst}, {cycle, _}) ->
+relay(Hub, {reset, Dst}, Cmd) ->
+    {cycle, _} = Cmd,  %% Nothing else is supported.
     Registry = registry(Hub),
     %% Use self-reset.  Blue pill boards need the usb
     %% pullup mod for this to work.
     log:info("cycle: using device reset on device ~p~n", [Dst]),
     Registry:need(Hub, Dst) ! {send_packet, <<16#FFF4:16>>},
+    ok;
+
+relay(Hub, {need, Name}, Cmd) ->
+    {cycle, _} = Cmd,  %% Nothing else is supported.
+    Registry = registry(Hub),
+    Registry:need(Hub, Name),
     ok;
 
 relay(Hub, Name, Cmd) when is_atom(Name) ->
@@ -583,6 +606,33 @@ relay(_Hub, {raw_cmd,Pid,[RelayID]}, Cmd) ->
     end,
     ok.
 
+
+%% If this spawns a process that then gets killed before it is
+%% completed, we need to be notified immediately.  Currently there is
+%% no such path.
+
+task(Hub, TaskFun) ->
+    obj:call(Hub, {task, TaskFun},
+             %% Function should time out before this times out.
+             30123).
+
+%% Allow someone else to take over comms.
+
+%% FIXME: This should be.  E.g. ensure that process is no longer there
+%% before returning?
+takeover(Hub, Name) ->
+    case whereis(Name) of
+        undefined -> 
+            ok;
+        Pid ->
+            log:info("bluepill:takeover: ~p: killing process~n",[Name]),
+            exit(Pid, kill),
+            ok
+    end,
+    %% {Host, Dev, DevPath} 
+    last_tty_devpath(Hub, Name).
+    
+    
 
 
 %% Start a process as a companion to the device, communicating over
@@ -1225,6 +1275,91 @@ release(Pid) ->
     log:info("releasing ~p ~s~n", [Name, TTY]),
     exit(Pid, kill),
     ok.
+
+%% FIXME: There is no synchronous mechanism for "ready", so we poll
+%% while also listening to the monitor events.
+tty_wait(_Hub, Name, MonRef, 0) ->
+    erlang:demonitor(MonRef),
+    throw({tty_wait, startup_hang, Name});
+tty_wait(Hub, Name, MonRef, N) ->
+    case name_to_pid(Hub, Name) of
+        {ok, Pid} ->
+            log:info("~p is up~n", [Name]),
+            erlang:demonitor(MonRef),
+            Pid;
+        _ ->
+            log:info("Waiting for ~p~n", [Name]),
+            receive 
+                {'DOWN',MonRef,_,_,_} ->
+                    throw({tty_wait, process_crash, Name})
+            after 1000 ->
+                    tty_wait(Hub, Name, MonRef, N-1)
+            end
+    end.
+
+connect_task(Hub, Name, ConnectSpec, HostMap) ->
+    {Host, TTYDev, DevPath} =
+        case ConnectSpec of
+            none ->
+                stubhub:last_tty_devpath(Hub, Name);
+            {Host1, TTYDev1} when is_binary(TTYDev1) ->
+                {Host1, TTYDev1, <<"NO_DEVPATH">>}
+        end,
+
+    HostSpec =
+        %% Allow some hosts to be handled specially.  FIXME: Do this
+        %% differently.
+        case maps:find(Host, HostMap) of
+            {ok, Thunk} ->
+                Thunk();
+            error ->
+                case Host of
+                    #{host := _} ->
+                        Host;
+                    _ ->
+                        tools:format_binary("~p",[Host])
+                end
+        end,
+
+    %% add_tty has been extended to call RegisterPid once the process
+    %% is created.
+    CallbackRef = erlang:make_ref(),
+    Waiter = self(),
+    RegisterPid = fun(Pid) -> Waiter ! {CallbackRef, {pid, Pid}} end,
+
+    Hub ! {add_tty, HostSpec, TTYDev, DevPath, true, RegisterPid},
+
+    %% When RegisterPid is called from stubhub, we receive the Pid
+    %% here, we register the process, then poll.
+    MonRef =
+        receive
+            {CallbackRef, {pid, Pid}} ->
+                log:info("tty_wait: Pid=~p~n", [Pid]),
+                erlang:monitor(process, Pid)
+        after 5000 ->
+                throw({?MODULE,tty_wait,initial_timeout,Name})
+        end,
+    %% The rest needs to busywait.
+    stubhub:tty_wait(Hub, Name, MonRef, 10).
+
+
+
+%% Incremental code loading.  This can be done in Flash or in RAM.
+%% The hard part is how to organize the "code state" of a
+%% microcontroller, i.e. the elf on the host and the code running on
+%% the controller should not be out-of-sync.  Ensure this by always
+%% reloading.  This way, a live stubhub dev object is known to be
+%% correct.  (comment probably misplaced).
+
+mem_top(Hub, Pid) ->
+    #{ uid := UID  } = obj:dump(Pid),
+    Name = stubhub:uid_to_name(Hub, UID, {uid, UID}),
+    {ok, Elf} = stubhub:name_to_elf(Hub, Name),
+    FlashBS = 4096, %% Where to get this?
+    ElfPath = stubhub:elf_path(Hub, Elf),
+    gdbstub:elf_mem_top(ElfPath, FlashBS).
+
+
 
 %% DATABASE
 
