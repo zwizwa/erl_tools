@@ -12,7 +12,7 @@
          tag_u32/3,
          command/1,
 
-         load_bin_file/3, load_bin/4,
+         load_bin_file/3, load_bin_file/4, load_bin/4, load_bin_list/4,
 
          %% Internal, for reloads
          ignore/2, print_etf/2,
@@ -49,11 +49,14 @@
 
 -include("slip.hrl").
 
-%% FIXME:
+-type hub() :: pid().
+
+
 
 
 %% Relative to absolute path.
 %% DB contains relative paths.
+-spec elf_path(hub(),iolist()|binary()) -> string().
 elf_path(Hub, Rel) ->    
     Path = obj:get(Hub, elf_path, "/i/exo"),
     tools:format("~s/~s",[Path,Rel]).
@@ -84,6 +87,11 @@ elf_path(Hub, Rel) ->
 %% Registry module exposes
 %% save/3  called with device location after device up
 %% need/2  on-demand instantiation / connect
+
+-spec start_link(#{'db':= sqlite3:db_spec(),
+                   'registry':= atom(),
+                   _=>_})
+                -> {'error',_} | {'ok',pid()}.
 
 start_link(Config = #{ registry := _Registry, db := _DB }) ->
     serv:start_link(
@@ -215,7 +223,9 @@ hub_handle(Msg, State) ->
 hub_remove_pid(Pid, State) ->
     maps:remove({dev, Pid}, State).
 
-%% Called once gdbstub has registered to stubhub.    
+%% Called once gdbstub has registered to stubhub.
+
+-spec up(hub(), pid()) -> ok.    
 up(Hub, Pid) ->
     Info = obj:dump(Pid),
     #{ uid      := UID,
@@ -292,7 +302,7 @@ up(Hub, Pid) ->
     case name_to_post(Hub, Name) of
         {ok, Fun} ->
             log:info("post ~p ~p~n", [Pid, Fun]),
-            Fun(Pid);
+            ok = Fun(Pid), ok;
         error ->
             log:info("no post for ~p~n", [Pid]),
             ok
@@ -374,19 +384,19 @@ load_bin(Pid, IOList, Addr, Method) ->
     end.
 
 
-%% %% This supports only Method=raw since it makes no sense for plugctl.
-%% %% Don't implement this for files.  Let caller mess witht that.
-%% load_bin_list(Pid, Bins, Addr) ->
-%%     load_bin(
-%%       Pid,
-%%       lists:map(
-%%         fun(Bin) ->
-%%                 Size = size(Bin),
-%%                 [<<Size:32>>,Bin]
-%%         end,
-%%         Bins),
-%%       Addr,
-%%       raw).
+%% This supports only Method=raw since it makes no sense for plugctl.
+%% Don't implement this for files.  Let caller mess witht that.
+load_bin_list(_Hub, Pid, Bins, Addr) ->
+    load_bin(
+      Pid,
+      lists:map(
+        fun(Bin) ->
+                Size = size(Bin),
+                [<<Size:32>>,Bin]
+        end,
+        Bins),
+      Addr,
+      raw).
 
 
 load_if_changed(#{uid      := _UID,
@@ -490,6 +500,7 @@ up_start(Pid,Proto) ->
 
 %% reload_cycle(uvc1, _Timeout) -> ok;
 
+-spec reload_cycle(hub(),atom(),'infinity'|pos_integer()) -> 'ok' | {'error',_}.
 reload_cycle(Hub, Name, Timeout) ->
     Registry = registry(Hub),
     case {name_to_relay(Hub, Name),
@@ -513,7 +524,10 @@ reload_cycle(Hub, Name, Timeout) ->
                 _ ->
                     %% Actual relay
                     cycle(Hub, Relay),
-                    obj:call(Hub, {post_up_wait, Uid}, Timeout)
+                    case obj:call(Hub, {post_up_wait, Uid}, Timeout) of
+                        ok -> ok;
+                        {error,E} -> {error,E}
+                    end
             end;
         Error ->
             log:info("reload_cycle: ~p: ~p~n", [Name,Error]),
@@ -524,15 +538,22 @@ reload_cycle(Hub, Name, Timeout) ->
 %% effectively "merge" restarts if the boards are behind the same
 %% relay.  But really this is not good design...  It's a workaround.
 
+-spec reload_cycle_par(hub(),[atom()],'infinity'|pos_integer()) -> 'ok' | 'error'.
 reload_cycle_par(Hub, Names, Timeout) ->
     maps:fold(
-      fun(_,ok,A) -> A; (_,_,_) -> error end, ok,
+      fun(_K,ok,A) -> A;
+         (_K,_V,_A) -> error end,
+      ok,
       tools:pmap(
         fun(Name) ->
-                try reload_cycle(Hub, Name, Timeout)
+                try 
+                    case reload_cycle(Hub, Name, Timeout) of
+                        ok -> ok;
+                        _ -> error
+                    end
                 catch C:E ->
                         log:info("reload_cycle ~p: ERROR: ~999p~n", [Name, {C,E}]),
-                        false
+                        error
                 end
         end,
         Names)).

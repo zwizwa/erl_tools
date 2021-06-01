@@ -99,7 +99,7 @@ parse(Toks) ->
 run_erl(ErlFile) ->
     io:format("~p~n",[ErlFile]),  
     {ok, ScriptBin} = file:read_file(ErlFile),
-    {ok, Module, BeamCode} = compile:forms(parse(scan(ScriptBin))),
+    {ok, Module, BeamCode} = compile:forms([parse(scan(ScriptBin))]),
     _ = code:load_binary(Module, ErlFile, BeamCode),
     apply(Module,run,[]).
 
