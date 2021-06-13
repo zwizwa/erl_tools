@@ -1,6 +1,8 @@
 -module(ssh_leaf).
 -export([start_link/1, handle/2, cmd/2, handle_log_reply/2]).
 
+%% FIXME: READ THIS: https://www.chiark.greenend.org.uk/~cjwatson/blog/ssh-quoting.html
+
 %% TODO:
 %% - Allow on-demand with off state.
 
