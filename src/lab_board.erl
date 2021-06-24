@@ -167,7 +167,7 @@ handle(Msg={_, {epid_compile, _}}, State) -> update_plugin(Msg, epid_cproc:handl
 
 handle(Msg, State) ->
     %% log:info("lab_board: passing on: ~p~n",[Msg]),
-    gdbstub_hub:default_handle_packet(Msg, State).
+    stubhub:default_handle_packet(Msg, State).
 
 
 %% Handle traffic to and from port.  These are created on demand by
