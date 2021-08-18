@@ -1294,6 +1294,8 @@ parse_syslog_ttyACM(Line) ->
 release(Pid) ->
     #{ name := Name, tty := TTY } = obj:dump(Pid),
     log:info("releasing ~p ~s~n", [Name, TTY]),
+    %% Add a slight delay here to make sure all startup messages arrive.
+    timer:sleep(500),
     exit(Pid, kill),
     ok.
 
