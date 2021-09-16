@@ -35,6 +35,7 @@
          name_to_elf/2,
          name_to_relay/2,
          name_to_pid/2,
+         name_to_uid/2,
          last_tty_devpath/2,
          currently_loaded/2,
 
@@ -529,9 +530,10 @@ reload_cycle(Hub, Name, Timeout) ->
                         {error,E} -> {error,E}
                     end
             end;
-        Error ->
-            log:info("reload_cycle: ~p: ~p~n", [Name,Error]),
-            Error
+        {N2R,N2U} ->
+            ErrorInfo = #{ name_to_relay => N2R, name_to_uid => N2U },
+            log:info("WARNING: reload_cycle: ~p: ~999p~n", [Name, ErrorInfo]),
+            {error, ErrorInfo}
     end.
 
 %% Restart in parallel.  Due to the large delay (1 second), this will
