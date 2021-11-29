@@ -31,24 +31,28 @@ handle({add_dev,BHost,UsbDev,DevPath}, State = #{spawn_port := SpawnPort}) ->
     %% the dev host.  The ftdi "driver" object is started on the
     %% remote host that is connected to the FTDI board.  It uses the
     %% ~/bin/ftdi_connect.elf program set up locally.
-    {ok, Pid} =
+    case
         rpc:call(
           exo:to_node(BHost),
           ftdi, start_link,
           [#{ spawn_port => SpawnPort,
               user => tom,
               dir  => "/home/tom/bin",
-              host => localhost }]),
-    unlink(Pid),
-    Hub = self(),
-    spawn(
-      fun() ->
-              {ok, UsbAddr} = devpath_usb_port(DevPath),
-              log:set_info_name({ftdi_up,BHost,UsbAddr}),
-              up(Hub, Pid)
-      end),
-    _Ref = monitor(process, Pid),
-    maps:put(Pid, {BHost,UsbDev,DevPath}, State);
+              host => localhost }])
+    of
+        {ok, Pid} ->
+            unlink(Pid),
+            Hub = self(),
+            spawn(
+              fun() ->
+                      {ok, UsbAddr} = devpath_usb_port(DevPath),
+                      log:set_info_name({ftdi_up,BHost,UsbAddr}),
+                      up(Hub, Pid)
+              end),
+            _Ref = monitor(process, Pid),
+            maps:put(Pid, {BHost,UsbDev,DevPath}, State)
+    end;
+        
 
 handle({'DOWN',_Ref,process,Pid,Reason}=_Msg, State) ->
     log:info("removing: ~p: ~p~n", [Pid,Reason]),

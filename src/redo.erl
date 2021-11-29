@@ -772,6 +772,31 @@ handle({_,{find,_}}=Msg, State)  -> obj:handle(Msg, State);
 handle({_,dump}=Msg, State)      -> obj:handle(Msg, State);
 handle({_,{merge,_}}=Msg, State) -> obj:handle(Msg, State);
 
+%% Resource throttling.
+handle({Pid,{reserve,K}}, State) ->
+    Running = maps:get({running,K}, State, #{}),
+    Waiting = maps:get({waiting,K}, State, []),
+    case maps:size(Running) >= 10 of
+        true ->
+            maps:put({waiting,K}, [Pid|Waiting], State);
+        false ->
+            obj:reply(Pid, ok), %% continue
+            maps:put({running,K}, maps:put(Pid,true,Running), State)
+    end;
+handle({Pid,{release,K}}, State) ->
+    obj:reply(Pid, ok), %% continue
+    Running = maps:get({running,K}, State),
+    Running1 = maps:remove(Pid, Running),
+    State1 = maps:put({running,K},Running1,State),
+    Waiting = maps:get({waiting,K}, State, []),
+    case Waiting of
+        [] ->
+            State1;
+        [Pid1 | Waiting1] ->
+            obj:reply(Pid1, ok), %% continue
+            maps:put({waiting,K}, Waiting1, State1)
+    end;
+
 %% Reload do file
 handle({Pid, reload}, State) -> 
     obj:reply(Pid, ok),
@@ -1411,7 +1436,10 @@ run_(Eval, {bash_with_vars, EnvMap0, Cmds}, ConsoleLog) when is_function(Console
 %% 3. Raw bash command
 run_(Eval, {bash, Cmds}, ConsoleLog) when is_function(ConsoleLog) ->
     {ok, Dir} = obj:call(Eval, {find_file, ""}),
-    run:bash(Dir, Cmds, ConsoleLog);
+    obj:call(Eval, {reserve,cpu}),
+    Rv = run:bash(Dir, Cmds, ConsoleLog),
+    obj:call(Eval, {release,cpu}),
+    Rv.
 
 %% Via rpc.  Note that this does the rpc call here, so we can (later)
 %% still do logging on this host, but run the command remotely via
@@ -1419,10 +1447,12 @@ run_(Eval, {bash, Cmds}, ConsoleLog) when is_function(ConsoleLog) ->
 
 %% FIXME: Make sure Log stays local.
 
-run_(Eval, {remote_bash, Var, Cmds}, Log) ->
-    case rpc:call(Var, ?MODULE, run, [Eval, {bash, Cmds}, Log]) of
-        Rv -> Rv
-    end.
+%% FIXME: Disabled for now.
+
+%% run_(Eval, {remote_bash, Var, Cmds}, Log) ->
+%%     case rpc:call(Var, ?MODULE, run, [Eval, {bash, Cmds}, Log]) of
+%%         Rv -> Rv
+%%     end.
    
 
 %% FIXME: This is not a good idea.  The build output can be very
