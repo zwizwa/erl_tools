@@ -34,7 +34,7 @@
          export_deps/2, export_makefile/3,
          test/1, u1/1, u2/1]).
 
--define(WARN,{warn, 20000}).
+-define(WARN,{warn, 60000}).
 
 %% TL;DR
 %%
@@ -772,23 +772,24 @@ handle({_,{find,_}}=Msg, State)  -> obj:handle(Msg, State);
 handle({_,dump}=Msg, State)      -> obj:handle(Msg, State);
 handle({_,{merge,_}}=Msg, State) -> obj:handle(Msg, State);
 
-%% Resource throttling.
+%% Resource throttling.  E.g. K=cpu
+%% FIXME: Make this configurable + also clean state at re-run?
 handle({Pid,{reserve,K}}, State) ->
     Running = maps:get({running,K}, State, #{}),
     Waiting = maps:get({waiting,K}, State, []),
     case maps:size(Running) >= 10 of
         true ->
-            maps:put({waiting,K}, [Pid|Waiting], State);
+            maps:put({waiting,K}, [Pid | Waiting], State);
         false ->
             obj:reply(Pid, ok), %% continue
-            maps:put({running,K}, maps:put(Pid,true,Running), State)
+            maps:put({running,K}, maps:put(Pid, true, Running), State)
     end;
 handle({Pid,{release,K}}, State) ->
     obj:reply(Pid, ok), %% continue
-    Running = maps:get({running,K}, State),
+    Running  = maps:get({running,K}, State),
     Running1 = maps:remove(Pid, Running),
-    State1 = maps:put({running,K},Running1,State),
-    Waiting = maps:get({waiting,K}, State, []),
+    State1   = maps:put({running,K}, Running1, State),
+    Waiting  = maps:get({waiting,K}, State, []),
     case Waiting of
         [] ->
             State1;
@@ -1401,7 +1402,7 @@ run(Eval, CommandSpec, LogSpec = #{ target := _Target }) ->
             Log = MakeScriptLog(LogSpec),
             %% Assert it's the base case so we don't create a loop in
             %% the matcher.
-            true = is_function(Log),
+            true = is_function(Log) or is_list(Log),
             run(Eval, CommandSpec, Log);
         error ->
             %% If there is no log constructor, use the default case.
@@ -1412,18 +1413,18 @@ run(Eval, CommandSpec, LogSpec = #{ target := _Target }) ->
 %% trace log, before interpreting the command specification.  Note
 %% that the trace log is different from the console log, which records
 %% command output.
-run(Eval, CommandSpec, ConsoleLog) when is_function(ConsoleLog) ->
+run(Eval, CommandSpec, ConsoleLog) when is_function(ConsoleLog) or is_list(ConsoleLog) ->
     obj:call(Eval, {log, run, CommandSpec}),
     run_(Eval, CommandSpec, ConsoleLog).
 
 
 %% Implementation.
 %% 1. Some erlang command that generates a new spec.
-run_(Eval, {mfa, {M,F,A}}, ConsoleLog) when is_function(ConsoleLog) ->
+run_(Eval, {mfa, {M,F,A}}, ConsoleLog) when is_function(ConsoleLog) or is_list(ConsoleLog) ->
     run_(Eval, apply(M,F,A), ConsoleLog);
 
 %% 2. Bash command with environment.
-run_(Eval, {bash_with_vars, EnvMap0, Cmds}, ConsoleLog) when is_function(ConsoleLog) ->
+run_(Eval, {bash_with_vars, EnvMap0, Cmds}, ConsoleLog) when is_function(ConsoleLog) or is_list(ConsoleLog) ->
     Compile = #{
       root => root(Eval),
       to_filename  => fun to_filename/1,
@@ -1434,10 +1435,10 @@ run_(Eval, {bash_with_vars, EnvMap0, Cmds}, ConsoleLog) when is_function(Console
     run_(Eval, {bash, run:with_vars(EnvMap, Cmds)}, ConsoleLog);
 
 %% 3. Raw bash command
-run_(Eval, {bash, Cmds}, ConsoleLog) when is_function(ConsoleLog) ->
+run_(Eval, {bash, Cmds}, ConsoleLog) when is_function(ConsoleLog) or is_list(ConsoleLog) ->
     {ok, Dir} = obj:call(Eval, {find_file, ""}),
-    obj:call(Eval, {reserve,cpu}),
-    Rv = run:bash(Dir, Cmds, ConsoleLog),
+    obj:call(Eval, {reserve,cpu}, ?WARN),
+    Rv = run:bash(Dir,Cmds,ConsoleLog),
     obj:call(Eval, {release,cpu}),
     Rv.
 

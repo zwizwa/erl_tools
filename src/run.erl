@@ -190,26 +190,53 @@ to_script(Cmd, Out) ->
     port_close(Port).
 
 
+%% FIXME: Change this. Output should be written to a tempfile, and the
+%% Log should just have a reference.
 
 %% See redo.erl
 bash(Dir, Cmds, Log) ->
+    log:info("~p~n",[Log]),
     %% log:info("run: bash: ~s~n", [Cmds]),
     %% Log(clear), %% Don't!
-    Log({line,Cmds}),
-    run:fold_script(
-      tools:format("bash -c 'cd ~s ; ~s'", [Dir, Cmds]), 
-      fun({data,{eol,Line}}, Output) ->
-              Log({line,Line}),
-              {cont, [Line ++ "\n"|Output]};
-         ({data,{noeol,Chunk}}, Output) ->
-              Log({line,Chunk}),  %% FIXME!!!
-              {cont, [Chunk|Output]};
-         ({exit_status, ExitCode},Lines) ->
-              {done, {ExitCode, lists:flatten(lists:reverse(Lines))}}
-      end,
-      [],
-      infinity,
-      [{line, 1024}]).
+
+    Run =
+        fun(Log) ->
+                Log({line,Cmds}),
+                run:fold_script(
+                  tools:format("bash -c 'cd ~s ; ~s'", [Dir, Cmds]), 
+                  fun({data,{eol,Line}}, Output) ->
+                          Log({line,Line}),
+                          {cont, [Line ++ "\n"|Output]};
+                     ({data,{noeol,Chunk}}, Output) ->
+                          Log({line,Chunk}),  %% FIXME!!!
+                          {cont, [Chunk|Output]};
+                   ({exit_status, ExitCode},Lines) ->
+                          {done, {ExitCode, lists:flatten(lists:reverse(Lines))}}
+                  end,
+                  [],
+                  infinity,
+                  [{line, 1024}])
+        end,
+
+    case is_function(Log) of
+        true ->
+            %% Output goes to a logger function.
+            Run(Log);
+        false ->
+            %% Output goes to a file
+            {ok, File} = file:open(Log, [write]),
+            ok = file:write(
+                   File,
+                   %% FIXME: Get the top directory from somewhere else.
+                   ["-*- compilation -*-\n",
+                    "exo: Entering directory '/i/exo'\n"]),
+            Output =
+                Run(fun({line, Line}) ->
+                            ok = file:write(File,[Line,$\n])
+                    end),
+            file:close(File),
+            Output
+    end.
 
 
 %% A place to run script sequentially.
