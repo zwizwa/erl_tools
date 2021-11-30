@@ -1379,6 +1379,8 @@ stamp_hash(Eval, Product, Filename) ->
 %% Generic build command dispatch.
 
 
+%% FIXME: This has gotten too complicated.  Remove recursion.
+
 %% run/2 will run external commands.
 %% Two things are abstracted here:
 %% - OS command execution, e.g. to be able to construct traces (i.e. "JIT" it)
@@ -1400,31 +1402,34 @@ run(Eval, CommandSpec, LogSpec = #{ target := _Target }) ->
     case obj:call(Eval, make_script_log) of
         {ok, MakeScriptLog} ->
             Log = MakeScriptLog(LogSpec),
-            %% Assert it's the base case so we don't create a loop in
-            %% the matcher.
-            true = is_function(Log) or is_list(Log),
-            run(Eval, CommandSpec, Log);
+            true = is_function(Log) or is_map(Log),
+            run_log(Eval, CommandSpec, Log);
         error ->
             %% If there is no log constructor, use the default case.
-            run(Eval, CommandSpec)
+            throw({need_make_script_log, _Target})
+            %% run(Eval, CommandSpec)
     end;
+
+run(Eval, CommandSpec, ConsoleLog)  ->
+    run_log(Eval, CommandSpec, ConsoleLog).
+
 
 %% This step records the specification of the external command to the
 %% trace log, before interpreting the command specification.  Note
 %% that the trace log is different from the console log, which records
 %% command output.
-run(Eval, CommandSpec, ConsoleLog) when is_function(ConsoleLog) or is_list(ConsoleLog) ->
+run_log(Eval, CommandSpec, ConsoleLog)  ->
     obj:call(Eval, {log, run, CommandSpec}),
-    run_(Eval, CommandSpec, ConsoleLog).
-
+    run_impl(Eval, CommandSpec, ConsoleLog).
+    
 
 %% Implementation.
 %% 1. Some erlang command that generates a new spec.
-run_(Eval, {mfa, {M,F,A}}, ConsoleLog) when is_function(ConsoleLog) or is_list(ConsoleLog) ->
-    run_(Eval, apply(M,F,A), ConsoleLog);
+run_impl(Eval, {mfa, {M,F,A}}, ConsoleLog) ->
+    run_impl(Eval, apply(M,F,A), ConsoleLog);
 
 %% 2. Bash command with environment.
-run_(Eval, {bash_with_vars, EnvMap0, Cmds}, ConsoleLog) when is_function(ConsoleLog) or is_list(ConsoleLog) ->
+run_impl(Eval, {bash_with_vars, EnvMap0, Cmds}, ConsoleLog) ->
     Compile = #{
       root => root(Eval),
       to_filename  => fun to_filename/1,
@@ -1432,10 +1437,10 @@ run_(Eval, {bash_with_vars, EnvMap0, Cmds}, ConsoleLog) when is_function(Console
     EnvMap = compile_env(Compile, EnvMap0),
 
     %% log:info("EnvMap=~n~p~n", [EnvMap]),
-    run_(Eval, {bash, run:with_vars(EnvMap, Cmds)}, ConsoleLog);
+    run_impl(Eval, {bash, run:with_vars(EnvMap, Cmds)}, ConsoleLog);
 
 %% 3. Raw bash command
-run_(Eval, {bash, Cmds}, ConsoleLog) when is_function(ConsoleLog) or is_list(ConsoleLog) ->
+run_impl(Eval, {bash, Cmds}, ConsoleLog) ->
     {ok, Dir} = obj:call(Eval, {find_file, ""}),
     obj:call(Eval, {reserve,cpu}, ?WARN),
     Rv = run:bash(Dir,Cmds,ConsoleLog),
@@ -1450,7 +1455,7 @@ run_(Eval, {bash, Cmds}, ConsoleLog) when is_function(ConsoleLog) or is_list(Con
 
 %% FIXME: Disabled for now.
 
-%% run_(Eval, {remote_bash, Var, Cmds}, Log) ->
+%% run_impl(Eval, {remote_bash, Var, Cmds}, Log) ->
 %%     case rpc:call(Var, ?MODULE, run, [Eval, {bash, Cmds}, Log]) of
 %%         Rv -> Rv
 %%     end.

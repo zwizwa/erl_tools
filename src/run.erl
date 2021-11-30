@@ -200,15 +200,15 @@ bash(Dir, Cmds, Log) ->
     %% Log(clear), %% Don't!
 
     Run =
-        fun(Log) ->
-                Log({line,Cmds}),
+        fun(Log1) ->
+                Log1({line,Cmds}),
                 run:fold_script(
                   tools:format("bash -c 'cd ~s ; ~s'", [Dir, Cmds]), 
                   fun({data,{eol,Line}}, Output) ->
-                          Log({line,Line}),
+                          Log1({line,Line}),
                           {cont, [Line ++ "\n"|Output]};
                      ({data,{noeol,Chunk}}, Output) ->
-                          Log({line,Chunk}),  %% FIXME!!!
+                          Log1({line,Chunk}),  %% FIXME!!!
                           {cont, [Chunk|Output]};
                    ({exit_status, ExitCode},Lines) ->
                           {done, {ExitCode, lists:flatten(lists:reverse(Lines))}}
@@ -223,18 +223,33 @@ bash(Dir, Cmds, Log) ->
             %% Output goes to a logger function.
             Run(Log);
         false ->
+            #{ file := TmpFile, log := TopLog, target := Target } = Log,
             %% Output goes to a file
-            {ok, File} = file:open(Log, [write]),
+            {ok, F} = file:open(TmpFile, [write]),
             ok = file:write(
-                   File,
+                   F,
                    %% FIXME: Get the top directory from somewhere else.
                    ["-*- compilation -*-\n",
                     "exo: Entering directory '/i/exo'\n"]),
             Output =
                 Run(fun({line, Line}) ->
-                            ok = file:write(File,[Line,$\n])
+                            ok = file:write(F,[Line,$\n])
                     end),
-            file:close(File),
+            file:close(F),
+            case Output of
+                {ok,{0,_}} ->
+                    %% Just delete the log if build succeeded.  Caller
+                    %% has a copy of the logs so can still print if
+                    %% needed.  Here we're interested in reducing
+                    %% clutter.
+                    ok = file:delete(TmpFile),
+                    ok;
+                {_,{ExitCode,_}} ->
+                    TopLog(
+                      {line, tools:format(
+                               "~s:1: ~p ~p",
+                               [TmpFile, ExitCode, Target])})
+            end,
             Output
     end.
 
