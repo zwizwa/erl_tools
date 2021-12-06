@@ -195,7 +195,7 @@ to_script(Cmd, Out) ->
 
 %% See redo.erl
 bash(Dir, Cmds, Log) ->
-    log:info("~p~n",[Log]),
+    %% log:info("~p~n",[Log]),
     %% log:info("run: bash: ~s~n", [Cmds]),
     %% Log(clear), %% Don't!
 
@@ -223,7 +223,7 @@ bash(Dir, Cmds, Log) ->
             %% Output goes to a logger function.
             Run(Log);
         false ->
-            #{ file := TmpFile, log := TopLog, target := Target } = Log,
+            #{ file := TmpFile, log := TopLog, comment := Comment } = Log,
             %% Output goes to a file
             {ok, F} = file:open(TmpFile, [write]),
             ok = file:write(
@@ -244,11 +244,11 @@ bash(Dir, Cmds, Log) ->
                     %% clutter.
                     ok = file:delete(TmpFile),
                     ok;
-                {_,{ExitCode,_}} ->
+                {_,{_ExitCode,_}} ->
                     TopLog(
                       {line, tools:format(
-                               "~s:1: ~p ~p",
-                               [TmpFile, ExitCode, Target])})
+                               "~s:1: ~s",
+                               [TmpFile, Comment])})
             end,
             Output
     end.
