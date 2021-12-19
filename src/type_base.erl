@@ -175,7 +175,9 @@ enc_pterm(Term) ->
         Term = decode({pterm,Bin}),
         Bin
     catch
-        _:_ -> stop(pterm, Term, <<"Can't represent">>)
+        _:_ ->
+            %% log:info("Can't represent ~p~n",[Term]),
+            stop(pterm, Term, <<"Can't represent">>)
     end.
     
 

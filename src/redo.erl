@@ -29,7 +29,7 @@
          no_update/1,
          default_script_log/1,
          default_log_error/1,
-         save_state/2, merge_state/2, filter_state/2,
+         save_state/3, save_state/2, merge_state/2, filter_state/2,
          dump_state/2, dump_state/1,
          export_deps/2, export_makefile/3,
          test/1, u1/1, u2/1]).
@@ -374,12 +374,36 @@ makefile_quote_([H|T])  -> [H|makefile_quote_(T)].
     
 
 %% Dump state necessary for resume.
-save_state(Redo, File) ->
-    MinimalState = filter_state(Redo, [stamp,val,log,deps]),
-    %% encode performs some checks, but the format is more readable.
-    _ = type:encode({pterm,MinimalState}),
-    Bin = io_lib:format("~p~n",[MinimalState]),
+save_state(Redo, File, Check) ->
+    MinimalState0 =
+        filter_state(Redo, [stamp,val,log,deps]),
+    RemoveUnrepresentable =
+        fun(K,V,S) ->
+                try
+                    type:encode({pterm,K}),
+                    type:encode({pterm,V}),
+                    S
+                catch _:_ ->
+                        log:info("save_state: removing: ~999p => ~999p~n",[K,V]),
+                        %% Remove unrepresentable items. Typically thse are pids.
+                        maps:remove(K, S)
+                end
+        end,
+    MinimalState1 =
+        case Check of
+            true ->
+                maps:fold(RemoveUnrepresentable,
+                          MinimalState0, MinimalState0);
+            false ->
+                MinimalState0
+        end,
+    Bin = io_lib:format("~p~n",[MinimalState1]),
     file:write_file(File, Bin).
+
+save_state(Redo, File) ->
+    save_state(Redo, File, true).
+
+    
 
 %% Merge current state with state from save file.
 

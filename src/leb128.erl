@@ -3,6 +3,10 @@
          test/1
         ]).
 
+%% FIXME: Extend this to better reflect that the target is
+%% interpreting local context.  E.g. cd into directory, cd to parent
+%% etc...
+
 %% FIXME: Make the default encoding int32_t
 
 %% Erlang reference implementation of LEB128 parser/printer +

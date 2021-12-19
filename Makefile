@@ -4,7 +4,12 @@
 
 REBAR = ../rebar3/rebar3
 
-all: $(REBAR)
+# Gradually Nixifying this, so make it easy to configure what is built.
+ALL ?= rebar_compile
+
+all: $(ALL)
+
+rebar_compile: $(REBAR)
 	$(REBAR) compile
 
 test: $(REBAR)
