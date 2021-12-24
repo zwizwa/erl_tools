@@ -229,7 +229,7 @@ bash(Dir, Cmds, Log) ->
             ok = file:write(
                    F,
                    %% FIXME: Get the top directory from somewhere else.
-                   ["-*- compilation -*-\n",
+                   [%% "-*- compilation -*-\n",
                     "exo: Entering directory '/i/exo'\n"]),
             Output =
                 Run(fun({line, Line}) ->
