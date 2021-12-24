@@ -223,8 +223,10 @@ bash(Dir, Cmds, Log) ->
             %% Output goes to a logger function.
             Run(Log);
         false ->
+            %% 2-level logging: output goes to a file and we just
+            %% print a comment and possibly a reference to the log
+            %% file.
             #{ file := TmpFile, log := TopLog, comment := Comment } = Log,
-            %% Output goes to a file
             {ok, F} = file:open(TmpFile, [write]),
             ok = file:write(
                    F,
@@ -237,12 +239,14 @@ bash(Dir, Cmds, Log) ->
                     end),
             file:close(F),
             case Output of
+                %% Print comment + link to build log in case something
+                %% went wrong.
                 {ok,{0,_}} ->
                     %% Just delete the log if build succeeded.  Caller
                     %% has a copy of the logs so can still print if
-                    %% needed.  Here we're interested in reducing
-                    %% clutter.
+                    %% needed.
                     ok = file:delete(TmpFile),
+                    TopLog({line, tools:format("ok: ~s", [Comment])}),
                     ok;
                 {_,{_ExitCode,_}} ->
                     TopLog(
