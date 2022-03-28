@@ -1,0 +1,18 @@
+Trying to find a unified way of looking at heterogeneous dataflow
+networks comprising many different machines and platforms.
+
+Unifying principles:
+
+- epid: extension of Erlang Pid for leaf node access, uni-directional
+  message passing.
+
+- epid_app: applicative composition mechanism built on epid
+
+- top level specification built on epid_app
+
+  exo_patch process = {epid_app, start_link, [#{}]};
+
+  do_patch.erl connected to redo
+
+  
+
