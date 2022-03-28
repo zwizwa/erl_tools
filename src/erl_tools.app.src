@@ -3,5 +3,6 @@
 	{vsn, "0.0.1"},
 	{modules, ['fold','gdb','gdbstub','iseq','obj','pfold','rsp','serv','serv_tcp','sink','source','tools']},
 	{registered, []},
-	{applications, [kernel,stdlib,xmerl]}
+	{applications, [kernel,stdlib,xmerl]},
+	{licenses, ["Apache-2.0"]}
 ]}.
