@@ -46,3 +46,4 @@ start_child(Id) ->
             catch C:E ->log:info("exo:start_child(~p): ~p~n", [Id, {C,E}]) end
     end,
     {ok, Pid}.
+

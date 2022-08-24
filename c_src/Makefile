@@ -28,7 +28,6 @@ TARGETS := $(SQLITE3_ELF) $(GPIO_POLL_ELF)
 all: $(TARGETS) $(patsubst %,../priv/%,$(ERL_TOOLS_EXTRA_TARGETS))
 	set >$(ERL_TOOLS_BUILD_DIR)/env.log
 	@echo Building in $(REBAR_BUILD_DIR)
-	(cd ../priv ; ln -sf $(SQLITE3_ELF) .) # re-create 'current target' link for release tool
 
 .PHONY: clean
 clean:
