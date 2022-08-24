@@ -28,6 +28,7 @@ TARGETS := $(SQLITE3_ELF) $(GPIO_POLL_ELF)
 all: $(TARGETS) $(patsubst %,../priv/%,$(ERL_TOOLS_EXTRA_TARGETS))
 	set >$(ERL_TOOLS_BUILD_DIR)/env.log
 	@echo Building in $(REBAR_BUILD_DIR)
+	(cd ../priv ; cp -av $(SQLITE3_ELF) .)
 
 .PHONY: clean
 clean:
