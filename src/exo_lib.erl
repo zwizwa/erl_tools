@@ -116,9 +116,9 @@ pid_maybe(ExoName, Nodes) ->
       2000,
       fun(Node) ->
               case pids_(ExoName, Node) of
-             [Pid|_] -> {ok, Pid};
-             _ -> error
-         end
+                  [Pid|_] -> {ok, Pid};
+                  _ -> error
+              end
       end).
 pid_maybe(ExoName) ->    
     try {ok, pid(ExoName)}

@@ -310,7 +310,12 @@ export_makefile(Redo, Targets, Rebase, {sink, Sink}) ->
                 Deps),
               Fmt("\n",[]),
               lists:foreach(
-                fun({bash_with_vars, Env0, Cmd}) ->
+                fun({bash, Script}) ->
+                        %% FIXME: please use bash_with_vars
+                        %% FIXME: This assumes the script already has ';' separators.
+                        Script1 = re:replace(Script,"\n"," ", [global]),
+                        Fmt("\t~s\n", [makefile_quote(Script1) ++ ["  # FIXME: change rule to use bash_with_vars\n"]]);
+                   ({bash_with_vars, Env0, Cmd}) ->
                         Env = compile_env_make(Env0, Rebase),
                         Cmd1 = ["@echo ", TargetFile,                             
                                 " ; if [ -f env.sh ] ; then . ./env.sh ; fi ; \\\n\t", %% Allow extra config
@@ -322,8 +327,8 @@ export_makefile(Redo, Targets, Rebase, {sink, Sink}) ->
       ExportedDeps),
 
     Fmt("\n"
-        ".PHONY: clean\n"
-        "clean:\n"
+        ".PHONY: gen_clean\n"
+        "gen_clean:\n"
         "\trm -f",
         []),
     lists:foreach(
