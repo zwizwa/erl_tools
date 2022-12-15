@@ -111,7 +111,7 @@ port_sync(Port, Sink) ->
 %% Process wrapper around sqlite3.erl
 
 -spec db_registered(atom(), fun(() -> string()), fun((db_spec()) -> ok)) -> db_spec().
-db_registered(Atom, DbFile, DbInit) ->
+db_registered(Atom, DbFileThunk, DbInit) ->
     ParentPid = self(),
     Pid = 
         serv:up(Atom,
@@ -120,7 +120,9 @@ db_registered(Atom, DbFile, DbInit) ->
                          DB = self(),
                          unlink(ParentPid),
                          spawn(fun() -> DbInit(#{ pid => DB, timeout => {warn, 3000} }) end),
-                         #{ db => sqlite3:port_open(DbFile()) }
+                         DbFile = DbFileThunk(),
+                         #{ db => sqlite3:port_open(DbFile),
+                            db_file => DbFile }
                  end,
                  fun sqlite3:db_handle/2}),
     #{ pid => Pid,
@@ -261,6 +263,7 @@ column_type(binary) -> <<"BINARY">>;
 column_type(_) -> <<"TEXT">>.
     
 
+    
 
     
 %% Typed databases.  This requires storage of types, possibly in a

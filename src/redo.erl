@@ -574,7 +574,7 @@ handle({CallPid, {eval, Product}}, State) ->
                     %% Don't bring down redo when the update function
                     %% crashes.  Print a warning instead.  Solve this
                     %% properly later.
-                    ST = erlang:get_stacktrace(),
+                    ST = stacktrace(),
                     log_error(State, {error, Product, eval, {C, E, ST}}),
                     State1 = maps:put({phase, Product}, {changed, error}, State),
                     obj:reply(CallPid, error),
@@ -958,7 +958,7 @@ worker(Eval, Product, Update, OldDeps) ->
                                 throw({bad_update_retval, Update, Ch})
                         end
                     catch C:E ->
-                            ST = erlang:get_stacktrace(),
+                            ST = stacktrace(),
                             %% We're not running in the handler, so
                             %% this is sent onward to be handled
                             %% elsewhere.
@@ -1520,7 +1520,7 @@ log_error(State, Error) ->
 
 %% In order export redo.erl rules to e.g. Makefiles, we attempt to
 %% keep the build commands abstract.  I.e. we do not flatten any paths
-%% that go into environment variables.  This is to allow some
+%% that go into environment map.  This is to allow some
 %% post-processing during export.
 %%
 %% Note however that for the current implementation of Makefile
@@ -1552,6 +1552,11 @@ compile_env(Compile, Env) ->
          (_,Other) -> Other end,
       Env).
               
+stacktrace() ->
+    %% FIXME: How to make this backwards compatible?
+    %% ST = erlang:get_stacktrace(), ST.
+    none.
+
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
