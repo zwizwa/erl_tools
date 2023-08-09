@@ -50,11 +50,12 @@ child_spec(Id) ->
 start_child(Id) ->
     {M,F,A}=_MFA = exo:child_mfa(Id),
     {ok, Pid} = apply(M,F,A),
+    %% If the Id is a symbol then use the local registry.
     case is_atom(Id) of
         false -> ok;
         true ->
-            try register(Id, Pid), log:info("exo:start_child(~p): registered~n")
-            catch C:E ->log:info("exo:start_child(~p): ~p~n", [Id, {C,E}]) end
+            try register(Id, Pid), log:info("exo:start_child(~p): registered~n", [Id])
+            catch C:E ->log:info("exo:start_child(~p): register ~p: ~p~n", [Id, Pid, {C,E}]) end
     end,
     {ok, Pid}.
 
