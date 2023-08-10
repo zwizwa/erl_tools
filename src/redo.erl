@@ -570,11 +570,10 @@ handle({CallPid, {eval, Product}}, State) ->
                   #{{phase, Product} => {waiting, [CallPid]},
                     {need, Worker} => #{}})
             catch
-                C:E ->
+                C:E:ST ->
                     %% Don't bring down redo when the update function
                     %% crashes.  Print a warning instead.  Solve this
                     %% properly later.
-                    ST = stacktrace(),
                     log_error(State, {error, Product, eval, {C, E, ST}}),
                     State1 = maps:put({phase, Product}, {changed, error}, State),
                     obj:reply(CallPid, error),
@@ -957,8 +956,7 @@ worker(Eval, Product, Update, OldDeps) ->
                             _ ->
                                 throw({bad_update_retval, Update, Ch})
                         end
-                    catch C:E ->
-                            ST = stacktrace(),
+                    catch C:E:ST ->
                             %% We're not running in the handler, so
                             %% this is sent onward to be handled
                             %% elsewhere.
@@ -1552,11 +1550,6 @@ compile_env(Compile, Env) ->
          (_,Other) -> Other end,
       Env).
               
-stacktrace() ->
-    %% FIXME: How to make this backwards compatible?
-    %% ST = erlang:get_stacktrace(), ST.
-    none.
-
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

@@ -1,3 +1,12 @@
+%% TL;DR
+%%
+%% - The epid nodes created by epid application need to live
+%%   somewhere.  This module implements a daemon that contains those.
+%%
+%% - Creating nodes happens through bind/3, which is used by
+%%   dsl:eval/2 during evaluation of DSL syntax (abstracted as Erlang
+%%   function).
+
 
 
 %% This module allows specification of dataflow connections in single
@@ -16,11 +25,15 @@
 %% - A stateful processor abstraction epid_app, that abstracts
 %%   "applicative" data flow processors, abstracted as epids.
 %%
-%% - This module, implementing a higher order abstract syntax dataflow
-%%   description language that generates instantiation and connection
-%%   sequencing.  E.g. it allows description of connectivity, and
-%%   performs instantiation of stateful processes via parameterized
-%%   epid instantiator.
+%% - Higher order syntax implemented by dsl.erl which bridges DSL
+%%   programs (just syntax encoded as erlang functions, without
+%%   semantics) with an evaluator / compiler process that communicates
+%%   using obj:call/2 RPC.
+%%
+%% - This moduel, which implements an evaluator/compiler for the DSL,
+%%   generating instantiation and connection sequencing.  E.g. it
+%%   allows description of connectivity, and performs instantiation of
+%%   stateful processes via parameterized epid instantiator.
 %%
 
 
@@ -53,14 +66,18 @@ bind(Op, Args, State = #{ make_epid := MakeEpid, refs := Refs }) ->
     State1 = maps:put(refs, maps:put(OutputEpid, true, Refs), State),
     {OutputEpid, State1}.
 
-instantiate(MakeEpid, Spec) ->
+instantiate(MakeEpid, DSLFun) ->
     Config = #{ bind => fun bind/3, make_epid => MakeEpid, refs => #{} },
-    State = dsl:eval(Config, Spec, []),
+    State = dsl:eval(Config, DSLFun, []),
     {ok, #{value := FlatSpec}} = State,
     %% The convention is that Spec will evaluate to a map of output
     %% bindings, which can then be connected to the generated nodes:
     lists:foreach(
-      fun({Dst, Src}) -> epid:connect(MakeEpid(Src),  MakeEpid(Dst)) end,
+      fun({Dst, Src}) ->
+              ES = MakeEpid(Src),
+              ED = MakeEpid(Dst),
+              epid:connect(ES, ED)
+      end,
       maps:to_list(FlatSpec)),
     State.
 
@@ -218,24 +235,25 @@ module_epid_app(Module,{Name,InputEpids}=Tag,State) ->
 
 
 %% Main user API entry point.  Given the Dag abstract syntax, the
-%% registry Pid, and the epid name resolver / factory (which e.g. is
-%% bound to redo Eval in exo), instantiate the Dag.
+%% "node container" service, and the epid name resolver / factory
+%% (which e.g. is bound to redo Eval in exo), instantiate the Dag.
 
-update(Pid, MakeEpid, Dag) ->
-    Timeout = 3000, %% FIXME
+%% See do_patch.erl for example
+
+update(ServerPid, MakeEpid, Dag) -> Timeout = 3000, %% FIXME
 
     %% Instantiate or re-use nodes,
     {ok, #{ state := #{refs := Refs }}} = instantiate(MakeEpid, Dag),
 
     %% Perform garbage collection for all unused nodes.
-    obj:call(Pid, {collect_garbage, Refs}, Timeout),
+    obj:call(ServerPid, {collect_garbage, Refs}, Timeout),
 
     %% Send a finalizer message in case a particular proxy performs
     %% some kind of compilation step.
 
     %% FIXME: union proxy before and after!
 
-    Rv = obj:call(Pid, {all_proxies, {epid_compile, commit}}, Timeout),
+    Rv = obj:call(ServerPid, {all_proxies, {epid_compile, commit}}, Timeout),
     %% log:info("all_proxies epid_compile:~n~p~n",[Rv]),
     %% log:info("exo_patch memo table:~n~p~n",[call(dump)]),
     Rv.

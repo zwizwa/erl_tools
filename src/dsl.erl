@@ -1,3 +1,17 @@
+%% TL;DR
+%%
+%% 1. Implement a DSL piggy-backing on Erlang evaluation order, with
+%%    function application abstracted as dsl:op/2
+%%
+%% 2. An Erlang function containing a DSL program can be evaluated
+%%    using eval/3, which spawns a process, stores the evaluator
+%%    process in the process directory (variable 'dsl_state'), and
+%%    evaluates the Erlang function.
+%%
+%% I believe this is related to 'effect handlers'.
+%% Comment below is older.
+
+
 %% A "Final" higher order abstract syntax representation in Erlang.
 %% http://okmij.org/ftp/tagless-final/index.html
 %% https://en.wikipedia.org/wiki/Higher-order_abstract_syntax
@@ -19,8 +33,19 @@
          op/2,
          compile_dataflow/3,
          example/0]).
-eval(InitState, Function, Arguments) ->
-    StatePid = 
+
+%% DSL programs are implemented in terms of dsl:op/2 The link to the
+%% compiler (providing language semantics) is hidden in a process
+%% variable.
+op(Op, Args) ->
+    CompilerPid = get(dsl_state)
+    obj:call(CompilerPid, {op, Op, Args}).
+
+%% The evaluator instantiates a compiler, then evaluates the DSL
+%% (encoded as an Erlang function) in a context that has a reference
+%% to the compiler process, via the 'dsl_state' process variable.
+eval(InitState, DSLFun, DSLArguments) ->
+    CompilerPid = 
         %% Compiler is a separate process to isolate side effects.
         serv:start(
           {handler,
@@ -40,19 +65,17 @@ eval(InitState, Function, Arguments) ->
         %% process dictionary.
         spawn_link(
           fun() ->
-                  put(dsl_state, StatePid),
-                  Value = apply(Function, Arguments),
-                  State = obj:call(StatePid, dump),
+                  put(dsl_state, CompilerPid),
+                  Value = apply(DSLFun, DSLArguments),
+                  State = obj:call(CompilerPid, dump),
                   Pid ! {Ref, Value, State}
           end),
     receive
         {Ref, Value, State} ->
-            exit(StatePid, normal),
+            exit(CompilerPid, normal),
             {ok, #{ value => Value, state => State}}
     end.
 
-op(Op, Args) ->
-    obj:call(get(dsl_state), {op, Op, Args}).
 
 
 %% EXAMPLES
