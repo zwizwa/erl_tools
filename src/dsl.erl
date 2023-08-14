@@ -38,7 +38,7 @@
 %% compiler (providing language semantics) is hidden in a process
 %% variable.
 op(Op, Args) ->
-    CompilerPid = get(dsl_state)
+    CompilerPid = get(dsl_state),
     obj:call(CompilerPid, {op, Op, Args}).
 
 %% The evaluator instantiates a compiler, then evaluates the DSL
