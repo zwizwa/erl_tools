@@ -137,12 +137,15 @@ start_link() ->
 handle({_,dump}=Msg, State) ->
     obj:handle(Msg, State);
 handle(Msg, State) ->
-    {ok, Node} = distel_node(),
-    {exo_handle, Node} ! Msg,
-    State.
-
-
-
+    case distel_node() of
+        {ok, Node} ->
+            {exo_handle, Node} ! Msg,
+            State;
+        _ ->
+            %% If distel is not up yet, just drop the message.
+            %% Crashing the proxy process here makes no sense.
+            State
+    end.
                 
 
 
