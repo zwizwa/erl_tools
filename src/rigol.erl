@@ -175,6 +175,7 @@ cmd(Pid, c8_test, TO) ->
        [":RUN"]]);
 
 cmd(Pid, disp_data, TO) ->
+    %% :DISP:DATA? ON,0,PNG
     cmd(Pid, {tmc_line, ":DISP:DATA?"}, TO);
 
 cmd(Pid, {save_disp_data, FileName}, TO) ->
