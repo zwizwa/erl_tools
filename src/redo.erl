@@ -8,6 +8,7 @@
          file_changed/3,
          from_list_dir/2, from_list_dir_type/3, files_from_filename/2,
          read_file/2, write_file/3, is_regular/2,
+         read_file_info/2,
          from_filename/1, to_filename/1, to_filename_binary/1, 
          to_directory/1, to_includes/1,
          compile_env/2, compile_path/2,
@@ -1156,8 +1157,7 @@ update_case(Target, Config, DefaultUpdate) ->
             Update = maps:get(Target, Cases, DefaultUpdate),
             (Update(Target))(Eval)
     end.
-
-                                    
+                                   
 
 %% How to support anonymous targets?  Suppose we do not have a list of
 %% outputs, but we have an opaque function that produces a set of
@@ -1337,6 +1337,7 @@ file_changed(Eval, Product, RelPath) ->
              Mtime,
              _CTime,
              _,_,_,_,_,_,_}} ->
+            %% log:info("file_changed ~p~n",[{RelPath,Mtime}]),
             MaybeOld = obj:call(Eval, {set_stamp, Product, Mtime}),
             Changed = {ok, Mtime} /= MaybeOld,
             %% debug("file_changed ~p~n", [{Product, RelPath, Changed, New, MaybeOld}]),
