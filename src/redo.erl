@@ -641,7 +641,7 @@ handle({log_error, ErrorInfo}, State) ->
 
 %% Similarly, other metadata can be attached.
 
-%% Per-target logging during rule exuction phase.  We index it pid,
+%% Per-target logging during rule execution phase.  We index it pid,
 %% then re-index it under target name once run is complete.
 
 handle({Pid, {log, Key, Val}}, State) ->
