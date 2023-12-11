@@ -520,6 +520,8 @@ handle({CallPid, {eval, Product}}, State) ->
     %% from parallell builds can be very confusing, so it helps to
     %% isolate them.
 
+    %% log:info("eval: ~999p\n", [Product]),
+
     case maps:find({phase, Product}, State) of
         {ok, {changed, Changed}} ->
             %% Already evaluated as change/nochange in this evaluation
@@ -613,7 +615,7 @@ handle({Pid, collect_worker_deps}, State) ->
 
 %% Insert update computed by worker and notify waiters.
 handle({worker_done, Product, PhaseUpdate}=Msg, State0) ->
-    debug("worker_done: ~p~n", [{Product,PhaseUpdate}]),
+    debug("worker_done:~n~999p~n", [#{product=>Product,phase_update=>PhaseUpdate}]),
     %% Update reverse table if deps changed.
     State = 
         update_reverse_deps(
@@ -938,7 +940,22 @@ worker(Eval, Product, Update, OldDeps) ->
                     try
                         %% app/2 allows for "reloadable closures".
                         Ch = app(Update,[Eval]),
-                        Wd = obj:call(Eval, collect_worker_deps),
+                        Wd1 = obj:call(Eval, collect_worker_deps),
+                        Wd = case {Wd1,OldDeps} of
+                                 {[],[]} ->
+                                     [];
+                                 {[],_} ->
+                                     %% FIXME: For some reason
+                                     %% dependences get erased
+                                     %% sometimes.  Smells like a deep
+                                     %% bug.  Add a workaround for
+                                     %% now.
+                                     log:info("WARNING: collect_worker_deps returned []:~n~p~n",
+                                              [#{product => Product, old_deps => OldDeps}]),
+                                     OldDeps;
+                                 _ ->
+                                     Wd1
+                             end,
                         case Ch of
                             false ->
                                 {false, Wd};
@@ -999,6 +1016,7 @@ worker(Eval, Product, Update, OldDeps) ->
                 end
                 
         end,
+    %% log:info("worker_done:~n~p~n",[#{product => Product, phase_update => PhaseUpdate, affected => Affected, old_deps => OldDeps }]),
     Eval ! {worker_done, Product, PhaseUpdate},
     ok.
 
@@ -1009,10 +1027,13 @@ worker(Eval, Product, Update, OldDeps) ->
 %% Any error -> error, any change -> true.
 any_changed(Prod2Changed) ->
     ChangeList = maps:values(Prod2Changed),
-    case lists:member(error, ChangeList) of
-        true  -> error;
-        false -> lists:member(true, ChangeList)
-    end.
+    Rv =
+        case lists:member(error, ChangeList) of
+            true  -> error;
+            false -> lists:member(true, ChangeList)
+        end,
+    %% log:info("any_changed:~n~p~n->~p~n", [Prod2Changed,Rv]),
+    Rv.
 
 %% Also called "ifchange".
 
@@ -1025,8 +1046,8 @@ need(Eval, Deps) ->
         error -> throw({error_need, P2C});
         Other -> Other
     end.
-%% This variant is for internal usely, executed before evaluating an
-%% update rule.
+%% This variant is for internal use only, executed before evaluating
+%% an update rule.
 need_or_error(Eval, Deps) ->
     {Changed, _P2C} = need_or_error_p2c(Eval, Deps),
     Changed.
@@ -1034,7 +1055,7 @@ need_or_error(Eval, Deps) ->
 need_or_error_p2c(Eval, Deps) ->
     Prod2Changed = changed(Eval, Deps),
     Changed = any_changed(Prod2Changed),
-    debug("need: ~p~n",[{Changed,Prod2Changed}]),
+    debug("need:~n~p~n",[{Changed,Prod2Changed}]),
     {Changed, Prod2Changed}.
 
 
@@ -1250,6 +1271,16 @@ to_includes(Paths) ->
 to_includes(_Compile = #{ to_directory := ToDirectory}, Paths) ->
     [[" -I",ToDirectory(P)] || P <- Paths].
 
+%% This is a hack: anything in the nix store is constant so we do not
+%% need to include these.
+remove_nix_store(List) ->
+    lists:filter(
+      fun(<<"/nix/store",_/binary>>) -> false;
+         (_) -> true
+      end,
+      List).
+
+
 %% FIXME: This probably doesn't work with spaces in names.  Actually
 %% think about this and clean it up.
 gcc_deps(Bin0) ->
@@ -1260,7 +1291,8 @@ gcc_deps(Bin0) ->
              fun(<<>>) -> false; (_) -> true end,
              re:split(Bin3, " +")),
     %% log:info("gcc_deps: ~p~n",[List]),
-    lists:map(fun from_filename/1, List).
+    List1 = remove_nix_store(List),
+    lists:map(fun from_filename/1, List1).
 
 %% A need wrapper for the above.
 need_gcc_deps(Eval, {_Type,_BaseName,_Path}=D) ->
