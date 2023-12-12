@@ -918,11 +918,12 @@ worker(Eval, Product, Update, OldDeps) ->
                 true; %% First run or polling
             _  ->
                 A = need_or_error(Eval, OldDeps),
+                %% need wil collect deps, so clear them in case update runs again
                 _ = obj:call(Eval, clear_worker_deps),
                 A
         end,
 
-    debug("~p: need update: ~p~n", [Product, Affected]),
+    debug("~p: need update:~n~p~n", [Product, {Affected,OldDeps}]),
     %% It's simplest to compute the state update here.
     PhaseUpdate =
         case Affected of
@@ -944,27 +945,10 @@ worker(Eval, Product, Update, OldDeps) ->
                 {Changed, NewDeps} =
                     try
                         %% app/2 allows for "reloadable closures".
-                        log:info("update ~p\n", [Product]),
+                        debug("update ~p start\n", [Product]),
                         Ch = app(Update,[Eval]),
-                        debug("update ~p end\n", [Product]),
-                        Wd1 = obj:call(Eval, collect_worker_deps),
-                        Wd = case {Wd1,OldDeps} of
-                                 {[],[]} ->
-                                     [];
-                                 {[],_} ->
-                                     %% FIXME: For some reason
-                                     %% dependences get erased
-                                     %% sometimes.  Smells like a deep
-                                     %% bug.  Add a workaround for
-                                     %% now.
-                                     log:info("WARNING: collect_worker_deps returned []:~n~p~n",
-                                              [#{%% old_deps => OldDeps,
-                                                 product => Product
-                                                 }]),
-                                     OldDeps;
-                                 _ ->
-                                     Wd1
-                             end,
+                        debug("update ~p -> ~p\n", [Product,Ch]),
+                        Wd = obj:call(Eval, collect_worker_deps),
                         case Ch of
                             false ->
                                 {false, Wd};
