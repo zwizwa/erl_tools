@@ -590,7 +590,7 @@ handle({Pid, {worker_needs, Deps}}, State) ->
     obj:reply(Pid, ok),
     case maps:find({need, Pid}, State) of
         {ok, OldDeps} ->
-            log:info("worker_needs ok ~p~n", [Deps]),
+            debug("worker_needs ok ~p~n", [Deps]),
             maps:put(
               {need, Pid},
               lists:foldr(
@@ -598,7 +598,6 @@ handle({Pid, {worker_needs, Deps}}, State) ->
                 OldDeps, Deps),
               State);
         error ->
-            log:info("worker_needs error ~p~n", [Deps]),
             %% This happens e.g. for with_eval call in monitor.
             debug("worker_needs: not a worker ~p~n", [Pid]),
             State
@@ -606,7 +605,7 @@ handle({Pid, {worker_needs, Deps}}, State) ->
 
 handle({Pid, clear_worker_deps}, State) ->
     obj:reply(Pid, ok),
-    maps:put({need, Pid}, [], State);
+    maps:put({need, Pid}, #{}, State);
 
 handle({Pid, collect_worker_deps}, State) ->
     case maps:find({need,Pid}, State) of
@@ -920,12 +919,6 @@ worker(Eval, Product, Update, OldDeps) ->
             _  ->
                 A = need_or_error(Eval, OldDeps),
                 _ = obj:call(Eval, clear_worker_deps),
-
-                %% FIXME: Below causes deps not to be collected.
-                %% %% Ensure worker_deps are cleared in case we run
-                %% %% update below.
-                %% log:info("collecting deps ~p~n", [Product]),
-                %% _ = obj:call(Eval, collect_worker_deps),
                 A
         end,
 
@@ -951,9 +944,9 @@ worker(Eval, Product, Update, OldDeps) ->
                 {Changed, NewDeps} =
                     try
                         %% app/2 allows for "reloadable closures".
-                        log:info("update ~p start\n", [Product]),
+                        log:info("update ~p\n", [Product]),
                         Ch = app(Update,[Eval]),
-                        log:info("update ~p end\n", [Product]),
+                        debug("update ~p end\n", [Product]),
                         Wd1 = obj:call(Eval, collect_worker_deps),
                         Wd = case {Wd1,OldDeps} of
                                  {[],[]} ->
@@ -1087,7 +1080,7 @@ need_or_error_p2c(Eval, Deps) ->
 %%
 changed(Eval, Deps) ->
     ok = obj:call(Eval, {worker_needs, Deps}),
-    log:info("changed ~p~n", [Deps]),
+    debug("changed ~p~n", [Deps]),
     %% Typical dilemma: what is a good level of verbosity?  We can't
     %% put an actual timeout here.  But it is probably good to add
     %% some indication that a particular target is taking a long time
