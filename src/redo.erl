@@ -10,6 +10,7 @@
          read_file/2, write_file/3, is_regular/2,
          read_file_info/2,
          from_filename/1, to_filename/1, to_filename_binary/1, 
+         from_filenames/1,
          to_directory/1, to_includes/1,
          compile_env/2, compile_path/2,
          path_find/4,
@@ -589,6 +590,7 @@ handle({Pid, {worker_needs, Deps}}, State) ->
     obj:reply(Pid, ok),
     case maps:find({need, Pid}, State) of
         {ok, OldDeps} ->
+            log:info("worker_needs ok ~p~n", [Deps]),
             maps:put(
               {need, Pid},
               lists:foldr(
@@ -596,10 +598,16 @@ handle({Pid, {worker_needs, Deps}}, State) ->
                 OldDeps, Deps),
               State);
         error ->
+            log:info("worker_needs error ~p~n", [Deps]),
             %% This happens e.g. for with_eval call in monitor.
             debug("worker_needs: not a worker ~p~n", [Pid]),
             State
     end;
+
+handle({Pid, clear_worker_deps}, State) ->
+    obj:reply(Pid, ok),
+    maps:put({need, Pid}, [], State);
+
 handle({Pid, collect_worker_deps}, State) ->
     case maps:find({need,Pid}, State) of
         {ok, DepMap} ->
@@ -911,9 +919,13 @@ worker(Eval, Product, Update, OldDeps) ->
                 true; %% First run or polling
             _  ->
                 A = need_or_error(Eval, OldDeps),
-                %% Ensure worker_deps are cleared in case we run
-                %% update below.
-                _ = obj:call(Eval, collect_worker_deps),
+                _ = obj:call(Eval, clear_worker_deps),
+
+                %% FIXME: Below causes deps not to be collected.
+                %% %% Ensure worker_deps are cleared in case we run
+                %% %% update below.
+                %% log:info("collecting deps ~p~n", [Product]),
+                %% _ = obj:call(Eval, collect_worker_deps),
                 A
         end,
 
@@ -939,7 +951,9 @@ worker(Eval, Product, Update, OldDeps) ->
                 {Changed, NewDeps} =
                     try
                         %% app/2 allows for "reloadable closures".
+                        log:info("update ~p start\n", [Product]),
                         Ch = app(Update,[Eval]),
+                        log:info("update ~p end\n", [Product]),
                         Wd1 = obj:call(Eval, collect_worker_deps),
                         Wd = case {Wd1,OldDeps} of
                                  {[],[]} ->
@@ -951,7 +965,9 @@ worker(Eval, Product, Update, OldDeps) ->
                                      %% bug.  Add a workaround for
                                      %% now.
                                      log:info("WARNING: collect_worker_deps returned []:~n~p~n",
-                                              [#{product => Product, old_deps => OldDeps}]),
+                                              [#{%% old_deps => OldDeps,
+                                                 product => Product
+                                                 }]),
                                      OldDeps;
                                  _ ->
                                      Wd1
@@ -1071,6 +1087,7 @@ need_or_error_p2c(Eval, Deps) ->
 %%
 changed(Eval, Deps) ->
     ok = obj:call(Eval, {worker_needs, Deps}),
+    log:info("changed ~p~n", [Deps]),
     %% Typical dilemma: what is a good level of verbosity?  We can't
     %% put an actual timeout here.  But it is probably good to add
     %% some indication that a particular target is taking a long time
@@ -1293,6 +1310,15 @@ gcc_deps(Bin0) ->
     %% log:info("gcc_deps: ~p~n",[List]),
     List1 = remove_nix_store(List),
     lists:map(fun from_filename/1, List1).
+
+%% List of filenames
+from_filenames(Bin) ->
+    List = lists:filter(
+             fun(<<>>) -> false; (_) -> true end,
+             re:split(Bin, "\\\n")),
+    lists:map(fun from_filename/1, List).
+    
+
 
 %% A need wrapper for the above.
 need_gcc_deps(Eval, {_Type,_BaseName,_Path}=D) ->
