@@ -241,7 +241,8 @@ obj(Name,Init) ->
 -spec start(start_spec()) -> pid().
 
 start({handler, Init, Handle}) ->
-    start({spawner, fun() -> spawn_handler(Init, Handle) end});
+    {ok, Pid} = serv_gen:start_link(Init, Handle),
+    Pid;
 start({periodic, Ms, Thunk}) ->
     start({spawner, fun() -> spawn_periodic(Ms, Thunk) end});
 start({periodic, Ms, Init, Body}) ->

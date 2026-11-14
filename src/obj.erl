@@ -27,6 +27,7 @@ init() -> #{}.
 %% Allow replies to be disabled to implement casts. for set, replace, update.
 
 reply(no_reply, _) -> ok;
+reply({gen, From}, Val) -> gen_server:reply(From, Val), ok;
 %% reply_from(Pid, Val, Self) -> when is_pid(Pid) -> Pid ! {self(), obj_reply, Val}, ok;
 reply(Pid, Val) when is_pid(Pid) -> Pid ! {self(), obj_reply, Val}, ok;
 reply({Tag,Pid}, Val) when is_pid(Pid) -> Pid ! {{Tag,self()}, obj_reply, Val}, ok.
