@@ -2,7 +2,8 @@
 -export([start_link/1, handle/2,
          run_prim/3,
          test/1,
-         cmd/3]).
+         cmd/3,
+         bmp_to_png/1]).
 
 %% https://www.batronix.com/pdf/Rigol/ProgrammingGuide/MSO1000Z_DS1000Z_ProgrammingGuide_EN.pdf
 
@@ -24,6 +25,8 @@
 %%
 %%   500ms/div => 2MHz, 12Mpts, 6000ms
 
+
+-define(READ_TIMEOUT, 5000).
 
 start_link(#{ tcp := {_Host,_Port} } = Spec) ->
     {ok,
@@ -178,6 +181,10 @@ cmd(Pid, disp_data, TO) ->
     %% :DISP:DATA? ON,0,PNG
     cmd(Pid, {tmc_line, ":DISP:DATA?"}, TO);
 
+%% - :DISP:DATA? ON,0,PNG gets no reply on 00.04.02.SP4: convert here
+cmd(Pid, disp_png, TO) ->
+    bmp_to_png(cmd(Pid, disp_data, TO));
+
 cmd(Pid, {save_disp_data, FileName}, TO) ->
     Data = cmd(Pid, disp_data, TO),
     file:write_file(FileName, Data);
@@ -212,14 +219,39 @@ read(Sock, tmc) ->
     read(Sock, NumData);
 read(_Sock, 0) ->
     <<>>;
+%% - flush: whatever is pending, nothing on timeout
+%% - timeout: a request the scope ignores fails into run_prim's retry
+%%   instead of blocking the server
 read(Sock, flush) ->
-    {ok, Data} = gen_tcp:recv(Sock, 0),
-    Data;
+    case gen_tcp:recv(Sock, 0, 100) of
+        {ok, Data} -> Data;
+        {error, timeout} -> <<>>
+    end;
 read(Sock, N) when is_integer(N) ->
-    {ok, Data} = gen_tcp:recv(Sock, N),
+    {ok, Data} = gen_tcp:recv(Sock, N, ?READ_TIMEOUT),
     Data.
 
 
+
+%% 24 bit bottom-up BMP, as :DISP:DATA? returns -> RGB PNG
+%% - rows padded to 4 bytes, BGR
+bmp_to_png(<<"BM", _:64, Offset:32/little, _:32, W:32/little, H:32/little,
+             _:16, 24:16/little, _/binary>> = Bmp) ->
+    Stride = (W * 3 + 3) div 4 * 4,
+    Row = fun(Y) ->
+                  <<_:(Offset + Y * Stride)/binary, Bgr:(W * 3)/binary, _/binary>> = Bmp,
+                  [0 | [[R, G, B] || <<B, G, R>> <= Bgr]]
+          end,
+    Pixels = [Row(Y) || Y <- lists:seq(H - 1, 0, -1)],
+    Chunk = fun(Type, Data) ->
+                    D = iolist_to_binary(Data),
+                    [<<(size(D)):32>>, Type, D, <<(erlang:crc32([Type, D])):32>>]
+            end,
+    iolist_to_binary(
+      [<<137, "PNG", 13, 10, 26, 10>>,
+       Chunk(<<"IHDR">>, <<W:32, H:32, 8, 2, 0, 0, 0>>),
+       Chunk(<<"IDAT">>, zlib:compress(Pixels)),
+       Chunk(<<"IEND">>, <<>>)]).
 
 %% misc tools
 p(T) ->
